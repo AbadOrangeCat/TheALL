@@ -1,0 +1,10 @@
+{
+  "id": "/", "name": "TheAll", "short_name": "TheAll",
+  "description": "Your workspaces, wherever you are. Connect to TheAll on your Mac.",
+  "start_url": "/", "scope": "/", "display": "standalone",
+  "background_color": "#101615", "theme_color": "#101615",
+  "icons": [
+    {"src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+    {"src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"}
+  ]
+}

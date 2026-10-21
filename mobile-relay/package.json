@@ -1,0 +1,10 @@
+{
+  "name": "theall-mobile-relay",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Self-hosted single-Mac HTTPS relay for TheAll mobile",
+  "engines": { "node": ">=22 <25" },
+  "scripts": { "start": "node server.mjs", "test": "node --test test/*.test.mjs" },
+  "dependencies": { "ws": "8.22.0" }
+}

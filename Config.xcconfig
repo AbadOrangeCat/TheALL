@@ -1,0 +1,10 @@
+// Shared xcconfig for the TheAll target. Referenced from project.yml.
+//
+// Local overrides go in Local.xcconfig (gitignored). The optional include
+// below silently skips when the file is absent — forks/contributors build
+// with the default ad-hoc signing. See Local.xcconfig.example.
+THEALL_CODE_SIGN_STYLE = Automatic
+THEALL_APP_IDENTIFIER[config=Debug] = com.theall.app.dev
+THEALL_APP_IDENTIFIER[config=Release] = com.theall.app
+THEALL_PREVIOUS_NAMESPACE =
+#include? "Local.xcconfig"

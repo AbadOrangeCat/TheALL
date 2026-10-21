@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<key>CFBundleDisplayName</key>
+	<string>$(THEALL_DISPLAY_NAME)</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>$(THEALL_DISPLAY_NAME)</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(MARKETING_VERSION)</string>
+	<key>CFBundleVersion</key>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
+	<key>LSMinimumSystemVersion</key>
+	<string>$(MACOSX_DEPLOYMENT_TARGET)</string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>TheAll lets terminal sessions and the apps they launch send automation events to other apps.</string>
+	<key>NSAudioCaptureUsageDescription</key>
+	<string>TheAll lets terminal sessions and the apps they launch capture system audio.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>TheAll lets terminal sessions and the apps they launch use the camera.</string>
+	<key>NSDesktopFolderUsageDescription</key>
+	<string>TheAll needs access so terminal sessions can read and write files on your Desktop.</string>
+	<key>NSDocumentsFolderUsageDescription</key>
+	<string>TheAll needs access so terminal sessions can read and write files in your Documents folder.</string>
+	<key>NSDownloadsFolderUsageDescription</key>
+	<string>TheAll needs access so terminal sessions can read and write files in your Downloads folder.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>TheAll connects your phone to this Mac on your local network so you can view workspaces and continue AI conversations.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>TheAll lets terminal sessions and the apps they launch use the microphone.</string>
+	<key>NSNetworkVolumesUsageDescription</key>
+	<string>TheAll needs access so terminal sessions can read and write files on mounted network volumes.</string>
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
+	<key>NSRemovableVolumesUsageDescription</key>
+	<string>TheAll needs access so terminal sessions can read and write files on removable volumes.</string>
+	<key>SUEnableAutomaticChecks</key>
+	<false/>
+	<key>TheAllPreviousNamespace</key>
+	<string>$(THEALL_PREVIOUS_NAMESPACE)</string>
+</dict>
+</plist>

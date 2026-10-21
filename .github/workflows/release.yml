@@ -1,0 +1,398 @@
+name: Release
+
+on:
+  # Developer ID / notarization / Sparkle credentials must be configured first.
+  # Local signed releases can be uploaded separately without starting this job.
+  workflow_dispatch:
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  check:
+    name: Check if release needed
+    runs-on: ubuntu-latest
+    outputs:
+      should_release: ${{ steps.decide.outputs.should_release }}
+      version: ${{ steps.decide.outputs.version }}
+      tag: ${{ steps.decide.outputs.tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Read version and check tag
+        id: decide
+        run: |
+          VERSION=$(grep -E '^ +MARKETING_VERSION:' project.yml | awk '{print $2}' | tr -d '"')
+          if [ -z "$VERSION" ]; then
+            echo "::error::MARKETING_VERSION not found in project.yml"
+            exit 1
+          fi
+          TAG="v$VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          if git ls-remote origin "refs/tags/$TAG" | grep -q "refs/tags/$TAG$"; then
+            echo "Tag $TAG already exists on remote, skipping release."
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Tag $TAG does not exist, will release."
+            echo "should_release=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check landing-page version sync
+        run: ./scripts/sync-landing-version.sh --check
+
+  build_libghostty:
+    name: Build libghostty (macos-15)
+    needs: check
+    if: needs.check.outputs.should_release == 'true'
+    # zig 0.15.2 自带的 darwin libc tubs 与 macOS 26 SDK 的 libSystem.tbd
+    # 不兼容（compiler_rt 引用 __availability_version_check 等符号在新 SDK
+    # 上找不到，参考 zig issue #18818 / #25813）。macos-26 runner 又只装了
+    # macOS 26.x SDK，没有老 SDK 兜底，所以 zig 链接必挂。这里退到 macos-15
+    # runner（带 macOS 15 SDK）单独构建 libghostty，产物以 artifact 形式
+    # 传给主 build job。libghostty 是 static .a（universal arm64+x86_64），
+    # 跨 host OS 链接没问题。
+    # TODO(zig-unpin): 等上游 ghostty 适配 zig 0.16+ 后，删掉这个 job，把
+    # build libghostty 步骤合并回主 build job（详见下方 build job 注释）。
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Install Zig 0.15.2
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.15.2
+
+      - name: Build libghostty
+        run: ./scripts/build-vendor.sh
+
+      - name: Pack libghostty vendor
+        # actions/upload-artifact@v4 会把 path 的"least common ancestor"作为
+        # archive root，导致 path: Vendor/ghostty 上传的 archive 里只剩
+        # include/ lib/ share/ 子树（没有 Vendor/ghostty/ 前缀），下游 download
+        # 还原时容易落错位置。改成自己 tar 打包，路径布局 100% 可控。
+        run: |
+          ls -la Vendor/ghostty/lib Vendor/ghostty/include
+          tar -czvf /tmp/libghostty-vendor.tar.gz -C Vendor/ghostty .
+
+      - name: Upload libghostty vendor artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: libghostty-vendor
+          path: /tmp/libghostty-vendor.tar.gz
+          if-no-files-found: error
+          retention-days: 1
+
+  build:
+    name: Build, notarize, release
+    needs: [check, build_libghostty]
+    if: needs.check.outputs.should_release == 'true'
+    # macos-26 ships Xcode 26 / macOS 26 SDK so SwiftUI controls render with
+    # Liquid Glass on macOS 26 while still running on the deployment target
+    # (macOS 14+) with automatic fallback.
+    # libghostty 在单独的 build_libghostty job (macos-15) 上构建后通过
+    # artifact 拿过来 —— 见上面那个 job 的注释。
+    runs-on: macos-26
+    env:
+      VERSION: ${{ needs.check.outputs.version }}
+      TAG: ${{ needs.check.outputs.tag }}
+      BUILD_NUMBER: ${{ github.run_number }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Install toolchain
+        run: |
+          brew install xcodegen create-dmg git-cliff
+          brew install --cask gh || true
+
+      - name: Guard against unfilled Sparkle public key placeholder
+        run: |
+          if grep -q "REPLACE_WITH_SPARKLE_ED_PUBKEY" project.yml; then
+            echo "::error::SUPublicEDKey is still a placeholder. Complete First Release Bootstrap (docs/build.md) before releasing."
+            exit 1
+          fi
+
+      - name: Import Developer ID certificate into temp keychain
+        env:
+          CERT_P12_BASE64: ${{ secrets.APPLE_DEVELOPER_ID_CERT_P12 }}
+          CERT_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_CERT_PASSWORD }}
+        run: |
+          KEYCHAIN_PATH="$RUNNER_TEMP/build.keychain-db"
+          KEYCHAIN_PASSWORD=$(openssl rand -hex 32)
+          CERT_PATH="$RUNNER_TEMP/cert.p12"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          printf '%s' "$CERT_P12_BASE64" | base64 -d > "$CERT_PATH"
+
+          security import "$CERT_PATH" \
+            -k "$KEYCHAIN_PATH" \
+            -P "$CERT_PASSWORD" \
+            -T /usr/bin/codesign \
+            -T /usr/bin/security \
+            -T /usr/bin/productbuild
+
+          security set-key-partition-list \
+            -S "apple-tool:,apple:,codesign:" \
+            -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH" >/dev/null
+
+          # Put our build keychain on the user search list so codesign can find the identity
+          EXISTING=$(security list-keychains -d user | sed -e 's/^[[:space:]]*"//' -e 's/"$//' | tr '\n' ' ')
+          security list-keychains -d user -s "$KEYCHAIN_PATH" $EXISTING
+
+          echo "Available signing identities:"
+          security find-identity -v -p codesigning "$KEYCHAIN_PATH"
+
+          rm -f "$CERT_PATH"
+
+      - name: Download libghostty vendor artifact
+        # 由上游 build_libghostty job 在 macos-15 上构建 — 见 job 头部注释。
+        # 上游用 tar 打包，路径布局可控；这里解包到 Vendor/ghostty/。
+        uses: actions/download-artifact@v4
+        with:
+          name: libghostty-vendor
+          path: /tmp
+
+      - name: Unpack libghostty vendor
+        run: |
+          mkdir -p Vendor/ghostty
+          tar -xzvf /tmp/libghostty-vendor.tar.gz -C Vendor/ghostty
+          ls -la Vendor/ghostty/lib Vendor/ghostty/include
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Build Release (universal) with Developer ID + Hardened Runtime
+        env:
+          SIGN_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          xcodebuild \
+            -project TheAll.xcodeproj \
+            -scheme TheAll \
+            -configuration Release \
+            ARCHS="arm64 x86_64" \
+            ONLY_ACTIVE_ARCH=NO \
+            -derivedDataPath build \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY="$SIGN_IDENTITY" \
+            DEVELOPMENT_TEAM="$TEAM_ID" \
+            CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
+            build
+
+      - name: Re-sign Sparkle nested binaries with Developer ID
+        # SPM + Manual code signing doesn't deep-sign bundles nested inside
+        # Sparkle.framework (Updater.app, Autoupdate, Downloader.xpc, Installer.xpc).
+        # They ship with Sparkle's upstream ad-hoc signature, which notarization rejects.
+        # Re-sign innermost → outermost with Developer ID + hardened runtime + timestamp.
+        env:
+          SIGN_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          APP="build/Build/Products/Release/TheAll.app"
+          SPARKLE="$APP/Contents/Frameworks/Sparkle.framework"
+          # --preserve-metadata=entitlements keeps Sparkle's per-binary entitlements
+          # (e.g. Installer.xpc needs com.apple.security.cs.disable-library-validation).
+          FLAGS="--force --timestamp --options=runtime --preserve-metadata=entitlements --sign"
+
+          # Innermost executables
+          codesign $FLAGS "$SIGN_IDENTITY" "$SPARKLE/Versions/B/XPCServices/Downloader.xpc/Contents/MacOS/Downloader"
+          codesign $FLAGS "$SIGN_IDENTITY" "$SPARKLE/Versions/B/XPCServices/Installer.xpc/Contents/MacOS/Installer"
+          codesign $FLAGS "$SIGN_IDENTITY" "$SPARKLE/Versions/B/Updater.app/Contents/MacOS/Updater"
+          codesign $FLAGS "$SIGN_IDENTITY" "$SPARKLE/Versions/B/Autoupdate"
+
+          # Enclosing bundles
+          codesign $FLAGS "$SIGN_IDENTITY" "$SPARKLE/Versions/B/XPCServices/Downloader.xpc"
+          codesign $FLAGS "$SIGN_IDENTITY" "$SPARKLE/Versions/B/XPCServices/Installer.xpc"
+          codesign $FLAGS "$SIGN_IDENTITY" "$SPARKLE/Versions/B/Updater.app"
+
+          # Framework itself
+          codesign $FLAGS "$SIGN_IDENTITY" "$SPARKLE"
+
+          # Re-sign the outer app last so its seal covers the re-signed framework
+          codesign $FLAGS "$SIGN_IDENTITY" "$APP"
+
+      - name: Verify signature
+        run: |
+          APP="build/Build/Products/Release/TheAll.app"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          codesign -dv --verbose=4 "$APP" 2>&1 | grep -E "Authority|TeamIdentifier|Runtime|Signature"
+
+      - name: Notarize .app
+        env:
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+        run: |
+          APP="build/Build/Products/Release/TheAll.app"
+          KEY_PATH="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY_ID}.p8"
+          ZIP="$RUNNER_TEMP/TheAll-notarize.zip"
+
+          printf '%s' "$APPLE_API_KEY_P8" > "$KEY_PATH"
+          chmod 600 "$KEY_PATH"
+
+          # notarytool accepts .zip / .dmg / .pkg — ship a zip for the .app
+          ditto -c -k --keepParent "$APP" "$ZIP"
+
+          SUBMIT_JSON=$(xcrun notarytool submit "$ZIP" \
+            --key "$KEY_PATH" \
+            --key-id "$APPLE_API_KEY_ID" \
+            --issuer "$APPLE_API_ISSUER_ID" \
+            --wait \
+            --timeout 30m \
+            --output-format json)
+          echo "$SUBMIT_JSON"
+          SUBMISSION_ID=$(echo "$SUBMIT_JSON" | jq -r .id)
+          STATUS=$(echo "$SUBMIT_JSON" | jq -r .status)
+          if [ "$STATUS" != "Accepted" ]; then
+            echo "::error::App notarization status=$STATUS (id=$SUBMISSION_ID). Fetching log..."
+            xcrun notarytool log "$SUBMISSION_ID" \
+              --key "$KEY_PATH" \
+              --key-id "$APPLE_API_KEY_ID" \
+              --issuer "$APPLE_API_ISSUER_ID" || true
+            rm -f "$KEY_PATH" "$ZIP"
+            exit 1
+          fi
+
+          xcrun stapler staple "$APP"
+          xcrun stapler validate "$APP"
+
+          rm -f "$KEY_PATH" "$ZIP"
+
+      - name: Generate changelog
+        # `--latest` reads the most recent existing tag, but the new release
+        # tag is created later in this job, so it would emit the previous
+        # release's commits. `--unreleased` walks from the latest existing
+        # tag up to HEAD, which is exactly the new release's range.
+        run: git-cliff --unreleased --strip header --config cliff.toml --output CHANGELOG.md
+
+      - name: Create DMG
+        id: dmg
+        run: |
+          DMG="TheAll-${VERSION}-universal.dmg"
+          create-dmg \
+            --volname "TheAll ${VERSION}" \
+            --window-size 520 320 \
+            --icon-size 96 \
+            --app-drop-link 380 180 \
+            "$DMG" \
+            "build/Build/Products/Release/TheAll.app"
+          echo "path=$DMG" >> "$GITHUB_OUTPUT"
+
+      - name: Sign and notarize DMG
+        env:
+          SIGN_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+        run: |
+          DMG="${{ steps.dmg.outputs.path }}"
+          KEY_PATH="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY_ID}.p8"
+
+          printf '%s' "$APPLE_API_KEY_P8" > "$KEY_PATH"
+          chmod 600 "$KEY_PATH"
+
+          # Sign the DMG itself (notarization requires Developer ID signature)
+          codesign --force --sign "$SIGN_IDENTITY" --timestamp "$DMG"
+
+          SUBMIT_JSON=$(xcrun notarytool submit "$DMG" \
+            --key "$KEY_PATH" \
+            --key-id "$APPLE_API_KEY_ID" \
+            --issuer "$APPLE_API_ISSUER_ID" \
+            --wait \
+            --timeout 30m \
+            --output-format json)
+          echo "$SUBMIT_JSON"
+          SUBMISSION_ID=$(echo "$SUBMIT_JSON" | jq -r .id)
+          STATUS=$(echo "$SUBMIT_JSON" | jq -r .status)
+          if [ "$STATUS" != "Accepted" ]; then
+            echo "::error::DMG notarization status=$STATUS (id=$SUBMISSION_ID). Fetching log..."
+            xcrun notarytool log "$SUBMISSION_ID" \
+              --key "$KEY_PATH" \
+              --key-id "$APPLE_API_KEY_ID" \
+              --issuer "$APPLE_API_ISSUER_ID" || true
+            rm -f "$KEY_PATH"
+            exit 1
+          fi
+
+          xcrun stapler staple "$DMG"
+          xcrun stapler validate "$DMG"
+
+          rm -f "$KEY_PATH"
+
+      - name: Sign DMG with Sparkle EdDSA
+        id: sign
+        env:
+          ED_PRIV: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
+        run: |
+          PRIV_PATH=$(mktemp)
+          printf '%s' "$ED_PRIV" > "$PRIV_PATH"
+          SIGN=$(find build/SourcePackages/artifacts/sparkle -name sign_update | head -1)
+          if [ -z "$SIGN" ]; then
+            echo "sign_update not found in SPM artifacts, falling back to prebuilt"
+            curl -L -o /tmp/sign_update https://github.com/sparkle-project/Sparkle/releases/download/2.9.1/sign_update
+            chmod +x /tmp/sign_update
+            SIGN=/tmp/sign_update
+          fi
+          # sign_update 输出形如：sparkle:edSignature="<base64>" length="<bytes>"
+          # 必须提取引号内的纯 base64；早先用 awk '{print $1}' 会把
+          # `sparkle:edSignature="<base64>"` 整段塞进 appcast，导致 Sparkle
+          # 校验失败弹「此更新未正确签名」。
+          SIGN_OUTPUT=$("$SIGN" -f "$PRIV_PATH" "${{ steps.dmg.outputs.path }}")
+          SIGNATURE=$(printf '%s' "$SIGN_OUTPUT" | sed -E 's/.*edSignature="([^"]+)".*/\1/')
+          if [ -z "$SIGNATURE" ] || [ "$SIGNATURE" = "$SIGN_OUTPUT" ]; then
+            echo "::error::Failed to parse EdDSA signature from sign_update output: $SIGN_OUTPUT"
+            rm -f "$PRIV_PATH"
+            exit 1
+          fi
+          rm -f "$PRIV_PATH"
+          echo "signature=$SIGNATURE" >> "$GITHUB_OUTPUT"
+
+      - name: Render appcast.xml
+        run: |
+          .github/scripts/render-appcast.sh \
+            "$VERSION" \
+            "$BUILD_NUMBER" \
+            "${{ steps.dmg.outputs.path }}" \
+            "${{ steps.sign.outputs.signature }}" \
+            CHANGELOG.md \
+            > appcast.xml
+
+      - name: Create and push git tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "Release $TAG"
+          git push origin "$TAG"
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$TAG" \
+            "${{ steps.dmg.outputs.path }}" \
+            appcast.xml \
+            --title "$TAG" \
+            --notes-file CHANGELOG.md
+
+      - name: Clean up keychain
+        if: always()
+        run: |
+          security delete-keychain "$RUNNER_TEMP/build.keychain-db" 2>/dev/null || true

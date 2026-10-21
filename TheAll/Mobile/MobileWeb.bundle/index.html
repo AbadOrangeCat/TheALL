@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#101615">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="TheAll">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="referrer" content="no-referrer">
+  <title>TheAll</title>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icons/icon-192.png">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="/styles.css">
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
+  <div id="pair-screen" class="pair-screen">
+    <main class="pair-card">
+      <img class="pair-logo" src="/icons/icon-192.png" width="72" height="72" alt="TheAll">
+      <span class="eyebrow">THEALL · <span data-i18n="mobile">Mobile</span></span>
+      <h1 data-i18n="pairTitle">Your workspace.<br>Anywhere.</h1>
+      <p class="muted" data-i18n="pairDescription">Connect to TheAll on your Mac to continue your conversations and keep work moving.</p>
+      <form id="pair-form">
+        <label for="pair-token" data-i18n="pairToken">Pairing code</label>
+        <input id="pair-token" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" required>
+        <label for="device-name" data-i18n="deviceName">This device</label>
+        <input id="device-name" maxlength="80" autocomplete="off" required>
+        <button class="primary wide" type="submit" id="pair-submit" data-i18n="connect">Connect to Mac</button>
+      </form>
+      <p id="pair-error" class="error" role="alert" hidden></p>
+      <p class="small muted" data-i18n="pairHelp">On your Mac, open TheAll → Mobile access and scan the QR code or enter its one-time pairing code here.</p>
+      <button class="text-button install-help" type="button" data-i18n="install">Add to home screen</button>
+    <label class="language-control"><span data-i18n="language">Language</span><select class="language-select"></select></label></main>
+  </div>
+  <div id="application" class="application" hidden>
+    <button id="drawer-shade" class="drawer-shade" tabindex="-1" aria-label="Close workspaces" hidden></button>
+    <aside id="sidebar" class="sidebar" aria-label="Workspaces">
+      <div class="brand"><img src="/icons/icon-192.png" width="32" height="32" alt=""><strong>TheAll</strong><span class="badge" data-i18n="mobile">Mobile</span>
+        <button id="close-sidebar" class="icon-button mobile-only" aria-label="Close workspaces">×</button></div>
+      <div class="sidebar-heading"><span data-i18n="workspaces">Workspaces</span><button id="new-chat" class="icon-button" aria-label="New conversation">＋</button></div>
+      <div id="workspace-list" class="workspace-list"></div>
+      <div class="sidebar-footer"><p id="access-summary" class="small muted"></p><label class="language-control"><span data-i18n="language">Language</span><select class="language-select"></select></label><span id="device-label"></span><button class="text-button install-help" type="button" data-i18n="install">Add to home screen</button>
+        <button id="logout" class="text-button" type="button" data-i18n="disconnect">Disconnect this device</button></div>
+    </aside>
+    <main class="chat-panel">
+      <header class="chat-header"><button id="open-sidebar" class="icon-button mobile-only" aria-label="Open workspaces">☰</button>
+        <div class="chat-heading"><h1 id="chat-title" data-i18n="chooseChat">Choose a conversation</h1><span id="chat-subtitle" class="small muted"></span></div>
+        <span id="connection" class="connection" role="status"></span>
+      </header>
+      <div id="global-error" class="banner error" role="alert" hidden></div>
+      <section id="welcome" class="welcome"><img src="/icons/icon-192.png" width="72" height="72" alt=""><h2 data-i18n="welcomeTitle">Keep your ideas moving.</h2><p data-i18n="welcomeDetail">Open a workspace or start a conversation. Everything runs on your Mac.</p><button id="welcome-new" class="primary" data-i18n="newChat">New conversation</button></section>
+      <section id="chat-area" class="chat-area" hidden>
+        <div id="transcript" class="transcript" tabindex="0" aria-label="Conversation history">
+          <button id="load-older" class="load-older" hidden data-i18n="older">Load earlier messages</button>
+          <div id="messages" class="messages"></div>
+          <div id="thinking-indicator" class="thinking-indicator" hidden><span class="spinner"></span><span data-i18n="working">Working on your Mac…</span></div>
+          <div id="questions" class="questions"></div>
+          <div id="chat-error" class="banner error" role="alert" hidden></div>
+        </div>
+        <button id="jump-bottom" class="jump-bottom" aria-label="Jump to latest message" hidden>↓</button>
+        <form id="composer" class="composer">
+          <div id="mutation-error" class="mutation-error" role="alert" hidden><span></span><button id="retry-operation" class="text-button" type="button" data-i18n="retry">Retry same request</button><button id="discard-operation" class="text-button" type="button" data-i18n="discardRetry">Keep draft; stop retrying</button></div>
+          <p id="setup-notice" class="small muted" hidden data-i18n="setupNotice">Configure this AI connection in TheAll on your Mac before sending messages.</p>
+          <label class="sr-only" for="draft" data-i18n="message">Message</label>
+          <textarea id="draft" rows="2" data-i18n-placeholder="messagePlaceholder" placeholder="Continue the conversation…"></textarea>
+          <div class="composer-actions"><span id="directory" class="directory" title="Working directory"></span><div class="send-actions"><label class="sr-only" for="model" data-i18n="model">Model</label><select id="model"></select><button id="send" class="primary send" type="submit" data-i18n="send">Send ↑</button><button id="stop" class="stop" type="button" hidden data-i18n="stop">Stop ■</button></div></div>
+          <p id="model-notice" class="small muted" hidden data-i18n="modelNotice">The selected model applies to your next message. Chat history is kept.</p>
+        </form>
+      </section>
+    </main>
+  </div>
+  <dialog id="new-dialog"><form id="new-form"><div class="dialog-heading"><h2 data-i18n="newChat">New conversation</h2><button type="button" class="icon-button" id="close-new" aria-label="Close">×</button></div>
+    <label for="new-workspace" data-i18n="workspace">Workspace</label><select id="new-workspace"></select>
+    <label for="new-provider" data-i18n="provider">AI provider</label><select id="new-provider"><option value="claude">Claude Code</option><option value="openai">Codex</option></select>
+    <label for="new-directory" data-i18n="directory">Folder on your Mac</label><input id="new-directory" placeholder="/Users/you/Projects" required autocomplete="off" autocapitalize="off" spellcheck="false">
+    <p class="small muted" data-i18n="newHelp">Uses the saved API connection on your Mac. Enter an existing folder on that Mac.</p>
+    <p id="new-error" class="error" role="alert" hidden></p><button id="create-chat" type="submit" class="primary wide" data-i18n="create">Create conversation</button><button id="discard-create" type="button" class="text-button" data-i18n="discardRetry" hidden>Keep draft; stop retrying</button>
+  </form></dialog>
+  <dialog id="install-dialog"><div class="dialog-heading"><h2 data-i18n="install">Add to home screen</h2><button type="button" class="icon-button" id="close-install" aria-label="Close">×</button></div>
+    <h3>iPhone / iPad</h3><p data-i18n="installIOS">Open this address in Safari, tap Share, then Add to Home Screen. If the installed app asks you to pair again, generate a new code on your Mac.</p>
+    <h3>Android</h3><p data-i18n="installAndroid">Open this address in Chrome, then choose Install app or Add to home screen from the menu.</p>
+    <p class="small muted" data-i18n="installNetwork">Keep your Mac awake and TheAll running. Connect using your configured TheAll HTTPS address; no VPN app is needed.</p>
+    <button id="install-prompt" class="primary wide" hidden data-i18n="installNow">Install TheAll</button>
+  </dialog>
+  <noscript>TheAll requires JavaScript to connect to your Mac.</noscript>
+</body>
+</html>

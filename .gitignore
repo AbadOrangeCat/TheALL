@@ -1,0 +1,29 @@
+.superpowers/
+.worktrees/
+.claude/worktrees/
+.codex/
+
+# Build outputs
+build/
+*.o
+*.d
+*.profraw
+
+# Xcode derived data
+*.xcuserdata
+DerivedData/
+
+# Local signing override (opt-in, see Local.xcconfig.example)
+Local.xcconfig
+
+# Large binary vendor files (build from source with: zig build)
+Vendor/ghostty/lib/
+Vendor/ghostty/GhosttyKit.xcframework/
+Vendor/ghostty/share/
+
+# macOS
+.DS_Store
+
+# Python (pytest cache for agent-hook tests)
+__pycache__/
+.pytest_cache/

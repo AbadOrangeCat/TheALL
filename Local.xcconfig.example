@@ -1,0 +1,27 @@
+// Copy to Local.xcconfig (gitignored) to customize your local Debug build.
+//
+//   cp Local.xcconfig.example Local.xcconfig
+//
+// Setting DEVELOPMENT_TEAM makes the Debug build get signed with your Apple
+// Development cert (Automatic signing) instead of the default ad-hoc signature.
+// Benefit: macOS TCC (Files & Folders, Full Disk Access, etc.) identifies your
+// build by its stable designated requirement, so granted permissions survive
+// rebuilds — no more "allow theall to access Documents" popups every `xcodebuild`.
+//
+// Where to find your Team ID: Xcode → Settings → Accounts → pick your Apple ID
+// → Team column (10-char alphanumeric).
+//
+// DEVELOPMENT_TEAM = XXXXXXXXXX
+//
+// Without an Apple Development identity, run:
+//   bash scripts/setup-local-signing.sh
+// It creates a local-only code-signing certificate in login Keychain and writes
+// Local.xcconfig for Debug. It does not change trust settings. Keep the identity
+// across rebuilds; do not pass CODE_SIGN_IDENTITY=- when building.
+// THEALL_CODE_SIGN_STYLE[config=Debug] = Manual
+// CODE_SIGN_IDENTITY[config=Debug] = <certificate SHA1>
+
+// Optional compatibility for an existing locally signed installation:
+// THEALL_APP_IDENTIFIER[config=Debug] = <existing application bundle identifier>
+// THEALL_PREVIOUS_NAMESPACE[config=Debug] = <previous preferences/config namespace>
+// Keep the existing signing certificate. These values are local and never committed.

@@ -1,0 +1,48 @@
+services:
+  relay:
+    build: .
+    restart: unless-stopped
+    init: true
+    environment:
+      PUBLIC_ORIGIN: https://${PUBLIC_DOMAIN:?Set PUBLIC_DOMAIN in .env}
+      THEALL_MAC_PUBLIC_KEY: ${THEALL_MAC_PUBLIC_KEY:?Set THEALL_MAC_PUBLIC_KEY in .env}
+      BIND_ADDRESS: 0.0.0.0
+      PORT: 8080
+    expose:
+      - "8080"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 512m
+    pids_limit: 64
+    networks: [private]
+    healthcheck:
+      test: ["CMD", "node", "-e", "const s=require('node:net').connect(8080,'127.0.0.1',()=>{s.end();process.exit(0)});s.on('error',()=>process.exit(1));setTimeout(()=>process.exit(1),2000)"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      PUBLIC_DOMAIN: ${PUBLIC_DOMAIN:?Set PUBLIC_DOMAIN in .env}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      relay:
+        condition: service_healthy
+    networks: [private]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 256m
+    pids_limit: 128
+networks:
+  private:
+volumes:
+  caddy_data:
+  caddy_config:

@@ -1,0 +1,2972 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>TheAll — a terminal that knows your agent</title>
+<meta name="description" content="TheAll is a native macOS terminal built on libghostty. Workspaces, tabs, and splits for your repos — with live status for every Claude Code, OpenCode, and Codex session you run." />
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="TheAll" />
+<meta property="og:title" content="TheAll — a terminal that knows your agent" />
+<meta property="og:description" content="TheAll is a native macOS terminal built on libghostty. Workspaces, tabs, and splits for your repos — with live status for every Claude Code, OpenCode, and Codex session you run." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="TheAll — a terminal that knows your agent" />
+<meta name="twitter:description" content="A native macOS terminal built on libghostty, with live status for every Claude Code, OpenCode, and Codex session you run." />
+<link rel="icon" type="image/png" href="assets/logo.png" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* ---------- tokens ---------- */
+:root{
+  --bg: #F7F7F5;
+  --bg-2: #FFFFFF;
+  --panel: #FFFFFF;
+  --fg: #0B0D10;
+  --fg-2: #3A3F46;
+  --fg-3: #6B7179;
+  --border: rgba(0,0,0,0.08);
+  --border-strong: rgba(0,0,0,0.14);
+  --hairline: rgba(0,0,0,0.06);
+  --accent: #2F6F8E;
+  --accent-fg: #FFFFFF;
+  --noise-opacity: 0.03;
+  --grid-line: rgba(0,0,0,0.035);
+  --chip-bg: rgba(0,0,0,0.04);
+  --kbd-bg: rgba(0,0,0,0.05);
+  --window-shadow: 0 20px 60px -20px rgba(0,0,0,0.25), 0 4px 16px -4px rgba(0,0,0,0.12);
+  --inner-shadow: inset 0 0 0 1px rgba(0,0,0,0.06);
+  /* terminal theme tokens — fallback = real TheAll native theme (AppTheme light) */
+  --term-bg: #FBFAF9;          /* canvas */
+  --term-fg: #191A1B;          /* textPrimary */
+  --term-dim: #737373;         /* textSecondary */
+  --term-tertiary: #ACABAB;    /* textTertiary */
+  --term-sidebar: #F0EFEE;     /* sidebar (= canvas mixed ~5% fg) */
+  --term-border: #E0DFDE;      /* border token: tab separators, divider, row fill */
+  --term-border-strong: #C9C8C8;
+  /* terminal CONTENT (ghostty palette) — theme switcher overrides these per theme */
+  --term-cursor: #191A1B;
+  --out-muted:  #737373;
+  --out-ok:     #2E993C;
+  --out-warn:   #D9730D;
+  --out-err:    #D32F2F;
+  --out-acc:    #1B7C83;
+  --term-prompt-path:   #2F6F8E;
+  --term-prompt-branch: #ACABAB;
+  --term-prompt-caret:  #2E993C;
+}
+html.dark{
+  --bg: #0B0D10;
+  --bg-2: #0E1116;
+  --panel: #12161C;
+  --fg: #E7EAEE;
+  --fg-2: #B2B7BF;
+  --fg-3: #7A818B;
+  --border: rgba(255,255,255,0.07);
+  --border-strong: rgba(255,255,255,0.12);
+  --hairline: rgba(255,255,255,0.05);
+  --accent: #6AA7C9;
+  --accent-fg: #0B0D10;
+  --noise-opacity: 0.05;
+  --grid-line: rgba(255,255,255,0.035);
+  --chip-bg: rgba(255,255,255,0.05);
+  --kbd-bg: rgba(255,255,255,0.06);
+  --window-shadow: 0 40px 80px -30px rgba(0,0,0,0.7), 0 8px 24px -8px rgba(0,0,0,0.5);
+  --inner-shadow: inset 0 0 0 1px rgba(255,255,255,0.05);
+  /* terminal theme tokens — fallback = real TheAll native theme (AppTheme dark) */
+  --term-bg: #121213;          /* canvas */
+  --term-fg: #EBEBED;          /* textPrimary */
+  --term-dim: #949496;         /* textSecondary */
+  --term-tertiary: #5D5E5F;    /* textTertiary */
+  --term-sidebar: #191A1B;     /* sidebar (= canvas mixed ~4% fg) */
+  --term-border: #2C2C2D;      /* border token: tab separators, divider, row fill */
+  --term-border-strong: #414243;
+  /* terminal CONTENT (ghostty palette) — theme switcher overrides these per theme */
+  --term-cursor: #EBEBED;
+  --out-muted:  #7A818B;
+  --out-ok:     #3FBA50;
+  --out-warn:   #F3A832;
+  --out-err:    #F85149;
+  --out-acc:    #A3C8DC;
+  --term-prompt-path:   #7FA4BF;
+  --term-prompt-branch: #5D5E5F;
+  --term-prompt-caret:  #A3C8DC;
+}
+
+/* status — 对齐 AppTheme.swift / TerminalStatusIconView.swift：
+   running / needsInput 都用 theme.accent（fallback = amber），形状区分不是颜色区分；
+   success / failed 独立色；idle / neverRan 用 textTertiary 灰。 */
+:root{
+  --s-running: #F3A832;   /* = accent fallback (isDark) */
+  --s-idle:    #5D5E5F;   /* = textTertiary (isDark) */
+  --s-needs:   #F3A832;   /* = accent fallback (isDark) */
+  --s-success: #3FBA50;   /* = AppTheme.success isDark */
+  --s-failed:  #F85149;   /* = AppTheme.danger  isDark */
+}
+
+*{box-sizing:border-box}
+html, body{margin:0; padding:0}
+html{scroll-behavior:smooth}
+body{
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--fg);
+  font-size: 15px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  letter-spacing: -0.005em;
+}
+.mono{ font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace; font-feature-settings:"ss02","cv11"; }
+
+/* background texture */
+.bg-canvas{
+  position: fixed; inset: 0; z-index: -1;
+  background:
+    radial-gradient(1200px 600px at 80% -10%, color-mix(in oklch, var(--accent) 10%, transparent), transparent 60%),
+    linear-gradient(180deg, var(--bg) 0%, var(--bg-2) 100%);
+}
+.bg-grid{
+  position: fixed; inset: 0; z-index: -1;
+  background-image:
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: radial-gradient(ellipse at 50% 0%, black 30%, transparent 70%);
+  pointer-events: none;
+}
+.noise{
+  position: fixed; inset: 0; z-index: -1; pointer-events: none;
+  opacity: var(--noise-opacity);
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0.7 0'/></filter><rect width='160' height='160' filter='url(%23n)'/></svg>");
+}
+
+/* container */
+.container{max-width: 1200px; margin: 0 auto; padding: 0 32px;}
+@media (max-width: 640px){ .container{padding: 0 20px;} }
+
+/* ---------- nav ---------- */
+.nav{
+  position: sticky; top: 0; z-index: 40;
+  background: transparent;
+  border-bottom: 1px solid transparent;
+  transition: background .25s ease, border-color .25s ease;
+  backdrop-filter: blur(0px);
+}
+.nav.scrolled{
+  background: color-mix(in oklch, var(--bg) 85%, transparent);
+  border-bottom-color: var(--hairline);
+  backdrop-filter: blur(10px);
+}
+.nav-inner{
+  display: flex; align-items: center; justify-content: space-between;
+  height: 60px;
+}
+.brand{ display: flex; align-items: center; gap: 10px; color: var(--fg); text-decoration: none;}
+.brand-mark{ width: 22px; height: 22px; display: block; object-fit: contain; }
+.brand-word{ font-family:'JetBrains Mono', monospace; font-weight: 600; font-size: 15px; letter-spacing: -0.01em;}
+.nav-links{ display: flex; align-items: center; gap: 4px;}
+.nav-links a{
+  color: var(--fg-2); text-decoration: none; padding: 8px 12px; border-radius: 8px;
+  font-size: 13.5px; font-weight: 500;
+  transition: color .15s, background .15s;
+}
+.nav-links a:hover{ color: var(--fg); background: var(--chip-bg);}
+.nav-tools{display:flex; align-items:center; gap: 6px;}
+.icon-btn{
+  display: inline-flex; align-items:center; justify-content:center;
+  width: 32px; height: 32px; border-radius: 8px;
+  background: transparent; border: 1px solid transparent;
+  color: var(--fg-2); cursor:pointer; transition: background .15s, color .15s, border-color .15s;
+  font: inherit;
+}
+.icon-btn:hover{ color: var(--fg); background: var(--chip-bg); border-color: var(--hairline);}
+.lang-btn{
+  width: auto; padding: 0 10px; font-family:'JetBrains Mono', monospace; font-size: 12px; letter-spacing: 0.02em;
+}
+.btn{
+  display: inline-flex; align-items:center; justify-content:center; gap: 8px;
+  height: 36px; padding: 0 14px; border-radius: 10px;
+  font-weight: 500; font-size: 13.5px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--fg);
+  text-decoration: none;
+  cursor: pointer;
+  transition: transform .08s ease, background .15s, border-color .15s, color .15s;
+  font-family: inherit;
+}
+.btn:hover{ border-color: var(--border-strong);}
+.btn:active{ transform: translateY(1px);}
+.btn-primary{
+  background: var(--fg);
+  color: var(--bg);
+  border-color: transparent;
+}
+.btn-primary:hover{ background: color-mix(in oklch, var(--fg) 90%, var(--accent));}
+html.dark .btn-primary{ background: var(--fg); color: #0B0D10;}
+.btn-ghost{ background: transparent; }
+
+.btn:focus-visible, .icon-btn:focus-visible, a:focus-visible, button:focus-visible{
+  outline: 2px solid var(--accent); outline-offset: 2px;
+}
+
+@media (max-width: 740px){
+  .nav-links a[data-section]{ display: none; }
+}
+
+/* ---------- hero ---------- */
+.hero{
+  position: relative;
+  padding: 80px 0 40px;
+}
+.eyebrow{
+  display: inline-flex; align-items:center; gap: 8px;
+  padding: 5px 10px; border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--chip-bg);
+  font-family:'JetBrains Mono', monospace; font-size: 11.5px;
+  color: var(--fg-2);
+  letter-spacing: 0.02em;
+}
+.eyebrow .dot{ width: 6px; height: 6px; border-radius: 50%; background: var(--s-success); box-shadow: 0 0 0 3px color-mix(in oklch, var(--s-success) 25%, transparent);}
+h1.hero-title{
+  font-family:'Inter', sans-serif;
+  font-size: clamp(38px, 5.6vw, 68px);
+  line-height: 1.04;
+  letter-spacing: -0.028em;
+  font-weight: 600;
+  margin: 24px 0 20px;
+  text-wrap: balance;
+  max-width: 18ch;
+}
+.hero-title em{
+  font-style: normal;
+  color: var(--fg-3);
+}
+.hero-sub{
+  max-width: 54ch;
+  font-size: 17px;
+  color: var(--fg-2);
+  text-wrap: pretty;
+  margin: 0 0 28px;
+}
+.hero-ctas{ display:flex; flex-wrap: wrap; gap: 10px; align-items:center;}
+.btn-lg{ height: 44px; padding: 0 18px; font-size: 14px; border-radius: 11px;}
+.chip-meta{
+  display:inline-flex; align-items:center; gap: 10px; padding-left: 4px;
+  color: var(--fg-3); font-size: 12.5px;
+}
+.chip-meta .mono{ font-size: 12px;}
+
+/* hero window */
+.hero-stage{
+  margin-top: 64px;
+  position: relative;
+  perspective: 1800px;
+}
+.hero-window{
+  transform: rotateX(6deg) rotateY(-4deg) rotateZ(0.2deg);
+  transform-origin: 50% 0;
+  transition: transform .6s cubic-bezier(.2,.7,.2,1);
+}
+.hero-stage:hover .hero-window{ transform: rotateX(3deg) rotateY(-2deg);}
+@media (max-width: 900px){
+  .hero-window{ transform: none; }
+  .hero-stage:hover .hero-window{ transform: none; }
+}
+
+/* macOS window */
+.win{
+  border-radius: 14px;
+  background: var(--term-sidebar);
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--window-shadow), var(--inner-shadow);
+  overflow: hidden;
+  position: relative;
+}
+/* 红绿灯：绝对定位在窗口左上角，竖直中心对齐 tab pill 行（≈24pt） */
+.tl-dots{
+  position: absolute; left: 16px; top: 18px; z-index: 6;
+  display:flex; gap: 8px;
+}
+.tl-dots i{ width: 12px; height: 12px; border-radius: 50%; display:block; cursor: not-allowed;}
+.tl-dots i:nth-child(1){ background:#FF5F57;}
+.tl-dots i:nth-child(2){ background:#FEBC2E;}
+.tl-dots i:nth-child(3){ background:#28C840;}
+/* 顶部控件（新建 workspace + 收缩 toggle）：贴 sidebar 列右缘、与 tab 行同高。
+   真实 TheAll: toggle 中心 = sidebarWidth(200) - 25 = 175，加号在其左侧一格。 */
+.win-top-controls{
+  position: absolute; z-index: 6;
+  top: 13px; left: 138px;
+  display: flex; align-items: center; gap: 4px;
+}
+@media (max-width: 680px){
+  /* 折叠侧栏后 toggle 仍需可见，平移到左上角 */
+  .win.collapsed .win-top-controls{ left: 70px; }
+}
+
+/* 切换 Mock 终端主题的 CTA 按钮（hero CTA 行，复用 .btn .btn-lg 外观） */
+.theme-cta{ gap: 7px; }
+.theme-cta:hover{ border-color: var(--accent); }
+.theme-cta .ts-ico{ flex-shrink: 0; opacity: 0.8; }
+.theme-cta .ptb-label{ color: var(--fg-3); font-weight: 500; }
+.theme-cta .ts-name{
+  max-width: 160px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  font-weight: 600;
+}
+.theme-cta .ts-chev{ flex-shrink: 0; opacity: 0.55; margin-left: -2px; }
+@media (max-width: 520px){ .theme-cta .ptb-label{ display: none; } }
+
+/* 主题选择下拉面板 (swatch 列表) — 页面 chrome 风格 */
+.theme-menu{
+  position: fixed; z-index: 60;
+  width: 256px; max-height: 380px; overflow-y: auto;
+  padding: 6px;
+  background: var(--panel);
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  box-shadow: 0 18px 50px -16px rgba(0,0,0,0.45), 0 4px 14px -6px rgba(0,0,0,0.3);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+}
+.theme-menu::-webkit-scrollbar{ width: 8px; }
+.theme-menu::-webkit-scrollbar-thumb{ background: var(--border-strong); border-radius: 4px; }
+.theme-menu-head{
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em;
+  color: var(--fg-3); padding: 4px 8px 6px;
+}
+.theme-item{
+  display: flex; align-items: center; gap: 9px;
+  width: 100%; padding: 6px 8px; border: 0; border-radius: 8px;
+  background: transparent; cursor: pointer; color: var(--fg);
+  font-size: 12px; text-align: left;
+}
+.theme-item:hover{ background: var(--chip-bg); }
+.theme-item.active{ background: var(--chip-bg); }
+.theme-item .sw{
+  flex-shrink: 0; width: 40px; height: 22px; border-radius: 5px;
+  border: 1px solid rgba(127,127,127,0.25);
+  display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; overflow: hidden;
+  position: relative;
+}
+.theme-item .sw i{ display: block; }
+.theme-item .sw .sw-bg{ position: absolute; inset: 0; z-index: 0; }
+.theme-item .sw .sw-dot{ position: relative; z-index: 1; align-self: center; height: 8px; border-radius: 2px; margin: 0 1px; }
+.theme-item .tlabel{ flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.theme-item .tcheck{ flex-shrink: 0; opacity: 0; color: var(--accent); }
+.theme-item.active .tcheck{ opacity: 1; }
+.theme-item .tmode{ flex-shrink: 0; font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--fg-3); }
+
+.win-body{
+  display: flex;
+  height: 736px;
+  color: var(--term-fg);
+  position: relative;
+  background: var(--term-sidebar);
+  overflow: hidden;
+}
+.sidebar-scrim{ display: none; }
+/* 桌面收缩：sidebar 用 margin-left 平滑滑出（main-pane 顺势填满），tab strip 用等量
+   padding-left 抵消位移、始终停在原窗口 x —— 全程只动可平滑过渡的属性，避免 grid
+   过渡卡顿造成的抖动与 strip 从最左闪出/重叠。收缩态左上角改显示品牌名 + 齿轮。 */
+.win.collapsed .sidebar{ margin-left: -200px; opacity: 0; pointer-events: none; }
+.win.collapsed #ws-add{ display: none; }
+.win.collapsed .tab-bar{ padding-left: 200px; }
+/* 收缩态左上角品牌名 + 齿轮（toggle 常驻），对齐真实 TheAll：brand≈x84、gear≈x138、toggle≈x164 */
+.win-top-collapsed{
+  position: absolute; z-index: 6;
+  top: 14px; left: 84px;
+  display: none; align-items: center; gap: 5px;
+}
+.win.collapsed .win-top-collapsed{ display: flex; }
+#collapsed-gear{ display: none; }
+.win.collapsed #collapsed-gear{ display: inline-flex; }
+@media (max-width: 680px){
+  .win-body{ height: 864px; }
+  .sidebar{
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 240px;
+    z-index: 5;
+    transform: translateX(-100%);
+    transition: transform .22s ease;
+    box-shadow: 10px 0 30px -10px rgba(0,0,0,0.5);
+    background: var(--term-sidebar);
+  }
+  .sidebar.open{ transform: translateX(0);}
+  /* 窄屏用 transform drawer，不走桌面 margin/padding 收缩 */
+  .win.collapsed .sidebar{ margin-left: 0; opacity: 1; }
+  .win.collapsed .tab-bar{ padding-left: 4px; }
+  .win.collapsed .win-top-collapsed{ display: none; }
+  .sidebar-scrim{
+    display: block;
+    position: absolute; inset: 0; background: rgba(0,0,0,0.3);
+    z-index: 4; opacity: 0; pointer-events: none; transition: opacity .2s;
+  }
+  .sidebar-scrim.show{ opacity: 1; pointer-events: auto;}
+}
+.sidebar{
+  background: transparent;
+  /* 列表首行距窗口顶 = trafficLightInset(28) + 列表 top padding(lg+xs=20) = 48；
+     左右 outerHorizontalInset = sm(8)。 */
+  padding: 48px 8px 0 8px;
+  width: 200px; flex-shrink: 0;
+  font-family:'JetBrains Mono', monospace;
+  font-size: 12px;
+  display: flex; flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  transition: margin-left .22s ease, opacity .2s ease;
+}
+.sidebar-header{
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 4px 6px 8px;
+  margin-bottom: 6px;
+}
+.sidebar-header .side-label{
+  font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.14em;
+  color: #6A727C; font-weight: 600;
+}
+.side-icon{
+  width: 22px; height: 22px; border-radius: 6px;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--term-dim); background: transparent;
+  border: 1px solid transparent; cursor: pointer;
+  padding: 0;   /* 重置 <button> 默认内距，否则内容区被压窄、svg 被挤成瘦长形 */
+  transition: background .12s, color .12s, border-color .12s;
+}
+.side-icon:hover{ color: var(--term-fg); background: var(--term-border);}
+.side-icon:disabled, .side-icon.disabled{
+  cursor: not-allowed; opacity: 0.35;
+}
+.side-icon:disabled:hover, .side-icon.disabled:hover{
+  background: transparent; border-color: transparent; color: var(--term-dim);
+}
+.side-label{
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.12em;
+  color: #555B63; padding: 4px 8px; margin-top: 2px;
+}
+.ws-list{ flex: 1; overflow-y: auto; margin: 0 -4px; padding: 0 4px; }
+.ws-list::-webkit-scrollbar{ width: 6px;}
+.ws-list::-webkit-scrollbar-thumb{ background: var(--term-border); border-radius: 3px;}
+.ws-list::-webkit-scrollbar-track{ background: transparent;}
+
+.ws-row{
+  /* 真实 TheAll: baseRowHeight 44, 内容顶部锚定, hPad 12, topPad 4, pairGap 4, rowSpacing 3 */
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-rows: auto auto;
+  align-content: start;
+  gap: 4px 8px;
+  padding: 4px 12px;
+  min-height: 44px;
+  border-radius: 6px;
+  cursor: pointer;
+  margin-bottom: 3px;
+  position: relative;
+  user-select: none;
+  transition: background .12s;
+}
+/* 真实 TheAll: hover 与 selected 同一 border-token 填充，仅文字色不同 */
+.ws-row:hover{ background: var(--term-border);}
+.ws-row.selected{ background: var(--term-border);}
+.ws-row.dragging{ opacity: 0.4;}
+.ws-row.drop-above::before{
+  content: ""; position: absolute; left: 4px; right: 4px; top: -2px;
+  height: 2px; background: var(--s-running); border-radius: 2px;
+}
+.ws-row.drop-below::after{
+  content: ""; position: absolute; left: 4px; right: 4px; bottom: -2px;
+  height: 2px; background: var(--s-running); border-radius: 2px;
+}
+.ws-row .name{
+  grid-column: 1; grid-row: 1;
+  color: var(--term-dim); font-weight: 500;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  font-size: 12px; line-height: 16px;
+}
+.ws-row.selected .name{ color: var(--term-fg);}
+.ws-row .dot-wrap{
+  grid-column: 2; grid-row: 1; align-self: center;
+  display: flex; align-items: center; gap: 4px;
+}
+.ws-row .branch{
+  grid-column: 1; grid-row: 2;
+  color: var(--term-tertiary); font-size: 10px; line-height: 13px;
+  font-family:'JetBrains Mono', monospace;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ws-row .rename-input{
+  grid-column: 1; grid-row: 1;
+  background: rgba(0,0,0,0.35);
+  border: 1px solid var(--s-running);
+  border-radius: 4px;
+  color: #F1F4F8;
+  font: inherit; font-size: 12px;
+  padding: 2px 4px;
+  outline: none;
+  width: 100%;
+}
+/* Delete 只从右键菜单走 (对齐真实 TheAll — WorkspaceRowItemView 的 rightMouseDown) */
+
+/* Custom context menu — AppKit NSMenu 在 Web 的等价物 */
+.ctx-menu{
+  position: fixed;
+  min-width: 140px;
+  padding: 4px;
+  background: color-mix(in oklch, var(--term-sidebar) 92%, white 4%);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 8px;
+  box-shadow: 0 16px 40px -8px rgba(0,0,0,0.5), 0 4px 12px -2px rgba(0,0,0,0.3);
+  z-index: 200;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+  font-size: 12.5px;
+  color: var(--term-fg);
+  user-select: none;
+}
+:root:not(.dark) .ctx-menu{
+  background: #FFFFFF;
+  border-color: rgba(0,0,0,0.08);
+  color: #1E2228;
+  box-shadow: 0 16px 40px -8px rgba(0,0,0,0.18), 0 4px 12px -2px rgba(0,0,0,0.1);
+}
+.ctx-item{
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  padding: 6px 10px;
+  background: transparent;
+  border: 0;
+  border-radius: 5px;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.ctx-item .ctx-ico{ flex-shrink: 0; opacity: 0.85; }
+.ctx-item:hover{ background: rgba(255,255,255,0.08);}
+.ctx-item.destructive{ color: var(--s-failed); }
+.ctx-item.disabled{ opacity: 0.4; cursor: default; }
+.ctx-item.disabled:hover{ background: transparent; }
+:root:not(.dark) .ctx-item:hover{ background: rgba(0,0,0,0.06); }
+.ctx-sep{ height: 1px; background: rgba(255,255,255,0.08); margin: 3px 2px; }
+:root:not(.dark) .ctx-sep{ background: rgba(0,0,0,0.08); }
+
+/* Status dots — 对齐 TerminalStatusIconView.swift:
+   外框 10×10, 实际图形 bounds.insetBy(1,1) = 8×8（所有状态统一）。
+   neverRan/idle = 空心 8px 圆, stroke 1pt；
+   needsInput    = 实心 8px accent 圆；
+   success / failed = 实心 8px；
+   running       = 270° 开口弧 (内径 2.5 外径 4) + 顺时针 1s 旋转 */
+.dot{
+  width: 10px; height: 10px; flex-shrink: 0;
+  display: inline-block;
+  position: relative;
+  vertical-align: middle;
+  background: transparent;
+  border: 0;
+}
+.dot::before{
+  content: "";
+  position: absolute;
+  inset: 1px;
+  border-radius: 50%;
+  box-sizing: border-box;
+}
+.dot.neverRan::before{
+  border: 1px solid var(--s-idle);
+  opacity: 1;
+}
+.dot.idle::before{
+  border: 1px solid var(--s-idle);
+  opacity: 0.6;
+}
+.dot.needs::before{    background: var(--s-needs); }
+.dot.success::before{  background: var(--s-success); }
+.dot.failed::before{   background: var(--s-failed); }
+.dot.running::before{
+  /* 8×8 ring, 环厚度 1.5px (内径 2.5 ~ 外径 4), accent 色 270° 弧 */
+  background:
+    conic-gradient(from -90deg, var(--s-running) 0 270deg, transparent 270deg 360deg);
+  -webkit-mask:
+    radial-gradient(circle,
+      transparent 0 2.5px,
+      #000 2.6px 4px,
+      transparent 4.1px);
+          mask:
+    radial-gradient(circle,
+      transparent 0 2.5px,
+      #000 2.6px 4px,
+      transparent 4.1px);
+  animation: dot-spin 1s linear infinite;
+  transform-origin: 50% 50%;
+}
+.dot.xs{ width: 8px; height: 8px;}
+@keyframes dot-spin{ to { transform: rotate(-360deg); } }
+@media (prefers-reduced-motion: reduce){
+  .dot.running{ animation: none;}
+  * { scroll-behavior: auto !important;}
+  .reveal{ opacity: 1 !important; transform: none !important;}
+}
+
+.sidebar-footer{
+  /* 真实: leading sm+md=20(含 sidebar 8 → 此处 12), trailing 14(含 8 → 此处 6), vertical sm=8。
+     齿轮中心落在 sidebarWidth-25=175，与上方 toggle、行状态点同轴 */
+  display: flex; align-items: center;
+  padding: 8px 6px 8px 12px;
+  margin-top: 4px;
+  gap: 4px;
+}
+/* footer: "TheAll" 品牌按钮 + spacer + 设置齿轮 */
+.footer-brand{
+  display: inline-flex; align-items: baseline; gap: 4px;
+  background: transparent; border: 0; padding: 2px 0; cursor: pointer;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+}
+.footer-brand .b-name{ font-size: 11px; font-weight: 500; color: var(--term-fg); }
+.footer-spacer{ flex: 1; }
+
+/* main pane — 真实 TheAll 里这里是独立的圆角卡片：
+   top 与 win-bar(traffic-light 带)齐平，右/下 8px 内缩，露出 sidebar 底色 */
+.main-pane{
+  display: grid;
+  grid-template-rows: auto 1fr;
+  background: var(--term-bg);
+  overflow: hidden;
+  flex: 1; min-width: 0;
+  /* card 内缩 = DT.Space.xs(4)：top/right/bottom 各 4，left 0（贴 sidebar）；圆角 = DT.Radius.card(12) */
+  margin: 4px 4px 4px 0;
+  border-radius: 12px;
+}
+/* Tab bar = 圆角 strip 容器 (sidebar 底色) + 右侧独立 "+" 按钮
+   1:1 对齐真实 TheAll TabBarView：strip 高 32 / 4pt 外内缩，pill 高 26 / 3pt 内缩 / 6 圆角 */
+.tab-bar{
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 4px;
+  background: transparent;
+  min-width: 0;
+  transition: padding-left .22s ease;
+}
+.tab-strip{
+  flex: 1;
+  display: flex;
+  align-items: stretch;
+  gap: 3px;
+  padding: 3px;
+  background: var(--term-sidebar);
+  border-radius: 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  min-width: 0;
+  height: 32px;
+}
+.tab-strip::-webkit-scrollbar{ display: none;}
+.tab-bar .tbi{
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 0 10px;
+  width: 140px;
+  height: 26px;
+  flex-shrink: 0;
+  color: var(--term-dim);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  font-size: 11px;
+  border-radius: 6px;
+  cursor: pointer;
+  user-select: none;
+  overflow: hidden;
+  position: relative;
+  border: 0; background: transparent;
+  transition: color .12s, background .12s;
+}
+/* selected pill = canvas，文字 textPrimary */
+.tab-bar .tbi.active{
+  color: var(--term-fg);
+  background: var(--term-bg);
+}
+/* hover = canvas × 50%（比 selected 浅一档），文字保持 textSecondary（不提亮） */
+.tab-bar .tbi:hover{
+  color: var(--term-dim);
+  background: color-mix(in srgb, var(--term-bg) 50%, transparent);
+}
+.tab-bar .tbi.active:hover{ background: var(--term-bg); }
+.tab-bar .tbi.dragging{ opacity: 0.35;}
+.tab-bar .tbi.drop-before{ box-shadow: inset 2px 0 0 var(--s-running);}
+.tab-bar .tbi.drop-after{ box-shadow: inset -2px 0 0 var(--s-running);}
+/* 竖直分隔线 (border token)：仅在两侧均非 active/hover、且非最后一个、且无拖拽时显示 */
+.tab-strip .tbi::after{
+  content: ""; position: absolute; right: -2px; top: 25%;
+  width: 1px; height: 50%;
+  background: var(--term-border);
+  pointer-events: none;
+}
+.tab-strip .tbi:last-child::after,
+.tab-strip .tbi.active::after,
+.tab-strip .tbi:hover::after,
+.tab-strip .tbi:has(+ .tbi.active)::after,
+.tab-strip .tbi:has(+ .tbi:hover)::after,
+.tab-strip:has(.tbi.dragging) .tbi::after{ display: none; }
+.tab-bar .tbi .t-kind{ flex-shrink: 0; color: currentColor; }
+.tab-bar .tbi .tn{
+  flex: 1;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  text-align: left;
+}
+.tab-bar .tbi .t-dot{ flex-shrink: 0; }
+.tab-bar .tab-add{
+  display: inline-flex; align-items: center; justify-content: center;
+  align-self: center;
+  width: 22px; height: 22px;
+  color: var(--term-dim); background: transparent;
+  border: 1px solid transparent; cursor: pointer;
+  padding: 0;
+  flex-shrink: 0;
+  border-radius: 6px;
+  margin-left: 5px;
+  transition: background .12s, color .12s, border-color .12s;
+}
+.tab-bar .tab-add:hover{ color: var(--term-fg); background: color-mix(in srgb, var(--term-fg) 8%, transparent);}
+:root:not(.dark) .side-icon:hover{ background: rgba(0,0,0,0.05); color: #1E2228; }
+
+/* terminal pane */
+.term-pane{
+  /* 终端内容四周间距 = ghostty window-padding(x=4,y=4)，首行紧贴 tab 行、左缘对齐 tab strip */
+  padding: 4px 4px 10px;
+  font-family:'JetBrains Mono', monospace;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--term-fg);
+  overflow-y: auto;
+  overflow-x: hidden;
+  cursor: text;
+}
+.term-pane::-webkit-scrollbar{ width: 6px;}
+.term-pane::-webkit-scrollbar-thumb{ background: var(--term-border); border-radius: 3px;}
+.term-line{ white-space: pre-wrap; word-break: break-word;}
+.term-input-row{ display: flex; align-items: baseline; gap: 4px; white-space: pre-wrap;}
+.term-input-row .input{
+  flex: 1;
+  color: var(--term-fg);
+  caret-color: var(--term-cursor);
+  outline: none;
+  min-width: 1ch;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.prompt-head .p{ color: var(--term-prompt-path);}
+.prompt-head .b{ color: var(--term-prompt-branch);}
+.prompt-head .c{ color: var(--term-prompt-caret);}
+.muted{ color: var(--out-muted);}
+.ok{ color: var(--out-ok);}
+.warn{ color: var(--out-warn);}
+.err{ color: var(--out-err);}
+.acc{ color: var(--out-acc);}
+.bracket{ color: var(--term-tertiary);}
+.caret{
+  display:inline-block; width: 7px; height: 1.05em; background: var(--term-cursor); transform: translateY(2px);
+  animation: blink 1.1s steps(1) infinite;
+}
+@keyframes blink{ 50%{ opacity: 0;} }
+
+/* toast for "settings disabled" etc */
+.toast{
+  position: absolute; left: 50%; bottom: 14px;
+  transform: translateX(-50%) translateY(8px);
+  background: rgba(12,14,18,0.9);
+  border: 1px solid rgba(255,255,255,0.08);
+  color: #E7EAEE;
+  font-family:'JetBrains Mono', monospace;
+  font-size: 11px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  opacity: 0; pointer-events: none;
+  transition: opacity .2s, transform .2s;
+  z-index: 10;
+  max-width: 90%;
+  text-align: center;
+}
+.toast.show{ opacity: 1; transform: translateX(-50%) translateY(0);}
+
+/* preview caption under the window */
+.preview-caption{
+  margin-top: 18px;
+  font-family:'JetBrains Mono', monospace;
+  font-size: 11.5px;
+  color: var(--fg-3);
+  text-align: center;
+  letter-spacing: 0.03em;
+}
+.preview-caption kbd{ margin: 0 2px;}
+
+/* ---------- value props (3-col) ---------- */
+.vprops{
+  padding: 96px 0 28px;
+}
+.section-head{ max-width: 46ch; margin-bottom: 48px;}
+.section-eyebrow{
+  font-family:'JetBrains Mono', monospace; font-size: 11.5px;
+  color: var(--accent); text-transform: uppercase; letter-spacing: 0.12em;
+  display:inline-flex; align-items:center; gap: 8px;
+}
+.section-eyebrow::before{
+  content:""; width: 18px; height: 1px; background: var(--accent); display: inline-block;
+}
+.section-title{
+  font-size: clamp(28px, 3.4vw, 40px);
+  letter-spacing: -0.022em;
+  font-weight: 600;
+  line-height: 1.1;
+  margin: 16px 0 14px;
+  text-wrap: balance;
+}
+.section-sub{ color: var(--fg-2); font-size: 16px; max-width: 56ch; text-wrap: pretty;}
+
+.vgrid{
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+.vitem{
+  padding: 32px 28px;
+  border-right: 1px solid var(--border);
+}
+.vitem:last-child{ border-right: none;}
+@media (max-width: 820px){
+  .vgrid{ grid-template-columns: 1fr;}
+  .vitem{ border-right: none; border-bottom: 1px solid var(--border);}
+  .vitem:last-child{ border-bottom: none;}
+}
+.vitem h3{
+  font-size: 18px; font-weight: 600; letter-spacing: -0.01em; margin: 14px 0 6px;
+}
+.vitem p{ color: var(--fg-2); margin: 0; font-size: 14.5px;}
+.vitem .num{
+  font-family:'JetBrains Mono', monospace; font-size: 11px; color: var(--fg-3);
+  letter-spacing: 0.1em;
+}
+
+/* ---------- bento ---------- */
+.bento{ padding: 64px 0;}
+.bgrid{
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  grid-auto-rows: 180px;
+  gap: 14px;
+}
+.card{
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 22px;
+  overflow: hidden;
+  transition: border-color .2s, transform .2s;
+}
+.card:hover{ border-color: var(--border-strong);}
+.card h4{
+  font-size: 16px; font-weight: 600; letter-spacing: -0.01em;
+  margin: 0 0 6px;
+}
+.card p{ color: var(--fg-2); margin: 0; font-size: 14px; max-width: 36ch;}
+.card .badge{
+  position: absolute; top: 16px; right: 16px;
+  font-family:'JetBrains Mono', monospace; font-size: 10.5px;
+  color: var(--fg-3); letter-spacing: 0.1em; text-transform: uppercase;
+}
+.b-agent{ grid-column: span 4; grid-row: span 2; }
+.b-split{ grid-column: span 2; grid-row: span 2; }
+.b-pwd{ grid-column: span 3; grid-row: span 2;}
+.b-meta{ grid-column: span 3; grid-row: span 2;}
+.b-theme{ grid-column: span 2; grid-row: span 2;}
+.b-shell{ grid-column: span 4; grid-row: span 2;}
+@media (max-width: 960px){
+  .bgrid{ grid-template-columns: repeat(2, 1fr); grid-auto-rows: auto;}
+  .b-agent, .b-split, .b-pwd, .b-meta, .b-theme, .b-shell{ grid-column: span 2; grid-row: auto; min-height: 260px;}
+  .b-agent{ min-height: 340px;}
+  .b-split{ min-height: 300px;}
+}
+
+/* agent card mini sidebar */
+.mini-side{
+  position: relative;
+  margin-top: 14px;
+  flex: 1;
+  min-height: 0;
+  background: var(--term-sidebar);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 10px;
+  display: grid;
+  grid-template-columns: 200px 1fr;
+  overflow: hidden;
+}
+html:not(.dark) .mini-side{
+  background: #0E1116;
+}
+.mini-side .side{
+  padding: 12px 10px;
+  font-family:'JetBrains Mono', monospace;
+  font-size: 11.5px;
+  color:#9AA1AB;
+  border-right: 1px solid rgba(255,255,255,0.06);
+}
+.mini-side .side .row{
+  display:flex; align-items:center; gap: 8px; padding: 5px 6px; border-radius: 6px;
+}
+.mini-side .side .row.active{ background: rgba(255,255,255,0.04); color:#E7EAEE;}
+.mini-side .side .lbl{ flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+.mini-side .side .b{ color: #5B626B; font-size: 10.5px;}
+.mini-side .side .sec{ font-size: 9.5px; text-transform:uppercase; letter-spacing: .12em; color:#555B63; padding: 8px 6px 4px;}
+.mini-side .pane-x{
+  padding: 14px 16px;
+  font-family:'JetBrains Mono', monospace;
+  font-size: 12px;
+  color: #D5DAE1;
+  background: var(--term-bg);
+}
+
+/* split diagram */
+.split-diag{
+  position: relative;
+  margin-top: 14px;
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  gap: 6px;
+}
+.split-diag .box{
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--chip-bg);
+  display: flex; align-items:flex-end; padding: 8px;
+  font-family:'JetBrains Mono', monospace; font-size: 10.5px; color: var(--fg-3);
+}
+.split-diag .box.sel{
+  border-color: var(--accent);
+  background: color-mix(in oklch, var(--accent) 10%, transparent);
+  color: var(--accent);
+}
+.split-diag .a{ grid-row: 1 / 3;}
+
+/* pwd card */
+.pwd-demo{
+  position: absolute; left: 22px; right: 22px; bottom: 22px;
+  font-family:'JetBrains Mono', monospace; font-size: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  background: var(--term-bg); color: var(--term-fg);
+}
+.pwd-demo .line{ display:flex; gap: 8px; align-items:center;}
+.pwd-demo .p{ color: #7FA4BF;}
+.pwd-demo .t{ color:#7A818B;}
+.pwd-demo .arrow{ color:#5B626B;}
+
+/* metadata card */
+.meta-demo{
+  position: absolute; left: 22px; right: 22px; bottom: 22px;
+  font-family:'JetBrains Mono', monospace; font-size: 11.5px;
+  border-radius: 10px;
+  background: var(--term-bg);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+.meta-row{
+  display: grid; grid-template-columns: 1fr auto auto auto;
+  gap: 10px; padding: 9px 12px;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  color: #D5DAE1;
+  align-items: center;
+}
+.meta-row:last-child{ border-bottom: none;}
+.meta-row .nm{ color: #E7EAEE; font-weight: 500;}
+.meta-row .br{ color: #7A818B; font-size: 10.5px;}
+.meta-row .pr{ color: var(--s-running); font-size: 10.5px;}
+.meta-row .pr.none{ color: #555B63;}
+.meta-row .nt{ color: var(--s-needs); font-size: 10.5px;}
+.meta-row .nt.zero{ color: #555B63;}
+
+/* theme swatches */
+.theme-demo{
+  position: absolute; left: 22px; right: 22px; bottom: 22px;
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;
+}
+.theme-sw{
+  aspect-ratio: 1; border-radius: 10px;
+  border: 1px solid var(--border);
+  position: relative; overflow: hidden;
+}
+.theme-sw::after{
+  content: attr(data-name);
+  position: absolute; left: 6px; bottom: 4px;
+  font-family:'JetBrains Mono', monospace; font-size: 9px;
+  color: rgba(255,255,255,0.7);
+}
+
+/* shell badges */
+.shell-demo{
+  position: absolute; left: 22px; right: 22px; bottom: 22px;
+  display: flex; flex-wrap: wrap; gap: 6px;
+}
+.pill{
+  display:inline-flex; align-items:center; gap: 6px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: var(--chip-bg);
+  border: 1px solid var(--border);
+  font-family:'JetBrains Mono', monospace;
+  font-size: 11.5px;
+  color: var(--fg-2);
+}
+.pill .dot{ width: 5px; height: 5px; background: var(--s-success); border-radius: 50%;}
+
+/* ---------- how it works ---------- */
+.how{ padding: 96px 0;}
+.how-stage{
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 48px 40px;
+  background: var(--panel);
+  position: relative;
+  overflow: hidden;
+}
+.how-stage::before{
+  content:""; position: absolute; inset:0; pointer-events: none;
+  background-image:
+    linear-gradient(var(--hairline) 1px, transparent 1px),
+    linear-gradient(90deg, var(--hairline) 1px, transparent 1px);
+  background-size: 24px 24px;
+  mask-image: radial-gradient(ellipse at 50% 50%, black 30%, transparent 75%);
+  opacity: 0.7;
+}
+.flow{
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 20px;
+  position: relative;
+  z-index: 1;
+}
+@media (max-width: 820px){ .flow{ grid-template-columns: 1fr 1fr;} }
+@media (max-width: 520px){ .flow{ grid-template-columns: 1fr;} }
+.step{
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 18px 18px 20px;
+  position: relative;
+}
+.step .i{
+  font-family:'JetBrains Mono', monospace; font-size: 11px;
+  color: var(--accent); letter-spacing: 0.1em;
+}
+.step h4{ margin: 10px 0 6px; font-size: 15px; font-weight: 600;}
+.step p{ margin: 0; color: var(--fg-2); font-size: 13px;}
+.step svg{ display: block; margin-bottom: 8px; color: var(--fg-2);}
+.flow-note{
+  margin-top: 24px; text-align:center;
+  font-family:'JetBrains Mono', monospace; font-size: 12px;
+  color: var(--fg-3);
+}
+
+/* ---------- comparison ---------- */
+.cmp{ padding: 64px 0;}
+.cmp-wrap{
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  overflow: hidden;
+  background: var(--panel);
+}
+.cmp-table{ width: 100%; border-collapse: collapse;}
+.cmp-table th, .cmp-table td{
+  padding: 14px 18px;
+  text-align: left;
+  border-bottom: 1px solid var(--hairline);
+  font-size: 14px;
+  vertical-align: middle;
+}
+.cmp-table thead th{
+  font-weight: 500;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--fg-3);
+  background: transparent;
+  padding-top: 18px; padding-bottom: 14px;
+}
+.cmp-table thead th.own{ color: var(--fg); font-family:'JetBrains Mono', monospace; font-size: 12px; text-transform:none; letter-spacing: 0.02em;}
+.cmp-table tbody td.own{
+  background: color-mix(in oklch, var(--accent) 8%, transparent);
+  color: var(--fg);
+  font-weight: 500;
+  position: relative;
+}
+.cmp-table tbody tr:last-child td{ border-bottom: none;}
+.cmp-table td:first-child{ color: var(--fg-2); font-size: 13.5px;}
+.cmp-yes{ color: var(--s-success); font-family:'JetBrains Mono', monospace;}
+.cmp-no{ color: var(--fg-3); font-family:'JetBrains Mono', monospace;}
+.cmp-partial{ color: var(--s-needs); font-family:'JetBrains Mono', monospace; font-size: 12.5px;}
+.cmp-table tbody td.own .cmp-yes{ color: var(--accent);}
+
+@media (max-width: 740px){
+  .cmp-wrap{ overflow-x: auto;}
+  .cmp-table{ min-width: 680px;}
+}
+
+/* ---------- stack ---------- */
+.stack{
+  padding: 64px 0; text-align: center;
+}
+.stack-chips{
+  display:flex; flex-wrap: wrap; justify-content: center; gap: 8px;
+  margin-top: 24px;
+}
+.stack-chip{
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-family:'JetBrains Mono', monospace;
+  font-size: 12px;
+  color: var(--fg-2);
+  background: var(--panel);
+}
+
+/* ---------- quote ---------- */
+.quote{ padding: 96px 0; text-align: center;}
+.quote blockquote{
+  margin: 0 auto; max-width: 30ch;
+  font-size: clamp(24px, 2.4vw, 32px);
+  line-height: 1.28;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+  text-wrap: balance;
+}
+.quote cite{
+  display: block;
+  margin-top: 20px;
+  font-style: normal;
+  font-family:'JetBrains Mono', monospace;
+  font-size: 12px;
+  color: var(--fg-3);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.quote-mark{
+  display: block; margin: 0 auto 18px;
+  width: 36px; height: 36px;
+  color: var(--accent);
+}
+
+/* ---------- faq ---------- */
+.faq{ padding: 64px 0;}
+.faq-list{
+  border-top: 1px solid var(--border);
+}
+details.q{
+  border-bottom: 1px solid var(--border);
+}
+details.q > summary{
+  display: flex; justify-content: space-between; align-items:center; gap: 16px;
+  padding: 22px 4px;
+  font-size: 16px; font-weight: 500;
+  cursor: pointer; list-style: none;
+  color: var(--fg);
+  transition: color .15s;
+}
+details.q > summary::-webkit-details-marker{ display: none;}
+details.q > summary:hover{ color: var(--accent);}
+details.q > summary .plus{
+  width: 18px; height: 18px; position: relative; flex-shrink: 0;
+  color: var(--fg-3);
+}
+details.q > summary .plus::before, details.q > summary .plus::after{
+  content:""; position:absolute; background: currentColor;
+  transition: transform .2s ease;
+}
+details.q > summary .plus::before{ left: 0; right: 0; top: 50%; height: 1.5px; transform: translateY(-50%);}
+details.q > summary .plus::after{ top: 0; bottom: 0; left: 50%; width: 1.5px; transform: translateX(-50%);}
+details.q[open] > summary .plus::after{ transform: translateX(-50%) rotate(90deg); opacity: 0;}
+details.q .a{
+  padding: 0 4px 22px;
+  color: var(--fg-2);
+  font-size: 14.5px;
+  max-width: 72ch;
+}
+
+/* ---------- footer ---------- */
+footer{
+  border-top: 1px solid var(--border);
+  padding: 40px 0 48px;
+  margin-top: 64px;
+}
+.foot{
+  display: flex; justify-content: space-between; gap: 20px;
+  align-items: center;
+  flex-wrap: wrap;
+  font-size: 13px;
+  color: var(--fg-3);
+}
+.foot-links{ display:flex; gap: 20px; flex-wrap: wrap;}
+.foot-links a{ color: var(--fg-3); text-decoration: none;}
+.foot-links a:hover{ color: var(--fg);}
+
+/* reveal */
+.reveal{
+  opacity: 0; transform: translateY(8px);
+  transition: opacity .45s ease-out, transform .45s ease-out;
+}
+.reveal.in{ opacity: 1; transform: none;}
+
+/* locale helpers */
+[data-lang-en], [data-lang-zh]{ display: none;}
+html[lang="en"] [data-lang-en]{ display: initial;}
+html[lang="zh"] [data-lang-zh]{ display: initial;}
+html[lang="en"] .block[data-lang-en], html[lang="zh"] .block[data-lang-zh]{ display: block;}
+html[lang="en"] .flex-show[data-lang-en], html[lang="zh"] .flex-show[data-lang-zh]{ display: flex;}
+
+/* bento mobile overrides — placed after base rules so they actually win */
+@media (max-width: 640px){
+  .bgrid{ grid-template-columns: 1fr;}
+  .b-agent, .b-split, .b-pwd, .b-meta, .b-theme, .b-shell{ grid-column: span 1; grid-row: auto; min-height: auto; padding-bottom: 22px;}
+  .card p{ max-width: none;}
+  /* These two illustrations cover the prose at narrow widths; the text alone carries the point. */
+  .mini-side, .split-diag{ display: none; }
+  /* The compact demos can still sit below the prose; let them flow. */
+  .pwd-demo, .meta-demo, .theme-demo, .shell-demo{
+    position: static; margin-top: 14px; inset: auto; height: auto;
+  }
+  .theme-demo{ max-width: 280px;}
+}
+
+/* kbd */
+kbd{
+  display: inline-block;
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  background: var(--kbd-bg);
+  font-family:'JetBrains Mono', monospace;
+  font-size: 11.5px;
+  color: var(--fg-2);
+  line-height: 1.4;
+}
+</style>
+</head>
+<body>
+
+<div class="bg-canvas" aria-hidden="true"></div>
+<div class="bg-grid" aria-hidden="true"></div>
+<div class="noise" aria-hidden="true"></div>
+
+<!-- ======= SVG logo symbol ======= -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="logo" viewBox="0 0 48 48">
+      <circle cx="24" cy="24" r="22" fill="none" stroke="currentColor" stroke-width="6" opacity="0.18"/>
+      <circle cx="24" cy="24" r="19" fill="none" stroke="currentColor" stroke-width="1.2" opacity="0.35"/>
+      <g stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" fill="none">
+        <polyline points="19,18 26,24 19,30"/>
+        <line x1="27.5" y1="30" x2="32.5" y2="30"/>
+      </g>
+    </symbol>
+    <symbol id="chev" viewBox="0 0 16 16">
+      <polyline points="5,4 9,8 5,12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+      <line x1="10" y1="12" x2="13" y2="12" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="icon-plus" viewBox="0 0 16 16">
+      <line x1="8" y1="2.2" x2="8" y2="13.8" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+      <line x1="2.2" y1="8" x2="13.8" y2="8" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="icon-x" viewBox="0 0 16 16">
+      <line x1="4" y1="4" x2="12" y2="12" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+      <line x1="12" y1="4" x2="4" y2="12" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="icon-gear" viewBox="0 0 24 24">
+      <!-- 几何齿轮，贴近 SF Symbol gearshape：8 颗规整梯形齿 + 中心镂空孔 -->
+      <path fill="currentColor" fill-rule="evenodd" d="M20.31 9.77L22.8 9.9L22.8 14.1L20.31 14.23L19.45 16.3L21.12 18.15L18.15 21.12L16.3 19.45L14.23 20.31L14.1 22.8L9.9 22.8L9.77 20.31L7.7 19.45L5.85 21.12L2.88 18.15L4.55 16.3L3.69 14.23L1.2 14.1L1.2 9.9L3.69 9.77L4.55 7.7L2.88 5.85L5.85 2.88L7.7 4.55L9.77 3.69L9.9 1.2L14.1 1.2L14.23 3.69L16.3 4.55L18.15 2.88L21.12 5.85L19.45 7.7ZM16.4 12.0A4.4 4.4 0 1 0 7.6 12.0A4.4 4.4 0 1 0 16.4 12.0Z"/>
+    </symbol>
+    <symbol id="icon-branch" viewBox="0 0 16 16">
+      <circle cx="4" cy="3.5" r="1.4" fill="none" stroke="currentColor" stroke-width="1.2"/>
+      <circle cx="4" cy="12.5" r="1.4" fill="none" stroke="currentColor" stroke-width="1.2"/>
+      <circle cx="12" cy="5.5" r="1.4" fill="none" stroke="currentColor" stroke-width="1.2"/>
+      <line x1="4" y1="4.9" x2="4" y2="11.1" stroke="currentColor" stroke-width="1.2"/>
+      <path d="M4 8.5 Q 4 5.5 10.6 5.5" fill="none" stroke="currentColor" stroke-width="1.2"/>
+    </symbol>
+    <symbol id="icon-sidebar" viewBox="0 0 16 16">
+      <rect x="2" y="3" width="12" height="10" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.2"/>
+      <line x1="6" y1="3" x2="6" y2="13" stroke="currentColor" stroke-width="1.2"/>
+    </symbol>
+    <symbol id="icon-terminal" viewBox="0 0 16 16">
+      <rect x="1.6" y="2.6" width="12.8" height="10.8" rx="2" fill="none" stroke="currentColor" stroke-width="1.2"/>
+      <polyline points="4.5,6 7,8 4.5,10" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+      <line x1="8" y1="10.4" x2="11" y2="10.4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+    </symbol>
+    <!-- agent 标签图标：与真实 TheAll quick-action 资源 1:1（claudecode/codex/opencode），均 currentColor template -->
+    <symbol id="icon-claude" viewBox="0 0 24 24"><path fill="currentColor" fill-rule="evenodd" d="M4.709 15.955l4.72-2.647.08-.23-.08-.128H9.2l-.79-.048-2.698-.073-2.339-.097-2.266-.122-.571-.121L0 11.784l.055-.352.48-.321.686.06 1.52.103 2.278.158 1.652.097 2.449.255h.389l.055-.157-.134-.098-.103-.097-2.358-1.596-2.552-1.688-1.336-.972-.724-.491-.364-.462-.158-1.008.656-.722.881.06.225.061.893.686 1.908 1.476 2.491 1.833.365.304.145-.103.019-.073-.164-.274-1.355-2.446-1.446-2.49-.644-1.032-.17-.619a2.97 2.97 0 01-.104-.729L6.283.134 6.696 0l.996.134.42.364.62 1.414 1.002 2.229 1.555 3.03.456.898.243.832.091.255h.158V9.01l.128-1.706.237-2.095.23-2.695.08-.76.376-.91.747-.492.584.28.48.685-.067.444-.286 1.851-.559 2.903-.364 1.942h.212l.243-.242.985-1.306 1.652-2.064.73-.82.85-.904.547-.431h1.033l.76 1.129-.34 1.166-1.064 1.347-.881 1.142-1.264 1.7-.79 1.36.073.11.188-.02 2.856-.606 1.543-.28 1.841-.315.833.388.091.395-.328.807-1.969.486-2.309.462-3.439.813-.042.03.049.061 1.549.146.662.036h1.622l3.02.225.79.522.474.638-.079.485-1.215.62-1.64-.389-3.829-.91-1.312-.329h-.182v.11l1.093 1.068 2.006 1.81 2.509 2.33.127.578-.322.455-.34-.049-2.205-1.657-.851-.747-1.926-1.62h-.128v.17l.444.649 2.345 3.521.122 1.08-.17.353-.608.213-.668-.122-1.374-1.925-1.415-2.167-1.143-1.943-.14.08-.674 7.254-.316.37-.729.28-.607-.461-.322-.747.322-1.476.389-1.924.315-1.53.286-1.9.17-.632-.012-.042-.14.018-1.434 1.967-2.18 2.945-1.726 1.845-.414.164-.717-.37.067-.662.401-.589 2.388-3.036 1.44-1.882.93-1.086-.006-.158h-.055L4.132 18.56l-1.13.146-.487-.456.061-.746.231-.243 1.908-1.312-.006.006z"></path></symbol>
+    <symbol id="icon-codex" viewBox="0 0 24 24"><path fill="currentColor" fill-rule="evenodd" d="M9.205 8.658v-2.26c0-.19.072-.333.238-.428l4.543-2.616c.619-.357 1.356-.523 2.117-.523 2.854 0 4.662 2.212 4.662 4.566 0 .167 0 .357-.024.547l-4.71-2.759a.797.797 0 00-.856 0l-5.97 3.473zm10.609 8.8V12.06c0-.333-.143-.57-.429-.737l-5.97-3.473 1.95-1.118a.433.433 0 01.476 0l4.543 2.617c1.309.76 2.189 2.378 2.189 3.948 0 1.808-1.07 3.473-2.76 4.163zM7.802 12.703l-1.95-1.142c-.167-.095-.239-.238-.239-.428V5.899c0-2.545 1.95-4.472 4.591-4.472 1 0 1.927.333 2.712.928L8.23 5.067c-.285.166-.428.404-.428.737v6.898zM12 15.128l-2.795-1.57v-3.33L12 8.658l2.795 1.57v3.33L12 15.128zm1.796 7.23c-1 0-1.927-.332-2.712-.927l4.686-2.712c.285-.166.428-.404.428-.737v-6.898l1.974 1.142c.167.095.238.238.238.428v5.233c0 2.545-1.974 4.472-4.614 4.472zm-5.637-5.303l-4.544-2.617c-1.308-.761-2.188-2.378-2.188-3.948A4.482 4.482 0 014.21 6.327v5.423c0 .333.143.571.428.738l5.947 3.449-1.95 1.118a.432.432 0 01-.476 0zm-.262 3.9c-2.688 0-4.662-2.021-4.662-4.519 0-.19.024-.38.047-.57l4.686 2.71c.286.167.571.167.856 0l5.97-3.448v2.26c0 .19-.07.333-.237.428l-4.543 2.616c-.619.357-1.356.523-2.117.523zm5.899 2.83a5.947 5.947 0 005.827-4.756C22.287 18.339 24 15.84 24 13.296c0-1.665-.713-3.282-1.998-4.448.119-.5.19-.999.19-1.498 0-3.401-2.759-5.947-5.946-5.947-.642 0-1.26.095-1.88.31A5.962 5.962 0 0010.205 0a5.947 5.947 0 00-5.827 4.757C1.713 5.447 0 7.945 0 10.49c0 1.666.713 3.283 1.998 4.448-.119.5-.19 1-.19 1.499 0 3.401 2.759 5.946 5.946 5.946.642 0 1.26-.095 1.88-.309a5.96 5.96 0 004.162 1.713z"></path></symbol>
+    <symbol id="icon-opencode" viewBox="0 0 24 24"><path fill="currentColor" fill-rule="evenodd" d="M16 6H8v12h8V6zm4 16H4V2h16v20z"></path></symbol>
+    <symbol id="icon-palette" viewBox="0 0 16 16">
+      <path d="M8 1.6c3.5 0 6.4 2.6 6.4 5.8 0 2-1.7 3.1-3.3 3.1H9.7c-.7 0-1.1.5-1.1 1.1 0 .3.1.5.3.8.2.3.3.5.3.8 0 .7-.6 1.2-1.5 1.2C4.4 16 1.6 12.9 1.6 9 1.6 4.8 4.6 1.6 8 1.6Z" fill="none" stroke="currentColor" stroke-width="1.2"/>
+      <circle cx="5" cy="7" r="1" fill="currentColor"/>
+      <circle cx="8" cy="5" r="1" fill="currentColor"/>
+      <circle cx="11" cy="7" r="1" fill="currentColor"/>
+    </symbol>
+  </defs>
+</svg>
+
+<!-- ======= NAV ======= -->
+<nav class="nav" id="nav">
+  <div class="container nav-inner">
+    <a href="#" class="brand" aria-label="TheAll home">
+      <img class="brand-mark" src="assets/logo.png" srcset="assets/logo.png 1x, assets/logo@2x.png 2x" alt="TheAll" />
+      <span class="brand-word">TheAll</span>
+    </a>
+    <div class="nav-links"></div>
+    <div class="nav-tools">
+      <button class="icon-btn lang-btn" id="lang-toggle" aria-label="Toggle language" title="Toggle language">
+        <span data-i18n="nav.langLabel">中文</span>
+      </button>
+      <button class="icon-btn" id="theme-toggle" aria-label="Toggle color theme" title="Toggle theme">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" class="ic-sun"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" class="ic-moon" style="display:none"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z"/></svg>
+      </button>
+      <a class="btn btn-ghost" href="https://github.com/AbadOrangeCat/TheALL" target="_blank" rel="noopener">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5A11.5 11.5 0 0 0 .5 12a11.5 11.5 0 0 0 7.86 10.92c.58.1.79-.25.79-.56v-2c-3.2.7-3.88-1.36-3.88-1.36-.52-1.33-1.28-1.68-1.28-1.68-1.04-.72.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.76 2.7 1.25 3.36.96.1-.75.4-1.25.74-1.54-2.56-.3-5.26-1.28-5.26-5.7 0-1.26.45-2.28 1.18-3.08-.12-.3-.51-1.48.11-3.08 0 0 .97-.31 3.18 1.18.92-.26 1.9-.38 2.88-.39.98.01 1.96.13 2.88.39 2.2-1.5 3.17-1.18 3.17-1.18.63 1.6.23 2.78.11 3.08.74.8 1.18 1.82 1.18 3.08 0 4.43-2.7 5.4-5.27 5.68.42.36.78 1.07.78 2.16v3.2c0 .32.2.68.8.56A11.5 11.5 0 0 0 23.5 12 11.5 11.5 0 0 0 12 .5Z"/></svg>
+        GitHub
+      </a>
+    </div>
+  </div>
+</nav>
+
+<!-- ======= HERO ======= -->
+<section class="hero">
+  <div class="container">
+    <div class="reveal">
+      <span class="eyebrow"><span class="dot"></span><span data-i18n="hero.eyebrow">macOS 14+ · Apple Silicon recommended</span></span>
+    </div>
+    <h1 class="hero-title reveal">
+      <span data-i18n="hero.title1">The terminal that knows</span><br>
+      <em data-i18n="hero.title2">what your agent is doing.</em>
+    </h1>
+    <p class="hero-sub reveal" data-i18n="hero.sub">
+      A native macOS terminal built on libghostty. Workspaces, tabs, and split panes for your repos — with live status for every Claude Code, OpenCode, and Codex session you run.
+    </p>
+    <div class="hero-ctas reveal">
+      <a class="btn btn-primary btn-lg" href="https://github.com/AbadOrangeCat/TheALL/releases" target="_blank" rel="noopener">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.365 1.43c.09 1.33-.42 2.65-1.23 3.62-.83 1-2.19 1.78-3.54 1.67-.13-1.3.49-2.62 1.3-3.5.9-.96 2.4-1.7 3.47-1.79Zm4.32 16.25c-.6 1.37-.88 1.98-1.64 3.18-1.08 1.66-2.6 3.72-4.48 3.74-1.67.02-2.1-1.09-4.38-1.08-2.28.01-2.75 1.1-4.42 1.08-1.88-.02-3.32-1.88-4.4-3.54-3-4.6-3.31-10.01-1.46-12.89C1.19 6.25 3.3 5 5.28 5c1.93 0 3.15 1.08 4.75 1.08 1.55 0 2.5-1.08 4.74-1.08 1.77 0 3.64.96 4.96 2.62-4.36 2.39-3.65 8.6.96 10.06Z"/></svg>
+        <span data-i18n="hero.cta.download">Download for macOS</span>
+      </a>
+      <!-- 切换 Mock 终端主题（源码入口在导航栏的 GitHub 按钮） -->
+      <button class="btn btn-lg theme-cta" id="term-theme-btn" aria-label="Switch terminal theme" title="Switch terminal theme">
+        <svg class="ts-ico" width="15" height="15"><use href="#icon-palette"/></svg>
+        <span class="ptb-label" data-i18n="preview.themeLabel">Theme</span>
+        <span class="ts-name" id="term-theme-name">TheAll (native)</span>
+        <svg class="ts-chev" width="12" height="12" viewBox="0 0 16 16"><polyline points="4,6 8,10 12,6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <span class="chip-meta"><span class="mono" data-i18n="hero.meta.ver">v0.1.3</span></span>
+    </div>
+
+    <!-- hero window (interactive) -->
+    <div class="hero-stage reveal">
+      <div class="hero-window">
+        <div class="win" id="preview-win">
+          <!-- 红绿灯 + 顶部控件：绝对定位覆盖在 sidebar 列顶部，与 tab strip 同一行
+               （对齐真实 TheAll ContentView：toggle 中心 x=sidebarWidth-25，加号在其左侧） -->
+          <div class="tl-dots" aria-hidden="true"><i></i><i></i><i></i></div>
+          <!-- 收缩态左上角品牌名（对齐真实 TheAll collapsedBrandButton，leading≈84） -->
+          <div class="win-top-collapsed">
+            <button class="footer-brand" data-disabled-msg title="Check for updates" aria-label="TheAll — check for updates">
+              <span class="b-name">TheAll</span>
+            </button>
+          </div>
+          <div class="win-top-controls">
+            <button class="side-icon" id="ws-add" aria-label="Add workspace" title="Add workspace">
+              <svg width="15" height="15"><use href="#icon-plus"/></svg>
+            </button>
+            <button class="side-icon" id="collapsed-gear" data-disabled-msg title="Settings" aria-label="Settings (disabled in preview)">
+              <svg width="15" height="15"><use href="#icon-gear"/></svg>
+            </button>
+            <button class="side-icon" id="sidebar-toggle" aria-label="Toggle sidebar" title="Hide sidebar">
+              <svg width="15" height="15"><use href="#icon-sidebar"/></svg>
+            </button>
+          </div>
+
+          <div class="win-body">
+            <div class="sidebar-scrim" id="sidebar-scrim"></div>
+
+            <!-- sidebar -->
+            <aside class="sidebar" id="sidebar">
+              <div class="ws-list" id="ws-list"></div>
+              <div class="sidebar-footer">
+                <button class="footer-brand" data-disabled-msg title="Check for updates" aria-label="TheAll — check for updates">
+                  <span class="b-name">TheAll</span>
+                </button>
+                <span class="footer-spacer"></span>
+                <button class="side-icon disabled" data-disabled-msg title="Settings" aria-label="Settings (disabled in preview)">
+                  <svg width="15" height="15"><use href="#icon-gear"/></svg>
+                </button>
+              </div>
+            </aside>
+
+            <!-- main pane（card：tab strip + 终端） -->
+            <div class="main-pane">
+              <div class="tab-bar" id="tab-bar"></div>
+              <div class="term-pane" id="term-pane">
+                <!-- terminal lines injected by JS -->
+              </div>
+            </div>
+          </div>
+          <div class="toast" id="toast"></div>
+        </div>
+      </div>
+      <div class="preview-caption" data-i18n="preview.caption">
+        Live preview — <kbd>+</kbd> add workspace/tab · double-click to rename · drag to reorder · type a command and hit <kbd>Enter</kbd>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ======= VALUE PROPS ======= -->
+<section class="vprops" id="why">
+  <div class="container">
+    <div class="section-head reveal">
+      <span class="section-eyebrow" data-i18n="why.kicker">THREE IDEAS</span>
+      <h2 class="section-title" data-i18n="why.title">Native, agent-aware, project-first.</h2>
+      <p class="section-sub" data-i18n="why.sub">Three choices we made early, and kept making. The terminal we wanted after spending serious time with AI coding agents — never silent about what they're doing, never in the way when they aren't.</p>
+    </div>
+
+    <div class="vgrid reveal">
+      <div class="vitem">
+        <div class="num">01</div>
+        <h3 data-i18n="why.n.title">Native. GPU-rendered.</h3>
+        <p data-i18n="why.n.body">libghostty on Metal. Low-latency input, crisp text, and no Electron in your Dock.</p>
+      </div>
+      <div class="vitem">
+        <div class="num">02</div>
+        <h3 data-i18n="why.a.title">Agent-aware.</h3>
+        <p data-i18n="why.a.body">Every sidebar row and tab icon reflects live state of Claude Code, OpenCode, and Codex — running, waiting for you, finished or failed.</p>
+      </div>
+      <div class="vitem">
+        <div class="num">03</div>
+        <h3 data-i18n="why.p.title">Project-first.</h3>
+        <p data-i18n="why.p.body">Workspace → Tabs → Splits. Each workspace row shows its git branch, open PRs, and unread notifications. Your terminal, by repo.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ======= BENTO FEATURES ======= -->
+<section class="bento" id="features">
+  <div class="container">
+    <div class="section-head reveal">
+      <span class="section-eyebrow" data-i18n="feat.kicker">FEATURES</span>
+      <h2 class="section-title" data-i18n="feat.title">Built for the way you already work.</h2>
+    </div>
+
+    <div class="bgrid">
+      <article class="card b-agent reveal">
+        <span class="badge" data-i18n="feat.agent.badge">01 · AGENT STATUS</span>
+        <h4 data-i18n="feat.agent.title">Five dots. A glance is enough.</h4>
+        <p data-i18n="feat.agent.body">running · idle · needs&nbsp;input · success · failed — hover any icon to see which tool is running and (for Claude / Codex) the last assistant message.</p>
+
+        <div class="mini-side" aria-hidden="true">
+          <div class="side">
+            <div class="sec">WORKSPACES</div>
+            <div class="row"><span class="dot running"></span><span class="lbl">TheAll / claude</span><span class="b">master</span></div>
+            <div class="row active"><span class="dot needs"></span><span class="lbl">landing / codex</span><span class="b">agent/*</span></div>
+            <div class="row"><span class="dot success"></span><span class="lbl">docs / build</span><span class="b">main</span></div>
+            <div class="row"><span class="dot idle"></span><span class="lbl">sandbox</span><span class="b">wip</span></div>
+            <div class="row"><span class="dot failed"></span><span class="lbl">tests / e2e</span><span class="b">ci</span></div>
+          </div>
+          <div class="pane-x">
+            <div><span style="color:#7FA4BF">landing</span> <span style="color:#7A818B">(agent/landing)</span> <span style="color:#A3C8DC">❯</span> codex</div>
+            <div style="color:var(--s-needs); margin-top:6px">  ⏸  tool call awaiting approval</div>
+            <div style="color:#7A818B;">  └─ Edit Models/User.swift</div>
+            <div style="color:#8A919B; margin-top:10px;">  [y] approve   [n] deny   [?] why</div>
+            <div class="caret" aria-hidden="true" style="margin-top:10px"></div>
+          </div>
+        </div>
+      </article>
+
+      <article class="card b-split reveal">
+        <span class="badge" data-i18n="feat.split.badge">02 · SPLITS</span>
+        <h4 data-i18n="feat.split.title">⌘D · ⌘⇧D · done.</h4>
+        <p data-i18n="feat.split.body">Binary split tree per tab. Cut horizontally or vertically, drag dividers, navigate panes with <span class="mono">⌘⌥↑↓←→</span>.</p>
+        <div class="split-diag" aria-hidden="true">
+          <div class="box a"><span>claude</span></div>
+          <div class="box sel"><span>pnpm dev</span></div>
+          <div class="box"><span>zsh</span></div>
+        </div>
+      </article>
+
+      <article class="card b-pwd reveal">
+        <span class="badge" data-i18n="feat.pwd.badge">03 · PERSISTENT LAYOUT</span>
+        <h4 data-i18n="feat.pwd.title">Stays where you left it.</h4>
+        <p data-i18n="feat.pwd.body">Workspaces, tabs, split tree, and each terminal's <span class="mono">pwd</span> survive restart. Terminals are rebuilt by UUID into fresh surfaces — no session-serialization hacks.</p>
+        <div class="pwd-demo" aria-hidden="true">
+          <div class="line"><span class="t">Quit →</span></div>
+          <div class="line"><span class="p">~/code/TheAll/TheAll/Sidebar</span><span class="t">❯</span></div>
+          <div class="line arrow">       ↓  <span class="t" data-i18n="feat.pwd.reopen">relaunch</span></div>
+          <div class="line"><span class="p">~/code/TheAll/TheAll/Sidebar</span><span class="t">❯</span> <span style="color:var(--s-success)">■</span></div>
+        </div>
+      </article>
+
+      <article class="card b-meta reveal">
+        <span class="badge" data-i18n="feat.meta.badge">04 · SIDEBAR METADATA</span>
+        <h4 data-i18n="feat.meta.title">Branch, PR, notifications.</h4>
+        <p data-i18n="feat.meta.body">Each workspace row polls its git branch and open PR every 5 s, plus OSC hooks for live updates.</p>
+        <div class="meta-demo" aria-hidden="true">
+          <div class="meta-row"><span class="nm">TheAll</span><span class="br">master</span><span class="pr">PR #42</span><span class="nt">2</span></div>
+          <div class="meta-row"><span class="nm">landing-page</span><span class="br">agent/landing</span><span class="pr none">—</span><span class="nt zero">0</span></div>
+          <div class="meta-row"><span class="nm">docs-site</span><span class="br">main</span><span class="pr">PR #11</span><span class="nt zero">0</span></div>
+        </div>
+      </article>
+
+      <article class="card b-theme reveal">
+        <span class="badge" data-i18n="feat.theme.badge">05 · THEME</span>
+        <h4 data-i18n="feat.theme.title">Every ghostty theme. Live.</h4>
+        <p data-i18n="feat.theme.body">Ships with all ghostty themes. Edits hot-reload after 200 ms; TheAll's own chrome re-tints with the terminal.</p>
+        <div class="theme-demo" aria-hidden="true">
+          <div class="theme-sw" data-name="nocturne" style="background: linear-gradient(135deg,#0B0D10,#141820);"></div>
+          <div class="theme-sw" data-name="paper" style="background: linear-gradient(135deg,#EFEDE6,#D9D6CC);"></div>
+          <div class="theme-sw" data-name="teal" style="background: linear-gradient(135deg,#0E1B22,#1F3842);"></div>
+          <div class="theme-sw" data-name="sand" style="background: linear-gradient(135deg,#2A241D,#1A1611);"></div>
+        </div>
+      </article>
+
+      <article class="card b-shell reveal">
+        <span class="badge" data-i18n="feat.shell.badge">06 · SHELL</span>
+        <h4 data-i18n="feat.shell.title">zsh, fish, bash — integrated.</h4>
+        <p data-i18n="feat.shell.body">OSC 7 feeds the sidebar <span class="mono">pwd</span>. Ghostty integration features (cursor, sudo, title, ssh-env) are toggles in Settings → Shell.</p>
+        <div class="shell-demo" aria-hidden="true">
+          <span class="pill"><span class="dot"></span>zsh</span>
+          <span class="pill"><span class="dot"></span>fish</span>
+          <span class="pill"><span class="dot"></span>bash</span>
+          <span class="pill">osc 7</span>
+          <span class="pill">cursor</span>
+          <span class="pill">sudo</span>
+          <span class="pill">title</span>
+          <span class="pill">ssh-env</span>
+        </div>
+      </article>
+    </div>
+  </div>
+</section>
+
+<!-- ======= HOW IT WORKS ======= -->
+<section class="how">
+  <div class="container">
+    <div class="section-head reveal">
+      <span class="section-eyebrow" data-i18n="how.kicker">HOW IT WORKS</span>
+      <h2 class="section-title" data-i18n="how.title">Hooks in, hooks out. Local socket only.</h2>
+      <p class="section-sub" data-i18n="how.sub">Agents report what they're doing to a Unix domain socket on your machine. No cloud, no account, no telemetry.</p>
+    </div>
+
+    <div class="how-stage reveal">
+      <div class="flow">
+        <div class="step">
+          <svg width="44" height="44" viewBox="0 0 44 44" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+            <rect x="6" y="10" width="32" height="24" rx="3"/>
+            <path d="M12 20 l4 4 l-4 4"/>
+            <line x1="20" y1="28" x2="28" y2="28"/>
+          </svg>
+          <div class="i">01</div>
+          <h4 data-i18n="how.s1.title">Agent runs</h4>
+          <p data-i18n="how.s1.body">Claude Code, OpenCode, or Codex starts inside a TheAll tab.</p>
+        </div>
+        <div class="step">
+          <svg width="44" height="44" viewBox="0 0 44 44" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+            <path d="M8 22 h28"/>
+            <path d="M22 8 v28"/>
+            <circle cx="22" cy="22" r="4"/>
+            <circle cx="8" cy="22" r="2"/>
+            <circle cx="36" cy="22" r="2"/>
+            <circle cx="22" cy="8" r="2"/>
+            <circle cx="22" cy="36" r="2"/>
+          </svg>
+          <div class="i">02</div>
+          <h4 data-i18n="how.s2.title">Hook fires</h4>
+          <p data-i18n="how.s2.body">settings.json injection for Claude, bundled plugin for OpenCode, hooks for Codex.</p>
+        </div>
+        <div class="step">
+          <svg width="44" height="44" viewBox="0 0 44 44" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+            <rect x="6" y="14" width="32" height="16" rx="2"/>
+            <path d="M6 19 h32"/>
+            <circle cx="10" cy="16.5" r="0.8" fill="currentColor"/>
+            <circle cx="13" cy="16.5" r="0.8" fill="currentColor"/>
+            <path d="M12 24 l4 0 m4 0 l8 0"/>
+          </svg>
+          <div class="i">03</div>
+          <h4 data-i18n="how.s3.title">Unix socket</h4>
+          <p data-i18n="how.s3.body">A small JSON event streams to <span class="mono">~/Library/Caches/theall/hooks.sock</span>.</p>
+        </div>
+        <div class="step">
+          <svg width="44" height="44" viewBox="0 0 44 44" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+            <circle cx="22" cy="22" r="14"/>
+            <circle cx="22" cy="22" r="4" fill="currentColor" stroke="none"/>
+            <path d="M22 8 v-2 M22 36 v2 M8 22 h-2 M36 22 h2"/>
+          </svg>
+          <div class="i">04</div>
+          <h4 data-i18n="how.s4.title">UI updates</h4>
+          <p data-i18n="how.s4.body">Sidebar row, tab dot, and hover tooltip reflect the running turn — in real time.</p>
+        </div>
+      </div>
+      <div class="flow-note" data-i18n="how.note">NO NETWORK · LOCAL SOCKET · 100% ON-DEVICE</div>
+    </div>
+  </div>
+</section>
+
+<!-- ======= COMPARISON ======= -->
+<section class="cmp" id="download">
+  <div class="container">
+    <div class="section-head reveal">
+      <span class="section-eyebrow" data-i18n="cmp.kicker">COMPARED</span>
+      <h2 class="section-title" data-i18n="cmp.title">Next to the usual suspects.</h2>
+    </div>
+    <div class="cmp-wrap reveal">
+      <table class="cmp-table">
+        <thead>
+          <tr>
+            <th></th>
+            <th class="own">TheAll</th>
+            <th>Terminal.app</th>
+            <th>iTerm2</th>
+            <th>Warp</th>
+            <th>Ghostty</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td data-i18n="cmp.r.native">GPU-rendered terminal</td>
+            <td class="own"><span class="cmp-yes">●</span></td>
+            <td><span class="cmp-no">○</span></td>
+            <td><span class="cmp-partial">◐</span></td>
+            <td><span class="cmp-yes">●</span></td>
+            <td><span class="cmp-yes">●</span></td>
+          </tr>
+          <tr>
+            <td data-i18n="cmp.r.agent">Agent status in UI</td>
+            <td class="own"><span class="cmp-yes">●</span></td>
+            <td><span class="cmp-no">○</span></td>
+            <td><span class="cmp-no">○</span></td>
+            <td><span class="cmp-partial">◐</span></td>
+            <td><span class="cmp-no">○</span></td>
+          </tr>
+          <tr>
+            <td data-i18n="cmp.r.projects">Project-level workspaces</td>
+            <td class="own"><span class="cmp-yes">●</span></td>
+            <td><span class="cmp-no">○</span></td>
+            <td><span class="cmp-partial">◐</span></td>
+            <td><span class="cmp-yes">●</span></td>
+            <td><span class="cmp-no">○</span></td>
+          </tr>
+          <tr>
+            <td data-i18n="cmp.r.splits">Splits + keyboard focus</td>
+            <td class="own"><span class="cmp-yes">●</span></td>
+            <td><span class="cmp-no">○</span></td>
+            <td><span class="cmp-yes">●</span></td>
+            <td><span class="cmp-yes">●</span></td>
+            <td><span class="cmp-yes">●</span></td>
+          </tr>
+          <tr>
+            <td data-i18n="cmp.r.privacy">Bring your own API</td>
+            <td class="own"><span class="cmp-yes">●</span></td>
+            <td><span class="cmp-yes">●</span></td>
+            <td><span class="cmp-yes">●</span></td>
+            <td><span class="cmp-no">○</span></td>
+            <td><span class="cmp-yes">●</span></td>
+          </tr>
+          <tr>
+            <td data-i18n="cmp.r.themes">Live theme / font editing</td>
+            <td class="own"><span class="cmp-yes">●</span></td>
+            <td><span class="cmp-partial">◐</span></td>
+            <td><span class="cmp-yes">●</span></td>
+            <td><span class="cmp-yes">●</span></td>
+            <td><span class="cmp-partial">◐</span></td>
+          </tr>
+          <tr>
+            <td data-i18n="cmp.r.update">Automatic updates: not configured</td>
+            <td class="own"><span class="cmp-yes">●</span></td>
+            <td><span class="cmp-no">○</span></td>
+            <td><span class="cmp-yes">●</span></td>
+            <td><span class="cmp-yes">●</span></td>
+            <td><span class="cmp-yes">●</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ======= UNDER THE HOOD ======= -->
+<section class="stack">
+  <div class="container reveal">
+    <span class="section-eyebrow" data-i18n="stack.kicker">UNDER THE HOOD</span>
+    <h2 class="section-title" style="margin-top:16px" data-i18n="stack.title">Boring choices, on purpose.</h2>
+    <div class="stack-chips">
+      <span class="stack-chip">Swift</span>
+      <span class="stack-chip">AppKit</span>
+      <span class="stack-chip">SwiftUI</span>
+      <span class="stack-chip">Metal</span>
+      <span class="stack-chip">libghostty</span>
+      <span class="stack-chip">Sparkle</span>
+      <span class="stack-chip">Unix domain sockets</span>
+      <span class="stack-chip">OSC 7</span>
+      <span class="stack-chip">Xcode String Catalog</span>
+    </div>
+  </div>
+</section>
+
+<!-- ======= QUOTE ======= -->
+<section class="quote">
+  <div class="container reveal">
+    <svg class="quote-mark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+      <path d="M7 8h4v4H7a4 4 0 0 1 4-4M13 8h4v4h-4a4 4 0 0 1 4-4"/>
+    </svg>
+    <blockquote data-i18n="quote.body">The terminal should disappear until the agent needs you — and when it does, it should tell you before you ask.</blockquote>
+    <cite data-i18n="quote.cite">TheAll · DESIGN NOTES</cite>
+  </div>
+</section>
+
+<!-- ======= FAQ ======= -->
+<section class="faq" id="faq">
+  <div class="container">
+    <div class="section-head reveal">
+      <span class="section-eyebrow" data-i18n="faq.kicker">FAQ</span>
+      <h2 class="section-title" data-i18n="faq.title">Questions we expect.</h2>
+    </div>
+    <div class="faq-list reveal">
+      <details class="q"><summary><span data-i18n="faq.q1">Is TheAll open source?</span><span class="plus"></span></summary><div class="a" data-i18n="faq.a1">The source is publicly available on GitHub. Public availability does not grant a general license to use, modify or redistribute it. See LICENSE for the current notice.</div></details>
+      <details class="q"><summary><span data-i18n="faq.q2">Which agents are supported?</span><span class="plus"></span></summary><div class="a" data-i18n="faq.a2">Claude Code (via settings.json injection), OpenCode (via a bundled plugin), and Codex (via hooks — experimental). Each can be toggled in Settings → Agents.</div></details>
+      <details class="q"><summary><span data-i18n="faq.q3">Does it need internet?</span><span class="plus"></span></summary><div class="a" data-i18n="faq.a3">AI chats connect to your configured API endpoint. Local gateways are supported. Automatic updates are not configured for this build.</div></details>
+      <details class="q"><summary><span data-i18n="faq.q4">How does this relate to Ghostty?</span><span class="plus"></span></summary><div class="a" data-i18n="faq.a4">We use libghostty — ghostty's terminal engine — as a library, and expose its full config surface in Settings. Credit where it's due: the renderer is theirs. TheAll adds the workspace, tab, split, and agent-status layer on top.</div></details>
+      <details class="q"><summary><span data-i18n="faq.q5">System requirements?</span><span class="plus"></span></summary><div class="a" data-i18n="faq.a5">macOS 14 (Sonoma) or later. Apple Silicon is strongly recommended because libghostty uses Metal GPU rendering.</div></details>
+      <details class="q"><summary><span data-i18n="faq.q6">Which permissions apply?</span><span class="plus"></span></summary><div class="a" data-i18n="faq.a6">Permissions separately granted in writing remain applicable. Third-party components, including Ghostty and Sparkle, retain their own licenses. See LICENSE.</div></details>
+      <details class="q"><summary><span data-i18n="faq.q7">Can I switch language in-app?</span><span class="plus"></span></summary><div class="a" data-i18n="faq.a7">Yes — Settings → Appearance → Language: System / English / 简体中文. Switch takes effect without restart.</div></details>
+    </div>
+  </div>
+</section>
+
+<!-- ======= FOOTER ======= -->
+<footer>
+  <div class="container foot">
+    <div class="brand" style="gap:8px;">
+      <img class="brand-mark" style="width:16px; height:16px;" src="assets/logo.png" srcset="assets/logo.png 1x, assets/logo@2x.png 2x" alt="TheAll" />
+      <span class="brand-word" style="font-size:13px">TheAll</span>
+      <span style="color:var(--fg-3); font-size:12.5px; margin-left: 6px;" class="mono">© 2026</span>
+    </div>
+    <div class="foot-links"></div>
+    <div class="mono" style="font-size:12px;" data-i18n="foot.made">Made on macOS · <kbd>⌘</kbd><kbd>T</kbd></div>
+  </div>
+</footer>
+
+<!-- ================== LOGIC ================== -->
+<script>
+/* ---------- i18n ---------- */
+const i18n = {
+  en: {
+    "nav.features": "Features",
+    "nav.why": "Why TheAll",
+    "nav.download": "Download",
+    "nav.faq": "FAQ",
+    "nav.langLabel": "中文",
+    "hero.eyebrow": "macOS 14+ · Apple Silicon recommended",
+    "hero.title1": "The terminal that knows",
+    "hero.title2": "what your agent is doing.",
+    "hero.sub": "A native macOS terminal built on libghostty. Workspaces, tabs, and split panes for your repos — with live status for every Claude Code, OpenCode, and Codex session you run.",
+    "hero.cta.download": "Download for macOS",
+    "hero.cta.source": "View source",
+    "hero.meta.ver": "v0.1.3",
+    "sidebar.workspaces": "WORKSPACES",
+    "preview.caption": "Live preview — + add workspace/tab · double-click to rename · drag to reorder · type a command and hit Enter",
+    "preview.themeLabel": "Theme",
+    "why.kicker": "THREE IDEAS",
+    "why.title": "Native, agent-aware, project-first.",
+    "why.sub": "Three choices we made early, and kept making. The terminal we wanted after spending serious time with AI coding agents — never silent about what they're doing, never in the way when they aren't.",
+    "why.n.title": "Native. GPU-rendered.",
+    "why.n.body": "libghostty on Metal. Low-latency input, crisp text, and no Electron in your Dock.",
+    "why.a.title": "Agent-aware.",
+    "why.a.body": "Every sidebar row and tab icon reflects live state of Claude Code, OpenCode, and Codex — running, waiting for you, finished or failed.",
+    "why.p.title": "Project-first.",
+    "why.p.body": "Workspace → Tabs → Splits. Each workspace row shows its git branch, open PRs, and unread notifications. Your terminal, by repo.",
+    "feat.kicker": "FEATURES",
+    "feat.title": "Built for the way you already work.",
+    "feat.agent.badge": "01 · AGENT STATUS",
+    "feat.agent.title": "Five dots. A glance is enough.",
+    "feat.agent.body": "running · idle · needs input · success · failed — hover any icon to see which tool is running and (for Claude / Codex) the last assistant message.",
+    "feat.split.badge": "02 · SPLITS",
+    "feat.split.title": "⌘D · ⌘⇧D · done.",
+    "feat.split.body": "Binary split tree per tab. Cut horizontally or vertically, drag dividers, navigate panes with ⌘⌥↑↓←→.",
+    "feat.pwd.badge": "03 · PERSISTENT LAYOUT",
+    "feat.pwd.title": "Stays where you left it.",
+    "feat.pwd.body": "Workspaces, tabs, split tree, and each terminal's pwd survive restart. Terminals are rebuilt by UUID into fresh surfaces — no session-serialization hacks.",
+    "feat.pwd.reopen": "relaunch",
+    "feat.meta.badge": "04 · SIDEBAR METADATA",
+    "feat.meta.title": "Branch, PR, notifications.",
+    "feat.meta.body": "Each workspace row polls its git branch and open PR every 5 s, plus OSC hooks for live updates.",
+    "feat.theme.badge": "05 · THEME",
+    "feat.theme.title": "Every ghostty theme. Live.",
+    "feat.theme.body": "Ships with all ghostty themes. Edits hot-reload after 200 ms; TheAll's own chrome re-tints with the terminal.",
+    "feat.shell.badge": "06 · SHELL",
+    "feat.shell.title": "zsh, fish, bash — integrated.",
+    "feat.shell.body": "OSC 7 feeds the sidebar pwd. Ghostty integration features (cursor, sudo, title, ssh-env) are toggles in Settings → Shell.",
+    "how.kicker": "HOW IT WORKS",
+    "how.title": "Hooks in, hooks out. Local socket only.",
+    "how.sub": "Agents report what they're doing to a Unix domain socket on your machine. No cloud, no account, no telemetry.",
+    "how.s1.title": "Agent runs",
+    "how.s1.body": "Claude Code, OpenCode, or Codex starts inside a TheAll tab.",
+    "how.s2.title": "Hook fires",
+    "how.s2.body": "settings.json injection for Claude, bundled plugin for OpenCode, hooks for Codex.",
+    "how.s3.title": "Unix socket",
+    "how.s3.body": "A small JSON event streams to ~/Library/Caches/theall/hooks.sock.",
+    "how.s4.title": "UI updates",
+    "how.s4.body": "Sidebar row, tab dot, and hover tooltip reflect the running turn — in real time.",
+    "how.note": "NO NETWORK · LOCAL SOCKET · 100% ON-DEVICE",
+    "cmp.kicker": "COMPARED",
+    "cmp.title": "Next to the usual suspects.",
+    "cmp.r.native": "GPU-rendered terminal",
+    "cmp.r.agent": "Agent status in UI",
+    "cmp.r.projects": "Project-level workspaces",
+    "cmp.r.splits": "Splits + keyboard focus",
+    "cmp.r.privacy": "Bring your own API",
+    "cmp.r.themes": "Live theme / font editing",
+    "cmp.r.update": "Automatic updates: not configured",
+    "stack.kicker": "UNDER THE HOOD",
+    "stack.title": "Boring choices, on purpose.",
+    "quote.body": "The terminal should disappear until the agent needs you — and when it does, it should tell you before you ask.",
+    "quote.cite": "TheAll · DESIGN NOTES",
+    "faq.kicker": "FAQ",
+    "faq.title": "Questions we expect.",
+    "faq.q1": "Is TheAll open source?",
+    "faq.a1": "The source is publicly available on GitHub. Public availability does not grant a general license to use, modify or redistribute it. See LICENSE for the current notice.",
+    "faq.q2": "Which agents are supported?",
+    "faq.a2": "Claude Code (via settings.json injection), OpenCode (via a bundled plugin), and Codex (via hooks — experimental). Each can be toggled in Settings → Agents.",
+    "faq.q3": "Does it need internet?",
+    "faq.a3": "AI chats connect to your configured API endpoint. Local gateways are supported. Automatic updates are not configured for this build.",
+    "faq.q4": "How does this relate to Ghostty?",
+    "faq.a4": "We use libghostty — ghostty's terminal engine — as a library, and expose its full config surface in Settings. Credit where it's due: the renderer is theirs. TheAll adds the workspace, tab, split, and agent-status layer on top.",
+    "faq.q5": "System requirements?",
+    "faq.a5": "macOS 14 (Sonoma) or later. Apple Silicon is strongly recommended because libghostty uses Metal GPU rendering.",
+    "faq.q6": "Which permissions apply?",
+    "faq.a6": "Permissions separately granted in writing remain applicable. Third-party components, including Ghostty and Sparkle, retain their own licenses. See LICENSE.",
+    "faq.q7": "Can I switch language in-app?",
+    "faq.a7": "Yes — Settings → Appearance → Language: System / English / 简体中文. Switch takes effect without restart.",
+    "foot.releases": "Releases",
+    "foot.docs": "Docs",
+    "foot.issues": "Issues",
+    "foot.made": "Made on macOS",
+    // preview mock
+    "toast.disabled": "Settings aren't available in this preview.",
+    "toast.lastWorkspace": "Keep at least one workspace.",
+    "toast.renamePrompt": "Rename — press Enter to confirm, Esc to cancel.",
+    "term.welcome1": "TheAll preview shell · type 'help' for commands.",
+    "term.welcome2": "this is a mock — real TheAll runs libghostty on Metal.",
+    "term.unknown": "TheAll-preview: command not found:",
+    "term.helpTitle": "available commands:",
+    "term.help.ls": "  ls            list files in the current workspace",
+    "term.help.pwd": "  pwd           print working directory",
+    "term.help.echo": "  echo <text>   print text",
+    "term.help.claude": "  claude        start a Claude Code turn (simulated)",
+    "term.help.codex": "  codex         start a Codex turn (simulated)",
+    "term.help.opencode": "  opencode      start an OpenCode turn (simulated)",
+    "term.help.date": "  date          current date / time",
+    "term.help.neofetch": "  neofetch      print a TheAll info card",
+    "term.help.clear": "  clear         clear the screen",
+    "term.agent.start": "starting",
+    "term.agent.read": "reading files…",
+    "term.agent.plan": "planning next step",
+    "term.agent.edit": "edit ",
+    "term.agent.test": "running tests",
+    "term.agent.done": "turn complete",
+    "term.agent.needs": "waiting for your approval on tool call",
+    "term.agent.failedMsg": "tool error: typecheck failed",
+    "term.neofetch.os": "macOS 14.4 · Apple Silicon",
+    "term.neofetch.term": "TheAll v0.1.3 · libghostty · Metal",
+    "term.neofetch.shell": "zsh 5.9",
+    "term.neofetch.uptime": "uptime 1d 4h",
+    "term.neofetch.theme": "nocturne · 200 ms hot-reload",
+    "ctx.rename": "Rename",
+    "ctx.delete": "Delete",
+    "ctx.close": "Close",
+    "ctx.newTab": "New tab",
+    "ctx.terminal": "Terminal"
+  },
+  zh: {
+    "nav.features": "功能",
+    "nav.why": "为什么选 TheAll",
+    "nav.download": "下载",
+    "nav.faq": "常见问题",
+    "nav.langLabel": "EN",
+    "hero.eyebrow": "macOS 14+ · 推荐 Apple Silicon",
+    "hero.title1": "一个知道你的",
+    "hero.title2": "AI Agent 在干什么的终端。",
+    "hero.sub": "基于 libghostty 的原生 macOS 终端。为多仓库工作流而设计 —— 侧边栏实时显示每一个 Claude Code、OpenCode、Codex 会话的运行状态。",
+    "hero.cta.download": "下载 macOS 版",
+    "hero.cta.source": "查看源码",
+    "hero.meta.ver": "v0.1.3",
+    "sidebar.workspaces": "工作区",
+    "preview.caption": "实时预览 —— + 新建工作区/标签 · 双击重命名 · 拖拽排序 · 输入命令回车执行",
+    "preview.themeLabel": "主题",
+    "why.kicker": "三个理念",
+    "why.title": "原生、懂 Agent、以项目为单位。",
+    "why.sub": "三个我们一开始就选好的方向，也一直坚持。这是被 AI Agent 推着干活一段时间之后，我们给自己做的终端 —— Agent 在干什么时它不沉默，Agent 没事时它不碍事。",
+    "why.n.title": "原生 · GPU 渲染",
+    "why.n.body": "libghostty + Metal，输入低延迟，字体清晰，Dock 里不会多一个 Electron。",
+    "why.a.title": "感知 Agent",
+    "why.a.body": "侧边栏条目和标签图标实时反映 Claude Code / OpenCode / Codex 的运行、等待、完成、失败状态。",
+    "why.p.title": "以项目为单位",
+    "why.p.body": "Workspace → Tabs → Splits。每个工作区条目显示 git 分支、开着的 PR、未读通知。按仓库组织你的终端。",
+    "feat.kicker": "功能",
+    "feat.title": "贴合你本来的工作方式。",
+    "feat.agent.badge": "01 · Agent 状态",
+    "feat.agent.title": "五个点，一眼就懂。",
+    "feat.agent.body": "运行中 · 空闲 · 等待授权 · 成功 · 失败 —— 悬停还能看到当前工具名和（Claude / Codex）最后一条 assistant 消息。",
+    "feat.split.badge": "02 · 分栏",
+    "feat.split.title": "⌘D · ⌘⇧D · 搞定。",
+    "feat.split.body": "每个 tab 是一棵二叉分割树。横切、纵切、拖分隔线、⌘⌥↑↓←→ 切焦点 pane。",
+    "feat.pwd.badge": "03 · 布局持久化",
+    "feat.pwd.title": "停在你上次离开的地方。",
+    "feat.pwd.body": "workspace 列表、tab 列表、分割树、每个终端的 pwd 都跨重启保留。终端按 UUID 重建新的 surface，不序列化 session。",
+    "feat.pwd.reopen": "重启",
+    "feat.meta.badge": "04 · 侧边栏元信息",
+    "feat.meta.title": "分支、PR、通知。",
+    "feat.meta.body": "每个 workspace 条目每 5 秒后台轮询 git 分支和开着的 PR，加 OSC 钩子实时更新。",
+    "feat.theme.badge": "05 · 主题",
+    "feat.theme.title": "所有 ghostty 主题，实时。",
+    "feat.theme.body": "内置所有 ghostty 主题。改完 200 ms 后热重载，TheAll 自身界面色跟着重染。",
+    "feat.shell.badge": "06 · SHELL",
+    "feat.shell.title": "zsh、fish、bash —— 已集成。",
+    "feat.shell.body": "OSC 7 追踪目录喂给侧边栏。ghostty 的 shell-integration 特性（cursor / sudo / title / ssh-env）在 设置 → Shell 里逐项开关。",
+    "how.kicker": "工作原理",
+    "how.title": "Hook 进、Hook 出，只走本地 socket。",
+    "how.sub": "Agent 通过你机器上的 Unix domain socket 汇报自己在干什么。无云、无账号、无埋点。",
+    "how.s1.title": "Agent 启动",
+    "how.s1.body": "Claude Code、OpenCode 或 Codex 在 TheAll 的 tab 里启动。",
+    "how.s2.title": "Hook 触发",
+    "how.s2.body": "Claude 走 settings.json 注入，OpenCode 用内置插件，Codex 用 hooks。",
+    "how.s3.title": "Unix socket",
+    "how.s3.body": "一段很小的 JSON 事件写入 ~/Library/Caches/theall/hooks.sock。",
+    "how.s4.title": "UI 更新",
+    "how.s4.body": "侧边栏条目、tab 圆点、悬浮卡实时反映本轮进度。",
+    "how.note": "无网络 · 本地 socket · 100% 在设备上",
+    "cmp.kicker": "对比",
+    "cmp.title": "和老几位放一起看看。",
+    "cmp.r.native": "GPU 渲染终端",
+    "cmp.r.agent": "UI 中的 Agent 状态",
+    "cmp.r.projects": "项目级工作区",
+    "cmp.r.splits": "分栏 + 键盘聚焦",
+    "cmp.r.privacy": "无账号、离线可用",
+    "cmp.r.themes": "实时主题 / 字体",
+    "cmp.r.update": "自动更新：尚未配置",
+    "stack.kicker": "技术栈",
+    "stack.title": "有意选用的无聊技术。",
+    "quote.body": "平时终端应该隐身，只有当 Agent 需要你的时候才出来 —— 而且它得在你问之前就告诉你。",
+    "quote.cite": "TheAll · 设计笔记",
+    "faq.kicker": "常见问题",
+    "faq.title": "你可能会问。",
+    "faq.q1": "TheAll 开源吗？",
+    "faq.a1": "源代码在 GitHub 上公开。源码公开不代表授予通用的使用、修改或再分发许可，当前说明见 LICENSE。",
+    "faq.q2": "支持哪些 Agent？",
+    "faq.a2": "Claude Code（通过 settings.json 注入）、OpenCode（通过内置插件）、Codex（通过 hooks，实验性）。每一个都可以在 设置 → Agents 里独立开关。",
+    "faq.q3": "需要联网吗？",
+    "faq.a3": "AI 聊天会连接你配置的 API 地址，也支持本地网关。此构建尚未配置自动更新。",
+    "faq.q4": "和 Ghostty 是什么关系？",
+    "faq.a4": "我们把 ghostty 的终端引擎 libghostty 作为库使用，并在设置面板里暴露它的全部 config key。致敬原作者：渲染引擎是他们的。TheAll 在它之上加了 workspace、tab、split、Agent 状态这几层。",
+    "faq.q5": "系统要求？",
+    "faq.a5": "macOS 14（Sonoma）及以上。强烈推荐 Apple Silicon，因为 libghostty 用 Metal GPU 渲染。",
+    "faq.q6": "适用哪些许可？",
+    "faq.a6": "单独授予的书面许可继续适用。Ghostty、Sparkle 等第三方组件保留各自的许可证，详见 LICENSE。",
+    "faq.q7": "可以在应用里切中文吗？",
+    "faq.a7": "可以 —— 设置 → 外观 → 语言：跟随系统 / English / 简体中文。切换无需重启。",
+    "foot.releases": "发布",
+    "foot.docs": "文档",
+    "foot.issues": "反馈",
+    "foot.made": "用 macOS 做的",
+    // preview mock
+    "toast.disabled": "设置在预览中不可用。",
+    "toast.lastWorkspace": "至少保留一个工作区。",
+    "toast.renamePrompt": "重命名 —— 回车保存，Esc 取消。",
+    "term.welcome1": "TheAll 预览 shell · 输入 help 查看命令。",
+    "term.welcome2": "这是一个 mock —— 真实 TheAll 通过 Metal 驱动 libghostty。",
+    "term.unknown": "TheAll-preview: 未找到命令:",
+    "term.helpTitle": "可用命令：",
+    "term.help.ls": "  ls            列出当前工作区的文件",
+    "term.help.pwd": "  pwd           打印当前目录",
+    "term.help.echo": "  echo <文字>   输出文字",
+    "term.help.claude": "  claude        启动一次 Claude Code turn（模拟）",
+    "term.help.codex": "  codex         启动一次 Codex turn（模拟）",
+    "term.help.opencode": "  opencode      启动一次 OpenCode turn（模拟）",
+    "term.help.date": "  date          当前日期/时间",
+    "term.help.neofetch": "  neofetch      打印一张 TheAll 信息卡",
+    "term.help.clear": "  clear         清屏",
+    "term.agent.start": "启动中",
+    "term.agent.read": "读取文件…",
+    "term.agent.plan": "规划下一步",
+    "term.agent.edit": "编辑 ",
+    "term.agent.test": "跑测试",
+    "term.agent.done": "turn 完成",
+    "term.agent.needs": "等待工具调用授权",
+    "term.agent.failedMsg": "工具报错：typecheck 失败",
+    "term.neofetch.os": "macOS 14.4 · Apple Silicon",
+    "term.neofetch.term": "TheAll v0.1.3 · libghostty · Metal",
+    "term.neofetch.shell": "zsh 5.9",
+    "term.neofetch.uptime": "运行 1d 4h",
+    "term.neofetch.theme": "nocturne · 200 ms 热重载",
+    "ctx.rename": "重命名",
+    "ctx.delete": "删除",
+    "ctx.close": "关闭",
+    "ctx.newTab": "新建标签",
+    "ctx.terminal": "终端"
+  }
+};
+
+function applyLang(lang){
+  document.documentElement.lang = lang;
+  document.querySelectorAll("[data-i18n]").forEach(el => {
+    const k = el.getAttribute("data-i18n");
+    const v = i18n[lang]?.[k];
+    if(v != null) el.textContent = v;
+  });
+  localStorage.setItem("TheAll.lang", lang);
+  // re-render preview so any visible string picks up the new language
+  if (window.__TheAllPreview) window.__TheAllPreview.renderAll();
+}
+
+function t(key){
+  const lang = document.documentElement.lang || "en";
+  return i18n[lang]?.[key] ?? i18n.en[key] ?? key;
+}
+
+function applyTheme(theme){
+  document.documentElement.classList.toggle("dark", theme === "dark");
+  const sun = document.querySelector(".ic-sun");
+  const moon = document.querySelector(".ic-moon");
+  if(theme === "dark"){ sun.style.display = "none"; moon.style.display = "";}
+  else { sun.style.display = ""; moon.style.display = "none";}
+  localStorage.setItem("TheAll.theme", theme);
+}
+
+/* ==================== TERMINAL THEME SWITCHER ==================== */
+/* ~20 套常见 ghostty 主题，调色板从仓库自带 Vendor/ghostty/share/ghostty/themes 提取 */
+const TERM_THEMES = [
+  {n:"Dracula",m:"dark",bg:"#282a36",fg:"#f8f8f2",cu:"#f8f8f2",se:"#44475a",p:["#21222c","#ff5555","#50fa7b","#f1fa8c","#bd93f9","#ff79c6","#8be9fd","#f8f8f2","#6272a4","#ff6e6e","#69ff94","#ffffa5","#d6acff","#ff92df","#a4ffff","#ffffff"]},
+  {n:"Tokyo Night",m:"dark",bg:"#24283b",fg:"#c0caf5",cu:"#c0caf5",se:"#364a82",p:["#1d202f","#f7768e","#9ece6a","#e0af68","#7aa2f7","#bb9af7","#7dcfff","#a9b1d6","#4e5575","#f7768e","#9ece6a","#e0af68","#7aa2f7","#bb9af7","#7dcfff","#c0caf5"]},
+  {n:"Catppuccin Mocha",m:"dark",bg:"#1e1e2e",fg:"#cdd6f4",cu:"#f5e0dc",se:"#585b70",p:["#45475a","#f38ba8","#a6e3a1","#f9e2af","#89b4fa","#f5c2e7","#94e2d5","#a6adc8","#585b70","#f37799","#89d88b","#ebd391","#74a8fc","#f2aede","#6bd7ca","#bac2de"]},
+  {n:"Nord",m:"dark",bg:"#2e3440",fg:"#d8dee9",cu:"#eceff4",se:"#eceff4",p:["#3b4252","#bf616a","#a3be8c","#ebcb8b","#81a1c1","#b48ead","#88c0d0","#e5e9f0","#596377","#bf616a","#a3be8c","#ebcb8b","#81a1c1","#b48ead","#8fbcbb","#eceff4"]},
+  {n:"Gruvbox Dark",m:"dark",bg:"#282828",fg:"#ebdbb2",cu:"#ebdbb2",se:"#665c54",p:["#282828","#cc241d","#98971a","#d79921","#458588","#b16286","#689d6a","#a89984","#928374","#fb4934","#b8bb26","#fabd2f","#83a598","#d3869b","#8ec07c","#ebdbb2"]},
+  {n:"One Dark",m:"dark",bg:"#21252b",fg:"#abb2bf",cu:"#abb2bf",se:"#323844",p:["#21252b","#e06c75","#98c379","#e5c07b","#61afef","#c678dd","#56b6c2","#abb2bf","#767676","#e06c75","#98c379","#e5c07b","#61afef","#c678dd","#56b6c2","#abb2bf"]},
+  {n:"GitHub Dark",m:"dark",bg:"#0d1117",fg:"#e6edf3",cu:"#2f81f7",se:"#e6edf3",p:["#484f58","#ff7b72","#3fb950","#d29922","#58a6ff","#bc8cff","#39c5cf","#b1bac4","#6e7681","#ffa198","#56d364","#e3b341","#79c0ff","#d2a8ff","#56d4dd","#ffffff"]},
+  {n:"Tomorrow Night",m:"dark",bg:"#1d1f21",fg:"#c5c8c6",cu:"#c5c8c6",se:"#373b41",p:["#000000","#cc6666","#b5bd68","#f0c674","#81a2be","#b294bb","#8abeb7","#ffffff","#4c4c4c","#cc6666","#b5bd68","#f0c674","#81a2be","#b294bb","#8abeb7","#ffffff"]},
+  {n:"Ayu Mirage",m:"dark",bg:"#1f2430",fg:"#cccac2",cu:"#ffcc66",se:"#409fff",p:["#171b24","#ed8274","#87d96c","#facc6e","#6dcbfa","#dabafa","#90e1c6","#c7c7c7","#686868","#f28779","#d5ff80","#ffd173","#73d0ff","#dfbfff","#95e6cb","#ffffff"]},
+  {n:"Rosé Pine",m:"dark",bg:"#191724",fg:"#e0def4",cu:"#e0def4",se:"#403d52",p:["#26233a","#eb6f92","#31748f","#f6c177","#9ccfd8","#c4a7e7","#ebbcba","#e0def4","#6e6a86","#eb6f92","#31748f","#f6c177","#9ccfd8","#c4a7e7","#ebbcba","#e0def4"]},
+  {n:"Kanagawa Wave",m:"dark",bg:"#1f1f28",fg:"#dcd7ba",cu:"#dcd7ba",se:"#2d4f67",p:["#090618","#c34043","#76946a","#c0a36e","#7e9cd8","#957fb8","#6a9589","#c8c093","#727169","#e82424","#98bb6c","#e6c384","#7fb4ca","#938aa9","#7aa89f","#dcd7ba"]},
+  {n:"Everforest Dark",m:"dark",bg:"#1e2326",fg:"#d3c6aa",cu:"#e69875",se:"#4c3743",p:["#7a8478","#e67e80","#a7c080","#dbbc7f","#7fbbb3","#d699b6","#83c092","#f2efdf","#a6b0a0","#f85552","#8da101","#dfa000","#3a94c5","#df69ba","#35a77c","#fffbef"]},
+  {n:"Monokai Pro",m:"dark",bg:"#2d2a2e",fg:"#fcfcfa",cu:"#c1c0c0",se:"#5b595c",p:["#2d2a2e","#ff6188","#a9dc76","#ffd866","#fc9867","#ab9df2","#78dce8","#fcfcfa","#727072","#ff6188","#a9dc76","#ffd866","#fc9867","#ab9df2","#78dce8","#fcfcfa"]},
+  {n:"Night Owl",m:"dark",bg:"#011627",fg:"#d6deeb",cu:"#7e57c2",se:"#5f7e97",p:["#011627","#ef5350","#22da6e","#addb67","#82aaff","#c792ea","#21c7a8","#ffffff","#575656","#ef5350","#22da6e","#ffeb95","#82aaff","#c792ea","#7fdbca","#ffffff"]},
+  {n:"Cobalt2",m:"dark",bg:"#132738",fg:"#ffffff",cu:"#f0cc09",se:"#18354f",p:["#000000","#ff0000","#38de21","#ffe50a","#1460d2","#ff005d","#00bbbb","#bbbbbb","#555555","#f40e17","#3bd01d","#edc809","#5555ff","#ff55ff","#6ae3fa","#ffffff"]},
+  {n:"Solarized Dark",m:"dark",bg:"#001e27",fg:"#9eaeae",cu:"#708284",se:"#002831",p:["#002831","#d11c24","#738a05","#a57706","#2176c7","#c61c6f","#259286","#eae3cb","#475b62","#bd3613","#586e75","#657b83","#839496","#6c71c4","#93a1a1","#fcf4dc"]},
+  {n:"Synthwave 84",m:"dark",bg:"#2a2139",fg:"#f0eff1",cu:"#72f1b8",se:"#181521",p:["#171520","#f97e72","#72f1b8","#fede5d","#6d77b3","#c792ea","#f772e0","#fefefe","#848bbd","#f88414","#72f1b8","#fff951","#36f9f6","#e1acff","#f92aad","#fefefe"]},
+  {n:"Iceberg",m:"dark",bg:"#161821",fg:"#c6c8d1",cu:"#c6c8d1",se:"#272c42",p:["#1e2132","#e27878","#b4be82","#e2a478","#84a0c6","#a093c7","#89b8c2","#c6c8d1","#6b7089","#e98989","#c0ca8e","#e9b189","#91acd1","#ada0d3","#95c4ce","#d2d4de"]},
+  {n:"Snazzy",m:"dark",bg:"#1e1f29",fg:"#ebece6",cu:"#e4e4e4",se:"#81aec6",p:["#000000","#fc4346","#50fb7c","#f0fb8c","#49baff","#fc4cb4","#8be9fe","#ededec","#555555","#fc4346","#50fb7c","#f0fb8c","#49baff","#fc4cb4","#8be9fe","#ededec"]},
+  {n:"Material Ocean",m:"dark",bg:"#0f111a",fg:"#8f93a2",cu:"#ffcc00",se:"#1f2233",p:["#546e7a","#ff5370","#c3e88d","#ffcb6b","#82aaff","#c792ea","#89ddff","#ffffff","#717cb4","#ff5370","#c3e88d","#ffcb6b","#82aaff","#c792ea","#89ddff","#ffffff"]},
+  {n:"Catppuccin Latte",m:"light",bg:"#eff1f5",fg:"#4c4f69",cu:"#dc8a78",se:"#acb0be",p:["#5c5f77","#d20f39","#40a02b","#df8e1d","#1e66f5","#ea76cb","#179299","#acb0be","#6c6f85","#de293e","#49af3d","#eea02d","#456eff","#fe85d8","#2d9fa8","#bcc0cc"]},
+  {n:"GitHub Light",m:"light",bg:"#ffffff",fg:"#1f2328",cu:"#0969da",se:"#dbe6f3",p:["#24292f","#cf222e","#116329","#4d2d00","#0969da","#8250df","#1b7c83","#6e7781","#57606a","#a40e26","#1a7f37","#633c01","#218bff","#a475f9","#3192aa","#8c959f"]},
+  {n:"Gruvbox Light",m:"light",bg:"#fbf1c7",fg:"#3c3836",cu:"#3c3836",se:"#ebdbb2",p:["#fbf1c7","#cc241d","#98971a","#d79921","#458588","#b16286","#689d6a","#7c6f64","#928374","#9d0006","#79740e","#b57614","#076678","#8f3f71","#427b58","#3c3836"]}
+];
+
+function _h2r(h){ h=h.replace('#',''); if(h.length===3) h=h.split('').map(c=>c+c).join(''); return [parseInt(h.slice(0,2),16),parseInt(h.slice(2,4),16),parseInt(h.slice(4,6),16)]; }
+function _r2h(r){ return '#'+r.map(v=>Math.max(0,Math.min(255,Math.round(v))).toString(16).padStart(2,'0')).join(''); }
+function _mix(a,b,t){ const x=_h2r(a),y=_h2r(b); return _r2h([0,1,2].map(i=>x[i]+(y[i]-x[i])*t)); }
+
+/* 由 ghostty 调色板派生 TheAll chrome token + 终端输出色，与真实 AppTheme.derive 一致的混合思路 */
+function termThemeVars(th){
+  const bg=th.bg, fg=th.fg, p=th.p;
+  return {
+    '--term-bg': bg,
+    '--term-fg': fg,
+    '--term-sidebar': _mix(bg,fg,0.05),
+    '--term-dim': _mix(bg,fg,0.58),
+    '--term-tertiary': _mix(bg,fg,0.42),
+    '--term-border': _mix(bg,fg,0.13),
+    '--term-border-strong': _mix(bg,fg,0.24),
+    '--term-cursor': th.cu||fg,
+    '--out-muted': _mix(bg,fg,0.52),
+    '--out-ok': p[2],
+    '--out-warn': p[3],
+    '--out-err': p[1],
+    '--out-acc': p[6],
+    '--term-prompt-path': p[4],
+    '--term-prompt-branch': _mix(bg,fg,0.42),
+    '--term-prompt-caret': p[2]
+  };
+}
+
+const TERM_THEME_VARS = ['--term-bg','--term-fg','--term-sidebar','--term-dim','--term-tertiary','--term-border','--term-border-strong','--term-cursor','--out-muted','--out-ok','--out-warn','--out-err','--out-acc','--term-prompt-path','--term-prompt-branch','--term-prompt-caret'];
+
+function applyTermTheme(name){
+  const win = document.getElementById("preview-win");
+  const label = document.getElementById("term-theme-name");
+  if (!win) return;
+  const th = TERM_THEMES.find(t => t.n === name);
+  if (!th){
+    // 回到 TheAll 原生主题：清掉 inline 覆盖，跟随站点 light/dark token
+    TERM_THEME_VARS.forEach(v => win.style.removeProperty(v));
+    if (label) label.textContent = "TheAll (native)";
+    localStorage.setItem("TheAll.termTheme", "TheAll");
+    return;
+  }
+  const vars = termThemeVars(th);
+  Object.entries(vars).forEach(([k,v]) => win.style.setProperty(k, v));
+  if (label) label.textContent = th.n;
+  localStorage.setItem("TheAll.termTheme", th.n);
+}
+
+let _termMenuEl = null;
+function closeTermMenu(){
+  if (_termMenuEl){ _termMenuEl.remove(); _termMenuEl = null; }
+  document.removeEventListener("mousedown", _onTermMenuOutside, true);
+  document.removeEventListener("keydown", _onTermMenuKey);
+  window.removeEventListener("resize", positionTermMenu);
+  window.removeEventListener("scroll", positionTermMenu, true);
+}
+/* 滚动/缩放时不关闭，而是让弹窗重新锚定到按钮下方（按钮随页面滚动会移动） */
+function positionTermMenu(){
+  const menu = _termMenuEl;
+  const btn = document.getElementById("term-theme-btn");
+  if (!menu || !btn) return;
+  const r = btn.getBoundingClientRect();
+  const mw = menu.offsetWidth, mh = menu.offsetHeight;
+  let left = Math.max(8, Math.min(r.right - mw, window.innerWidth - mw - 8));
+  let top = r.bottom + 6;
+  if (top + mh + 8 > window.innerHeight) top = Math.max(8, r.top - mh - 6);
+  menu.style.left = left + "px";
+  menu.style.top = top + "px";
+}
+function _onTermMenuOutside(e){
+  const btn = document.getElementById("term-theme-btn");
+  if (_termMenuEl && !_termMenuEl.contains(e.target) && !(btn && btn.contains(e.target))) closeTermMenu();
+}
+function _onTermMenuKey(e){ if (e.key === "Escape") closeTermMenu(); }
+function swatchHtml(th){
+  if (!th){ // 原生 TheAll swatch
+    return `<span class="sw"><i class="sw-bg" style="background:#121213"></i>`+
+      `<i class="sw-dot" style="background:#F3A832"></i><i class="sw-dot" style="background:#3FBA50"></i>`+
+      `<i class="sw-dot" style="background:#F85149"></i><i class="sw-dot" style="background:#A3C8DC"></i></span>`;
+  }
+  const d = [th.p[1],th.p[2],th.p[4],th.p[5]];
+  return `<span class="sw"><i class="sw-bg" style="background:${th.bg}"></i>`+
+    d.map(c=>`<i class="sw-dot" style="background:${c}"></i>`).join("")+`</span>`;
+}
+function openTermMenu(){
+  closeTermMenu();
+  const btn = document.getElementById("term-theme-btn");
+  const cur = localStorage.getItem("TheAll.termTheme") || "TheAll";
+  const menu = document.createElement("div");
+  menu.className = "theme-menu";
+  menu.innerHTML = `<div class="theme-menu-head">Terminal theme</div>`;
+  const mkItem = (th) => {
+    const name = th ? th.n : "TheAll";
+    const b = document.createElement("button");
+    b.className = "theme-item" + (cur === name ? " active" : "");
+    b.innerHTML = swatchHtml(th)
+      + `<span class="tlabel">${th ? th.n : "TheAll (native)"}</span>`
+      + `<span class="tmode">${th ? th.m : ""}</span>`
+      + `<svg class="tcheck" width="13" height="13" viewBox="0 0 16 16"><polyline points="3,8.5 6.5,12 13,4.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+    b.addEventListener("click", () => { applyTermTheme(name); closeTermMenu(); });
+    return b;
+  };
+  menu.appendChild(mkItem(null));
+  TERM_THEMES.forEach(th => menu.appendChild(mkItem(th)));
+  document.body.appendChild(menu);
+  _termMenuEl = menu;
+  // 定位：按钮下方、右对齐（滚动/缩放时跟随按钮重新定位，不关闭）
+  positionTermMenu();
+  setTimeout(() => {
+    document.addEventListener("mousedown", _onTermMenuOutside, true);
+    document.addEventListener("keydown", _onTermMenuKey);
+    window.addEventListener("resize", positionTermMenu);
+    window.addEventListener("scroll", positionTermMenu, true);
+  }, 0);
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  // theme
+  const savedTheme = localStorage.getItem("TheAll.theme") || "dark";
+  applyTheme(savedTheme);
+
+  // lang
+  const savedLang = localStorage.getItem("TheAll.lang") ||
+    (navigator.language && navigator.language.toLowerCase().startsWith("zh") ? "zh" : "en");
+  applyLang(savedLang);
+
+  document.getElementById("theme-toggle").addEventListener("click", () => {
+    const next = document.documentElement.classList.contains("dark") ? "light" : "dark";
+    applyTheme(next);
+  });
+  document.getElementById("lang-toggle").addEventListener("click", () => {
+    const next = document.documentElement.lang === "zh" ? "en" : "zh";
+    applyLang(next);
+  });
+
+  // terminal theme switcher (mock preview)
+  applyTermTheme(localStorage.getItem("TheAll.termTheme") || "TheAll");
+  const termThemeBtn = document.getElementById("term-theme-btn");
+  if (termThemeBtn){
+    termThemeBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      if (_termMenuEl) { closeTermMenu(); return; }
+      openTermMenu();
+    });
+  }
+
+  // nav scroll state
+  const nav = document.getElementById("nav");
+  const onScroll = () => nav.classList.toggle("scrolled", window.scrollY > 6);
+  window.addEventListener("scroll", onScroll, {passive: true});
+  onScroll();
+
+  // reveal on scroll
+  const prefersReduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const reveals = document.querySelectorAll(".reveal");
+  if(prefersReduced){
+    reveals.forEach(r => r.classList.add("in"));
+  } else {
+    const vh = window.innerHeight || 800;
+    reveals.forEach(r => {
+      const rect = r.getBoundingClientRect();
+      if(rect.top < vh * 1.1) r.classList.add("in");
+    });
+    const io = new IntersectionObserver((entries) => {
+      entries.forEach(e => { if(e.isIntersecting){ e.target.classList.add("in"); io.unobserve(e.target);} });
+    }, {rootMargin: "0px 0px -5% 0px", threshold: 0.02});
+    reveals.forEach(r => { if(!r.classList.contains("in")) io.observe(r); });
+    setTimeout(() => {
+      document.querySelectorAll(".reveal:not(.in)").forEach(r => r.classList.add("in"));
+    }, 1500);
+  }
+
+  // preview wiring
+  initPreview();
+});
+
+/* ==================== INTERACTIVE PREVIEW ==================== */
+function initPreview(){
+  const uid = (() => { let n = 0; return () => "id_" + (++n); })();
+
+  const state = {
+    workspaces: [
+      {
+        id: uid(), name: "TheAll", branch: "master",
+        tabs: [
+          { id: uid(), name: "claude", status: "running",  pwd: "~/code/TheAll", history: defaultClaudeHistory() },
+          { id: uid(), name: "pnpm dev", status: "success", pwd: "~/code/TheAll", history: defaultPnpmHistory() },
+          { id: uid(), name: "zsh",     status: "idle",    pwd: "~/code/TheAll", history: defaultZshHistory() }
+        ],
+        selectedTabId: null
+      },
+      {
+        id: uid(), name: "landing-page", branch: "agent/landing",
+        tabs: [
+          { id: uid(), name: "codex", status: "needs", pwd: "~/code/TheAll/landing-page", history: defaultCodexHistory() }
+        ],
+        selectedTabId: null
+      },
+      {
+        id: uid(), name: "docs-site", branch: "main",
+        tabs: [
+          { id: uid(), name: "zsh", status: "idle", pwd: "~/code/docs-site", history: [] }
+        ],
+        selectedTabId: null
+      },
+      {
+        id: uid(), name: "sandbox", branch: "wip/ring",
+        tabs: [
+          { id: uid(), name: "zsh", status: "idle", pwd: "~/code/sandbox", history: [] }
+        ],
+        selectedTabId: null
+      }
+    ],
+    selectedWorkspaceId: null
+  };
+  // seed selection
+  state.selectedWorkspaceId = state.workspaces[0].id;
+  state.workspaces.forEach(w => { if(!w.selectedTabId) w.selectedTabId = w.tabs[0]?.id ?? null; });
+
+  function defaultClaudeHistory(){
+    return [
+      { kind: "cmd", pwd: "~/code/TheAll", branch: "master", cmd: "claude refactor TheAll/Sidebar" },
+      { kind: "out", cls: "muted", text: "⠋ reading 14 files…" },
+      { kind: "out", text: "• planning: extract WorkspaceRowItemView into its own file" },
+      { kind: "out", text: "• writing Sidebar/WorkspaceRowItemView.swift" },
+      { kind: "out", cls: "ok", text: "✓ typecheck passed (324ms)" },
+      { kind: "out", cls: "muted", text: "turn 2/4 · ▸ running tool Edit WorkspaceListView.swift" }
+    ];
+  }
+  function defaultPnpmHistory(){
+    return [
+      { kind: "cmd", pwd: "~/code/TheAll", branch: "master", cmd: "pnpm dev" },
+      { kind: "out", cls: "muted", text: "▲ ready on http://localhost:3000" },
+      { kind: "out", cls: "ok", text: "✓ compiled successfully" }
+    ];
+  }
+  function defaultZshHistory(){
+    return [
+      { kind: "cmd", pwd: "~/code/TheAll", branch: "master", cmd: "git log --oneline -3" },
+      { kind: "out", cls: "muted", text: "daaf63c · Initial commit" },
+      { kind: "out", cls: "muted", text: "     ↑ branch: master" }
+    ];
+  }
+  function defaultCodexHistory(){
+    return [
+      { kind: "cmd", pwd: "~/code/TheAll/landing-page", branch: "agent/landing", cmd: "codex apply index.html" },
+      { kind: "out", cls: "warn", text: "⏸  tool call awaiting approval" },
+      { kind: "out", cls: "muted", text: "  └─ Write landing-page/index.html" },
+      { kind: "out", text: "  [y] approve   [n] deny   [?] why" }
+    ];
+  }
+
+  // DOM refs
+  const wsList = document.getElementById("ws-list");
+  const wsAddBtn = document.getElementById("ws-add");
+  const tabBar = document.getElementById("tab-bar");
+  const termPane = document.getElementById("term-pane");
+  const toast = document.getElementById("toast");
+  const sidebar = document.getElementById("sidebar");
+  const sidebarScrim = document.getElementById("sidebar-scrim");
+  const sidebarToggle = document.getElementById("sidebar-toggle");
+  const previewWin = document.getElementById("preview-win");
+
+  function showToast(msg){
+    toast.textContent = msg;
+    toast.classList.add("show");
+    clearTimeout(showToast._t);
+    showToast._t = setTimeout(() => toast.classList.remove("show"), 1800);
+  }
+
+  // Simple context menu — 对齐真实 TheAll 右键菜单语义（NSMenu.popUpContextMenu）
+  let _ctxMenuEl = null;
+  function closeContextMenu(){
+    if (_ctxMenuEl){ _ctxMenuEl.remove(); _ctxMenuEl = null; }
+    document.removeEventListener("mousedown", _onCtxOutside, true);
+    document.removeEventListener("scroll", closeContextMenu, true);
+    window.removeEventListener("resize", closeContextMenu);
+    document.removeEventListener("keydown", _onCtxKey);
+  }
+  function _onCtxOutside(e){
+    if (_ctxMenuEl && !_ctxMenuEl.contains(e.target)) closeContextMenu();
+  }
+  function _onCtxKey(e){ if (e.key === "Escape") closeContextMenu(); }
+  function openContextMenu(x, y, items){
+    closeContextMenu();
+    const menu = document.createElement("div");
+    menu.className = "ctx-menu";
+    items.forEach(it => {
+      if (it.separator){
+        const s = document.createElement("div"); s.className = "ctx-sep";
+        menu.appendChild(s); return;
+      }
+      const b = document.createElement("button");
+      b.className = "ctx-item"
+        + (it.destructive ? " destructive" : "")
+        + (it.disabled ? " disabled" : "");
+      if (it.icon){
+        b.innerHTML = `<svg class="ctx-ico" width="14" height="14"><use href="#icon-${it.icon}"/></svg><span>${escapeHtml(it.label)}</span>`;
+      } else {
+        b.textContent = it.label;
+      }
+      if (!it.disabled){
+        b.addEventListener("click", () => { closeContextMenu(); it.onClick?.(); });
+      }
+      menu.appendChild(b);
+    });
+    document.body.appendChild(menu);
+    // Clamp inside viewport
+    const r = menu.getBoundingClientRect();
+    const vw = window.innerWidth, vh = window.innerHeight;
+    let nx = x, ny = y;
+    if (nx + r.width + 8 > vw) nx = Math.max(8, vw - r.width - 8);
+    if (ny + r.height + 8 > vh) ny = Math.max(8, vh - r.height - 8);
+    menu.style.left = nx + "px";
+    menu.style.top  = ny + "px";
+    _ctxMenuEl = menu;
+    setTimeout(() => {
+      document.addEventListener("mousedown", _onCtxOutside, true);
+      document.addEventListener("scroll", closeContextMenu, true);
+      window.addEventListener("resize", closeContextMenu);
+      document.addEventListener("keydown", _onCtxKey);
+    }, 0);
+  }
+
+  // wire disabled controls
+  document.querySelectorAll("[data-disabled-msg], .side-icon.disabled").forEach(el => {
+    el.addEventListener("click", (e) => {
+      e.preventDefault();
+      showToast(t("toast.disabled"));
+    });
+  });
+
+  function getSelWs(){ return state.workspaces.find(w => w.id === state.selectedWorkspaceId); }
+  function getSelTab(){
+    const ws = getSelWs(); if(!ws) return null;
+    return ws.tabs.find(tb => tb.id === ws.selectedTabId) ?? ws.tabs[0] ?? null;
+  }
+
+  function renderSidebar(){
+    wsList.innerHTML = "";
+    state.workspaces.forEach(ws => {
+      const row = document.createElement("div");
+      row.className = "ws-row" + (ws.id === state.selectedWorkspaceId ? " selected" : "");
+      row.dataset.wsId = ws.id;
+      row.draggable = true;
+
+      const name = document.createElement("div");
+      name.className = "name";
+      name.textContent = ws.name;
+      row.appendChild(name);
+
+      // 真实 TheAll: branchLabel.stringValue = "⎇ \(branch)"（mono 文字，非 SVG 图标）
+      const branch = document.createElement("div");
+      branch.className = "branch";
+      branch.textContent = "⎇ " + ws.branch;
+      row.appendChild(branch);
+
+      const dotWrap = document.createElement("div");
+      dotWrap.className = "dot-wrap";
+      const wsStatus = aggregateStatus(ws);
+      if (wsStatus !== "neverRan") {
+        const dot = document.createElement("span");
+        dot.className = "dot " + wsStatus;
+        dotWrap.appendChild(dot);
+      }
+      row.appendChild(dotWrap);
+
+      row.addEventListener("click", () => selectWorkspace(ws.id));
+      row.addEventListener("dblclick", (e) => { e.preventDefault(); startRenameWorkspace(row, ws); });
+      row.addEventListener("contextmenu", (e) => {
+        e.preventDefault();
+        openContextMenu(e.clientX, e.clientY, [
+          { label: t("ctx.rename"), onClick: () => startRenameWorkspace(row, ws) },
+          { separator: true },
+          { label: t("ctx.delete"), destructive: true,
+            disabled: state.workspaces.length <= 1,
+            onClick: () => deleteWorkspace(ws.id) }
+        ]);
+      });
+
+      // drag reorder
+      row.addEventListener("dragstart", (e) => {
+        e.dataTransfer.effectAllowed = "move";
+        e.dataTransfer.setData("text/TheAll-ws", ws.id);
+        row.classList.add("dragging");
+      });
+      row.addEventListener("dragend", () => {
+        row.classList.remove("dragging");
+        wsList.querySelectorAll(".ws-row").forEach(r => { r.classList.remove("drop-above","drop-below"); });
+      });
+      row.addEventListener("dragover", (e) => {
+        if (!e.dataTransfer.types.includes("text/TheAll-ws")) return;
+        e.preventDefault();
+        const rect = row.getBoundingClientRect();
+        const above = (e.clientY - rect.top) < rect.height / 2;
+        wsList.querySelectorAll(".ws-row").forEach(r => { r.classList.remove("drop-above","drop-below"); });
+        row.classList.toggle("drop-above", above);
+        row.classList.toggle("drop-below", !above);
+      });
+      row.addEventListener("dragleave", () => {
+        row.classList.remove("drop-above","drop-below");
+      });
+      row.addEventListener("drop", (e) => {
+        e.preventDefault();
+        const movedId = e.dataTransfer.getData("text/TheAll-ws");
+        if (!movedId || movedId === ws.id) return;
+        const rect = row.getBoundingClientRect();
+        const above = (e.clientY - rect.top) < rect.height / 2;
+        reorderWorkspace(movedId, ws.id, above);
+        row.classList.remove("drop-above","drop-below");
+      });
+
+      wsList.appendChild(row);
+    });
+  }
+
+  function renderTabBar(){
+    tabBar.innerHTML = "";
+    const ws = getSelWs();
+    if (!ws) return;
+
+    // 真实 TheAll: 圆角 strip 容器 + 外部独立 "+" 按钮
+    const strip = document.createElement("div");
+    strip.className = "tab-strip";
+
+    const canClose = ws.tabs.length > 1;
+
+    ws.tabs.forEach(tb => {
+      const item = document.createElement("button");
+      item.className = "tbi" + (tb.id === ws.selectedTabId ? " active" : "");
+      item.dataset.tabId = tb.id;
+      item.draggable = true;
+      item.innerHTML =
+        `<svg class="t-kind" width="13" height="13"><use href="#icon-${tabKind(tb.name)}"/></svg>` +
+        `<span class="tn">${escapeHtml(tb.name)}</span>` +
+        `<span class="dot t-dot ${tb.status}"></span>`;
+
+      item.addEventListener("click", () => selectTab(tb.id));
+      item.addEventListener("dblclick", (e) => { e.preventDefault(); startRenameTab(item, tb); });
+      item.addEventListener("contextmenu", (e) => {
+        e.preventDefault();
+        openContextMenu(e.clientX, e.clientY, [
+          { label: t("ctx.rename"), onClick: () => startRenameTab(item, tb) },
+          { separator: true },
+          { label: t("ctx.close"), destructive: true,
+            disabled: !canClose,
+            onClick: () => closeTab(tb.id) }
+        ]);
+      });
+
+      item.addEventListener("dragstart", (e) => {
+        e.dataTransfer.effectAllowed = "move";
+        e.dataTransfer.setData("text/TheAll-tab", tb.id);
+        item.classList.add("dragging");
+      });
+      item.addEventListener("dragend", () => {
+        item.classList.remove("dragging");
+        strip.querySelectorAll(".tbi").forEach(x => x.classList.remove("drop-before","drop-after"));
+      });
+      item.addEventListener("dragover", (e) => {
+        if (!e.dataTransfer.types.includes("text/TheAll-tab")) return;
+        e.preventDefault();
+        const rect = item.getBoundingClientRect();
+        const before = (e.clientX - rect.left) < rect.width / 2;
+        strip.querySelectorAll(".tbi").forEach(x => x.classList.remove("drop-before","drop-after"));
+        item.classList.toggle("drop-before", before);
+        item.classList.toggle("drop-after", !before);
+      });
+      item.addEventListener("drop", (e) => {
+        e.preventDefault();
+        const movedId = e.dataTransfer.getData("text/TheAll-tab");
+        if (!movedId || movedId === tb.id) return;
+        const rect = item.getBoundingClientRect();
+        const before = (e.clientX - rect.left) < rect.width / 2;
+        reorderTab(movedId, tb.id, before);
+        item.classList.remove("drop-before","drop-after");
+      });
+
+      strip.appendChild(item);
+    });
+
+    tabBar.appendChild(strip);
+
+    const add = document.createElement("button");
+    add.className = "tab-add";
+    add.title = t("ctx.newTab");
+    add.innerHTML = `<svg width="12" height="12"><use href="#icon-plus"/></svg>`;
+    // 真实 TheAll (c9b7e07): "+" 不再直接新建，而是弹出 Terminal + Quick Actions 下拉
+    add.addEventListener("click", (e) => {
+      e.preventDefault();
+      const r = add.getBoundingClientRect();
+      openContextMenu(r.left, r.bottom + 4, [
+        { label: t("ctx.terminal"), icon: "terminal", onClick: () => addTab("zsh") },
+        { separator: true },
+        { label: "claude",   icon: "claude",   onClick: () => addQuickActionTab("claude") },
+        { label: "codex",    icon: "codex",    onClick: () => addQuickActionTab("codex") },
+        { label: "opencode", icon: "opencode", onClick: () => addQuickActionTab("opencode") }
+      ]);
+    });
+    tabBar.appendChild(add);
+  }
+
+  function renderTerminal(){
+    const ws = getSelWs();
+    const tab = getSelTab();
+    if (!ws || !tab){
+      termPane.innerHTML = `<div class="muted">${t("term.welcome1")}</div>`;
+      return;
+    }
+    termPane.innerHTML = "";
+    if (tab.history.length === 0){
+      const w1 = lineEl("muted", t("term.welcome1"));
+      const w2 = lineEl("muted", t("term.welcome2"));
+      termPane.appendChild(w1); termPane.appendChild(w2);
+    } else {
+      tab.history.forEach(h => termPane.appendChild(historyEl(h)));
+    }
+    // append live prompt with input
+    const row = document.createElement("div");
+    row.className = "term-line term-input-row";
+    row.innerHTML = `<span class="prompt-head"><span class="p">${escapeHtml(tab.pwd)}</span> <span class="b">(${escapeHtml(ws.branch)})</span> <span class="c">❯</span></span>`;
+    const input = document.createElement("span");
+    input.className = "input";
+    input.contentEditable = "plaintext-only";
+    input.spellcheck = false;
+    input.setAttribute("role", "textbox");
+    input.setAttribute("aria-label", "terminal input");
+    input.addEventListener("keydown", onInputKeyDown);
+    input.addEventListener("paste", (e) => {
+      e.preventDefault();
+      const text = (e.clipboardData || window.clipboardData).getData("text").replace(/\n/g, " ");
+      document.execCommand("insertText", false, text);
+    });
+    row.appendChild(input);
+    termPane.appendChild(row);
+    termPane.scrollTop = termPane.scrollHeight;
+
+    // give it focus when pane clicked (once)
+    termPane.onclick = (e) => {
+      if (e.target.closest(".term-input-row")) return;
+      input.focus();
+      placeCaretAtEnd(input);
+    };
+    // auto-focus on tab switch (not on initial render to avoid scroll steal)
+    if (document.activeElement !== input && renderTerminal._userInteracted){
+      input.focus();
+      placeCaretAtEnd(input);
+    }
+  }
+
+  function historyEl(h){
+    if (h.kind === "cmd"){
+      const el = document.createElement("div");
+      el.className = "term-line prompt-head";
+      el.innerHTML = `<span class="p">${escapeHtml(h.pwd)}</span> <span class="b">(${escapeHtml(h.branch)})</span> <span class="c">❯</span> <span>${escapeHtml(h.cmd)}</span>`;
+      return el;
+    }
+    return lineEl(h.cls || "", h.text);
+  }
+  function lineEl(cls, text){
+    const el = document.createElement("div");
+    el.className = "term-line " + cls;
+    el.textContent = text;
+    return el;
+  }
+
+  function onInputKeyDown(e){
+    if (e.key === "Enter"){
+      e.preventDefault();
+      renderTerminal._userInteracted = true;
+      const input = e.currentTarget;
+      const cmd = (input.innerText || "").trim();
+      input.innerText = "";
+      runCommand(cmd);
+    } else if (e.key === "c" && (e.ctrlKey || e.metaKey)){
+      // let copy flow naturally
+    } else if (e.key === "l" && e.ctrlKey){
+      e.preventDefault();
+      clearTab();
+    } else if (e.key === "Tab"){
+      e.preventDefault();
+    }
+  }
+
+  function runCommand(raw){
+    const tab = getSelTab(); const ws = getSelWs();
+    if (!tab || !ws) return;
+    tab.history.push({ kind: "cmd", pwd: tab.pwd, branch: ws.branch, cmd: raw });
+    const argv = raw.split(/\s+/).filter(Boolean);
+    const cmd = argv[0];
+
+    if (!cmd){
+      renderTerminal();
+      return;
+    }
+    if (cmd === "help" || cmd === "?"){
+      tab.history.push({ kind: "out", text: t("term.helpTitle") });
+      ["ls","pwd","echo","claude","codex","opencode","date","neofetch","clear"].forEach(k => {
+        tab.history.push({ kind: "out", cls: "muted", text: t("term.help." + k) });
+      });
+    } else if (cmd === "clear"){
+      clearTab();
+      return;
+    } else if (cmd === "ls"){
+      const files = ["README.md","CLAUDE.md","docs/","landing-page/","TheAll/","TheAll.xcodeproj","project.yml","scripts/"];
+      tab.history.push({ kind: "out", cls: "acc", text: files.join("  ") });
+    } else if (cmd === "pwd"){
+      tab.history.push({ kind: "out", text: tab.pwd });
+    } else if (cmd === "echo"){
+      tab.history.push({ kind: "out", text: argv.slice(1).join(" ") });
+    } else if (cmd === "date"){
+      tab.history.push({ kind: "out", cls: "muted", text: new Date().toString() });
+    } else if (cmd === "neofetch"){
+      pushNeofetch(tab);
+    } else if (cmd === "claude" || cmd === "codex" || cmd === "opencode"){
+      renderTerminal();
+      runAgent(ws, tab, cmd);
+      return;
+    } else if (cmd === "cd"){
+      // tiny fake cd
+      const target = argv[1] || "~";
+      tab.pwd = resolvePwd(tab.pwd, target);
+    } else {
+      tab.history.push({ kind: "out", cls: "err", text: t("term.unknown") + " " + cmd });
+    }
+    renderTerminal();
+  }
+
+  function pushNeofetch(tab){
+    const lines = [
+      "   mmm   m   m  m   m   mmm",
+      "  m   m  #   #  #   #  m   m",
+      "  #   #  #   #   # #   #   #",
+      "   mmm   \"mmm\"     #     mmm  ",
+      ""
+    ];
+    lines.forEach(l => tab.history.push({ kind: "out", cls: "acc", text: l }));
+    tab.history.push({ kind: "out", text: "os    " + t("term.neofetch.os") });
+    tab.history.push({ kind: "out", text: "term  " + t("term.neofetch.term") });
+    tab.history.push({ kind: "out", text: "shell " + t("term.neofetch.shell") });
+    tab.history.push({ kind: "out", text: "theme " + t("term.neofetch.theme") });
+    tab.history.push({ kind: "out", text: "up    " + t("term.neofetch.uptime") });
+  }
+
+  function resolvePwd(cur, target){
+    if (target.startsWith("~") || target.startsWith("/")) return target;
+    if (target === "..") return cur.replace(/\/[^/]+$/, "") || "~";
+    if (target === "." || target === "") return cur;
+    return cur.replace(/\/?$/, "/") + target;
+  }
+
+  function clearTab(){
+    const tab = getSelTab();
+    if (!tab) return;
+    tab.history = [];
+    renderTerminal();
+  }
+
+  function runAgent(ws, tab, agent){
+    // sequence: status->running, print lines, then randomize outcome
+    setTabStatus(tab, "running");
+    renderTabBar(); renderSidebar();
+
+    const cmd = agent === "claude" ? "claude refactor" : agent === "codex" ? "codex apply" : "opencode chat";
+    const seq = [
+      { delay: 260, line: { kind: "out", cls: "muted", text: `⠋ ${agent} · ${t("term.agent.start")}` } },
+      { delay: 520, line: { kind: "out", cls: "muted", text: `⠙ ${t("term.agent.read")}` } },
+      { delay: 760, line: { kind: "out", cls: "acc", text: `• ${t("term.agent.plan")}` } },
+      { delay: 560, line: { kind: "out", cls: "acc", text: `• ${t("term.agent.edit")}src/main.swift` } },
+      { delay: 520, line: { kind: "out", cls: "muted", text: `⠼ ${t("term.agent.test")}` } }
+    ];
+    let i = 0;
+    const tick = () => {
+      if (tab.id !== getSelTab()?.id) { i = seq.length; }
+      if (i >= seq.length){
+        // random outcome
+        const r = Math.random();
+        if (r < 0.15){
+          tab.history.push({ kind: "out", cls: "warn", text: `⏸  ${t("term.agent.needs")}` });
+          setTabStatus(tab, "needs");
+        } else if (r < 0.3){
+          tab.history.push({ kind: "out", cls: "err", text: `✗ ${t("term.agent.failedMsg")}` });
+          setTabStatus(tab, "failed");
+        } else {
+          tab.history.push({ kind: "out", cls: "ok", text: `✓ ${t("term.agent.done")}` });
+          setTabStatus(tab, "success");
+        }
+        renderTabBar(); renderSidebar();
+        renderTerminal();
+        return;
+      }
+      const s = seq[i++];
+      tab.history.push(s.line);
+      renderTerminal();
+      setTimeout(tick, s.delay);
+    };
+    setTimeout(tick, 180);
+  }
+
+  function setTabStatus(tab, status){ tab.status = status; }
+
+  // 真实 TheAll: 标签图标来自该 tab 的 quick-action 图标资源；plain shell 用 SF "terminal"。
+  // claude→claudecode.svg, codex→codex.svg, opencode→opencode.svg（与 Assets.xcassets 1:1）
+  function tabKind(name){
+    const n = String(name || "").toLowerCase().trim();
+    if (n === "claude" || n.startsWith("claude ")) return "claude";
+    if (n === "codex" || n.startsWith("codex ")) return "codex";
+    if (n === "opencode" || n.startsWith("opencode ")) return "opencode";
+    return "terminal";
+  }
+
+  function aggregateStatus(ws){
+    if (!ws.tabs.length) return "neverRan";
+    const order = ["needs","failed","running","success","idle","neverRan"];
+    for (const s of order) if (ws.tabs.some(t => t.status === s)) return s;
+    return "idle";
+  }
+
+  // --- workspace ops
+  function selectWorkspace(id){
+    state.selectedWorkspaceId = id;
+    const ws = getSelWs();
+    if (ws && !ws.tabs.find(tb => tb.id === ws.selectedTabId)) ws.selectedTabId = ws.tabs[0]?.id ?? null;
+    renderAll();
+    closeMobileSidebar();
+  }
+  function addWorkspace(){
+    const names = ["new-repo","alpha","beta","gamma","playground","workspace"];
+    const existing = new Set(state.workspaces.map(w => w.name));
+    const base = names.find(n => !existing.has(n)) || "workspace";
+    let name = base, n = 2;
+    while (existing.has(name)) { name = base + "-" + (n++); }
+    const ws = {
+      id: uid(), name, branch: "main", tabs: [
+        { id: uid(), name: "zsh", status: "idle", pwd: "~/code/" + name, history: [] }
+      ], selectedTabId: null
+    };
+    ws.selectedTabId = ws.tabs[0].id;
+    state.workspaces.push(ws);
+    state.selectedWorkspaceId = ws.id;
+    renderAll();
+  }
+  function deleteWorkspace(id){
+    if (state.workspaces.length <= 1){ showToast(t("toast.lastWorkspace")); return; }
+    const idx = state.workspaces.findIndex(w => w.id === id);
+    if (idx < 0) return;
+    state.workspaces.splice(idx, 1);
+    if (state.selectedWorkspaceId === id){
+      state.selectedWorkspaceId = state.workspaces[Math.min(idx, state.workspaces.length - 1)].id;
+    }
+    renderAll();
+  }
+  function reorderWorkspace(movedId, targetId, above){
+    const from = state.workspaces.findIndex(w => w.id === movedId);
+    let to = state.workspaces.findIndex(w => w.id === targetId);
+    if (from < 0 || to < 0) return;
+    const [m] = state.workspaces.splice(from, 1);
+    to = state.workspaces.findIndex(w => w.id === targetId);
+    if (!above) to += 1;
+    state.workspaces.splice(to, 0, m);
+    renderAll();
+  }
+  function startRenameWorkspace(rowEl, ws){
+    const nameEl = rowEl.querySelector(".name");
+    if (!nameEl) return;
+    const input = document.createElement("input");
+    input.className = "rename-input";
+    input.value = ws.name;
+    input.title = t("toast.renamePrompt");
+    nameEl.replaceWith(input);
+    input.focus(); input.select();
+    const commit = (save) => {
+      const v = save ? input.value.trim() : null;
+      if (save && v && v !== ws.name) ws.name = v;
+      renderAll();
+    };
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter"){ e.preventDefault(); commit(true);}
+      else if (e.key === "Escape"){ e.preventDefault(); commit(false);}
+    });
+    input.addEventListener("blur", () => commit(true));
+  }
+
+  // --- tab ops
+  function selectTab(tabId){
+    const ws = getSelWs(); if (!ws) return;
+    ws.selectedTabId = tabId;
+    renderTabBar(); renderTerminal();
+  }
+  function addTab(forcedName){
+    const ws = getSelWs(); if (!ws) return;
+    let name = forcedName;
+    if (!name){
+      const names = ["zsh","pnpm dev","build","test"];
+      const existing = new Set(ws.tabs.map(t => t.name));
+      name = names.find(n => !existing.has(n)) || "zsh";
+    }
+    const tab = {
+      id: uid(), name, status: "idle",
+      pwd: "~/code/" + ws.name, history: []
+    };
+    ws.tabs.push(tab);
+    ws.selectedTabId = tab.id;
+    renderTabBar(); renderTerminal(); renderSidebar();
+  }
+  // Quick Action 新建：开一个 agent 标签并立即跑该 agent（演示下拉里的快捷操作）
+  function addQuickActionTab(agent){
+    const ws = getSelWs(); if (!ws) return;
+    const tab = {
+      id: uid(), name: agent, status: "idle",
+      pwd: "~/code/" + ws.name, history: []
+    };
+    ws.tabs.push(tab);
+    ws.selectedTabId = tab.id;
+    renderTabBar(); renderTerminal(); renderSidebar();
+    renderTerminal._userInteracted = true;
+    runAgent(ws, tab, agent);
+  }
+  function closeTab(tabId){
+    const ws = getSelWs(); if (!ws) return;
+    const idx = ws.tabs.findIndex(t => t.id === tabId);
+    if (idx < 0) return;
+    ws.tabs.splice(idx, 1);
+    if (ws.tabs.length === 0){
+      // ensure at least one tab in the workspace (mirrors real TheAll)
+      const tab = { id: uid(), name: "zsh", status: "idle", pwd: "~/code/" + ws.name, history: [] };
+      ws.tabs.push(tab);
+      ws.selectedTabId = tab.id;
+    } else if (ws.selectedTabId === tabId){
+      ws.selectedTabId = ws.tabs[Math.min(idx, ws.tabs.length - 1)].id;
+    }
+    renderTabBar(); renderTerminal(); renderSidebar();
+  }
+  function reorderTab(movedId, targetId, before){
+    const ws = getSelWs(); if (!ws) return;
+    const from = ws.tabs.findIndex(t => t.id === movedId);
+    let to = ws.tabs.findIndex(t => t.id === targetId);
+    if (from < 0 || to < 0) return;
+    const [m] = ws.tabs.splice(from, 1);
+    to = ws.tabs.findIndex(t => t.id === targetId);
+    if (!before) to += 1;
+    ws.tabs.splice(to, 0, m);
+    renderTabBar();
+  }
+
+  function renderAll(){
+    renderSidebar();
+    renderTabBar();
+    renderTerminal();
+  }
+
+  // sidebar 收缩 toggle：窄屏走抽屉，宽屏走 collapse（隐藏 sidebar，card 占满）
+  function openMobileSidebar(){
+    sidebar.classList.add("open");
+    sidebarScrim.classList.add("show");
+  }
+  function closeMobileSidebar(){
+    sidebar.classList.remove("open");
+    sidebarScrim.classList.remove("show");
+  }
+  function syncToggleTooltip(){
+    const collapsed = previewWin.classList.contains("collapsed");
+    sidebarToggle.title = collapsed ? "Show sidebar" : "Hide sidebar";
+  }
+  sidebarToggle.addEventListener("click", () => {
+    if (window.matchMedia("(max-width: 680px)").matches){
+      if (sidebar.classList.contains("open")) closeMobileSidebar(); else openMobileSidebar();
+    } else {
+      previewWin.classList.toggle("collapsed");
+      syncToggleTooltip();
+    }
+  });
+  sidebarScrim.addEventListener("click", closeMobileSidebar);
+
+  // add workspace button
+  wsAddBtn.addEventListener("click", addWorkspace);
+
+  // utils
+  function escapeHtml(s){
+    return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;" }[c]));
+  }
+  function placeCaretAtEnd(el){
+    const r = document.createRange(); r.selectNodeContents(el); r.collapse(false);
+    const s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+  }
+
+  window.__TheAllPreview = { renderAll };
+  renderAll();
+}
+</script>
+</body>
+</html>

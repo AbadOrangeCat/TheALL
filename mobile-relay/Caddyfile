@@ -1,0 +1,16 @@
+{
+	# Avoid request metadata (including cookies) in HTTP/proxy error logs.
+	# Access logging is deliberately not enabled.
+	log default {
+		exclude http.log.error http.log.access
+	}
+}
+
+{$PUBLIC_DOMAIN} {
+	header Strict-Transport-Security "max-age=31536000"
+	reverse_proxy relay:8080 {
+		transport http {
+			response_header_timeout 60s
+		}
+	}
+}

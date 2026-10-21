@@ -1,0 +1,194 @@
+# NOTE: ghostty builds a static library (.a) on macOS, not a dylib.
+# Run scripts/build-vendor.sh once to populate Vendor/ghostty/lib/
+# before opening the Xcode project. The .a file is gitignored.
+name: TheAll
+options:
+  bundleIdPrefix: com.theall
+  deploymentTarget:
+    macOS: "14.0"
+  xcodeVersion: "15"
+
+packages:
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    from: "2.6.0"
+
+targets:
+  TheAll:
+    type: application
+    platform: macOS
+    configFiles:
+      Debug: Config.xcconfig
+      Release: Config.xcconfig
+    sources:
+      - path: TheAll
+        excludes:
+          - "**/*.md"
+    info:
+      path: TheAll/Info.plist
+      properties:
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        CFBundleIdentifier: $(PRODUCT_BUNDLE_IDENTIFIER)
+        CFBundleName: $(THEALL_DISPLAY_NAME)
+        CFBundleDisplayName: $(THEALL_DISPLAY_NAME)
+        CFBundleExecutable: $(EXECUTABLE_NAME)
+        CFBundlePackageType: APPL
+        NSPrincipalClass: NSApplication
+        LSMinimumSystemVersion: $(MACOSX_DEPLOYMENT_TARGET)
+        SUEnableAutomaticChecks: NO
+        ITSAppUsesNonExemptEncryption: NO
+        TheAllPreviousNamespace: $(THEALL_PREVIOUS_NAMESPACE)
+        # TCC-protected folders — TheAll hosts shells that may read/write anywhere
+        # the user navigates. Declaring these keeps macOS from showing an
+        # unstable generic prompt, and lets grants persist across rebuilds.
+        NSDocumentsFolderUsageDescription: "TheAll needs access so terminal sessions can read and write files in your Documents folder."
+        NSDesktopFolderUsageDescription: "TheAll needs access so terminal sessions can read and write files on your Desktop."
+        NSDownloadsFolderUsageDescription: "TheAll needs access so terminal sessions can read and write files in your Downloads folder."
+        NSRemovableVolumesUsageDescription: "TheAll needs access so terminal sessions can read and write files on removable volumes."
+        NSNetworkVolumesUsageDescription: "TheAll needs access so terminal sessions can read and write files on mounted network volumes."
+        # TCC device access — TheAll hosts shells/dev-mode apps that may request the
+        # mic or camera. macOS attributes the child's request to TheAll (the
+        # "responsible process"), so the consent prompt is shown on TheAll's behalf
+        # and the grant persists against TheAll. Screen Recording needs no key here;
+        # TheAll just has to be enabled under System Settings › Privacy.
+        NSLocalNetworkUsageDescription: "TheAll connects your phone to this Mac on your local network so you can view workspaces and continue AI conversations."
+        NSMicrophoneUsageDescription: "TheAll lets terminal sessions and the apps they launch use the microphone."
+        NSCameraUsageDescription: "TheAll lets terminal sessions and the apps they launch use the camera."
+        NSAudioCaptureUsageDescription: "TheAll lets terminal sessions and the apps they launch capture system audio."
+        NSAppleEventsUsageDescription: "TheAll lets terminal sessions and the apps they launch send automation events to other apps."
+    postBuildScripts:
+      - name: Embed credential helper
+        script: |
+          set -e
+          mkdir -p "$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Helpers"
+          cp "$BUILT_PRODUCTS_DIR/TheAllCredentialHelper" "$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Helpers/TheAllCredentialHelper"
+        basedOnDependencyAnalysis: false
+      - name: Copy ghostty resources
+        script: |
+          set -e
+          SRC="${PROJECT_DIR}/Vendor/ghostty/share/ghostty"
+          DST="${BUILT_PRODUCTS_DIR}/${CONTENTS_FOLDER_PATH}/Resources/ghostty"
+          if [ -d "$SRC" ]; then
+            mkdir -p "$DST"
+            rm -rf "$DST"
+            cp -R "$SRC" "$DST"
+          fi
+        basedOnDependencyAnalysis: false
+      - name: Copy theall agent hooks
+        script: |
+          rm -rf "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/agent-hooks"
+          mkdir -p "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/agent-hooks"
+          cp -R "$SRCROOT/Resources/agent-hooks/" "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/agent-hooks/"
+          chmod +x "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/agent-hooks/"*.sh 2>/dev/null || true
+
+          # --- auto-activate theall status hooks by appending to ghostty's shell-integration scripts ---
+
+          _theall_append_once() {
+              # $1: target file  $2: marker  $3: line to append
+              local f="$1" marker="$2" line="$3"
+              [ -f "$f" ] || return 0
+              grep -q "$marker" "$f" 2>/dev/null && return 0
+              {
+                  echo ""
+                  echo "# theall: auto-load agent status hooks"
+                  echo "$line"
+              } >> "$f"
+          }
+
+          GHOSTTY_DIR="$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/ghostty/shell-integration"
+
+          # zsh — find which file ghostty ships (different ghostty versions name it differently)
+          for candidate in "$GHOSTTY_DIR/zsh/.zshrc" \
+                           "$GHOSTTY_DIR/zsh/ghostty-integration" \
+                           "$GHOSTTY_DIR/zsh/.zshenv"; do
+              _theall_append_once "$candidate" "THEALL_AGENT_HOOKS_DIR" \
+                  '[ -f "$THEALL_AGENT_HOOKS_DIR/bootstrap.zsh" ] && source "$THEALL_AGENT_HOOKS_DIR/bootstrap.zsh"'
+          done
+
+          # bash — ghostty typically uses bash-integration / ghostty.bash or an rc-file
+          for candidate in "$GHOSTTY_DIR/bash/bash-preexec.sh" \
+                           "$GHOSTTY_DIR/bash/ghostty.bash" \
+                           "$GHOSTTY_DIR/bash/ghostty-bash-integration.bash"; do
+              _theall_append_once "$candidate" "THEALL_AGENT_HOOKS_DIR" \
+                  '[ -f "$THEALL_AGENT_HOOKS_DIR/bootstrap.bash" ] && source "$THEALL_AGENT_HOOKS_DIR/bootstrap.bash"'
+          done
+
+          # fish — ghostty drops an auto-loaded conf.d file
+          for candidate in "$GHOSTTY_DIR/fish/vendor_conf.d/ghostty-shell-integration.fish" \
+                           "$GHOSTTY_DIR/fish/conf.d/ghostty-shell-integration.fish"; do
+              _theall_append_once "$candidate" "THEALL_AGENT_HOOKS_DIR" \
+                  'test -f "$THEALL_AGENT_HOOKS_DIR/bootstrap.fish"; and source "$THEALL_AGENT_HOOKS_DIR/bootstrap.fish"'
+          done
+        basedOnDependencyAnalysis: false
+    settings:
+      base:
+        SWIFT_OBJC_BRIDGING_HEADER: TheAll/Ghostty/ghostty-bridging-header.h
+        LIBRARY_SEARCH_PATHS: $(PROJECT_DIR)/Vendor/ghostty/lib
+        HEADER_SEARCH_PATHS: $(PROJECT_DIR)/Vendor/ghostty/include
+        OTHER_LDFLAGS: -lghostty -lc++ -framework Carbon
+        MACOSX_DEPLOYMENT_TARGET: "14.0"
+        LD_RUNPATH_SEARCH_PATHS: '@executable_path/../Frameworks'
+        CODE_SIGN_STYLE: $(THEALL_CODE_SIGN_STYLE)
+        CODE_SIGN_ENTITLEMENTS: TheAll/TheAll.entitlements
+        ENABLE_HARDENED_RUNTIME: YES
+        PRODUCT_NAME: TheAll
+        PRODUCT_MODULE_NAME: TheAll
+        MARKETING_VERSION: "0.1.3"
+        CURRENT_PROJECT_VERSION: "3"
+      configs:
+        # Debug 构建用独立 bundle id + display name，让 TCC / LaunchServices /
+        # UserDefaults / Sparkle 都按 bundle id 分家，开发实例跟 /Applications
+        # 装的正式版本可以并存、互不踩授权记录。
+        Debug:
+          PRODUCT_BUNDLE_IDENTIFIER: $(THEALL_APP_IDENTIFIER)
+          THEALL_DISPLAY_NAME: TheAll dev
+        Release:
+          PRODUCT_BUNDLE_IDENTIFIER: $(THEALL_APP_IDENTIFIER)
+          THEALL_DISPLAY_NAME: TheAll
+    dependencies:
+      - target: TheAllCredentialHelper
+      - sdk: Metal.framework
+      - sdk: QuartzCore.framework
+      - sdk: AppKit.framework
+      - package: Sparkle
+        product: Sparkle
+
+  TheAllCredentialHelper:
+    type: tool
+    platform: macOS
+    configFiles:
+      Debug: Config.xcconfig
+      Release: Config.xcconfig
+    sources:
+      - path: CredentialHelper
+      - path: TheAll/AI/AICredentialHelperProtocol.swift
+    settings:
+      base:
+        PRODUCT_NAME: TheAllCredentialHelper
+        CODE_SIGN_STYLE: $(THEALL_CODE_SIGN_STYLE)
+        ENABLE_HARDENED_RUNTIME: YES
+        CODE_SIGN_INJECT_BASE_ENTITLEMENTS: NO
+        OTHER_CODE_SIGN_FLAGS: $(inherited) --identifier $(PRODUCT_BUNDLE_IDENTIFIER)
+        MACOSX_DEPLOYMENT_TARGET: "14.0"
+      configs:
+        Debug:
+          PRODUCT_BUNDLE_IDENTIFIER: $(THEALL_APP_IDENTIFIER).credential-helper
+        Release:
+          PRODUCT_BUNDLE_IDENTIFIER: $(THEALL_APP_IDENTIFIER).credential-helper
+
+  TheAllTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - TheAllTests
+    settings:
+      base:
+        MACOSX_DEPLOYMENT_TARGET: "14.0"
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: $(BUILT_PRODUCTS_DIR)/TheAll.app/Contents/MacOS/TheAll
+        # 测试目标链接 theall 模块时会重新扫描 bridging header，
+        # 因此同样需要能解析到 <ghostty.h>。
+        HEADER_SEARCH_PATHS: $(PROJECT_DIR)/Vendor/ghostty/include
+    dependencies:
+      - target: TheAll
