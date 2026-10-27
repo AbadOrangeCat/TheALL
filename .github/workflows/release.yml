@@ -375,6 +375,13 @@ jobs:
             CHANGELOG.md \
             > appcast.xml
 
+      # Fail closed until the pipeline supplies the replaceable gettext runtime
+      # and matching source bundle described in docs/build.md.
+      - name: Verify distribution prerequisites
+        run: |
+          python3 scripts/verify-release-bundle.py build/Build/Products/Release/TheAll.app \
+            --sources "TheAll-${VERSION}-third-party-sources.tar.gz"
+
       - name: Create and push git tag
         run: |
           git config user.name "github-actions[bot]"
@@ -389,6 +396,7 @@ jobs:
           gh release create "$TAG" \
             "${{ steps.dmg.outputs.path }}" \
             appcast.xml \
+            "TheAll-${VERSION}-third-party-sources.tar.gz" \
             --title "$TAG" \
             --notes-file CHANGELOG.md
 

@@ -75,11 +75,31 @@ targets:
             cp -R "$SRC" "$DST"
           fi
         basedOnDependencyAnalysis: false
+      - name: Copy runtime licenses and optional dynamic gettext
+        script: |
+          set -eu
+          RESOURCE_DIR="$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH"
+          rm -rf "$RESOURCE_DIR/ThirdPartyLicenses"
+          cp -R "$SRCROOT/Resources/ThirdPartyLicenses" "$RESOURCE_DIR/ThirdPartyLicenses"
+          cp "$SRCROOT/LICENSE" "$RESOURCE_DIR/TheAll-LICENSE.txt"
+          if [ -n "${THEALL_INTL_LIBRARY:-}" ]; then
+            mkdir -p "$TARGET_BUILD_DIR/$FRAMEWORKS_FOLDER_PATH"
+            cp "$THEALL_INTL_LIBRARY" "$TARGET_BUILD_DIR/$FRAMEWORKS_FOLDER_PATH/libintl.8.dylib"
+            codesign --force --sign "$EXPANDED_CODE_SIGN_IDENTITY" --timestamp=none --options=runtime \
+              "$TARGET_BUILD_DIR/$FRAMEWORKS_FOLDER_PATH/libintl.8.dylib"
+          else
+            rm -f "$TARGET_BUILD_DIR/$FRAMEWORKS_FOLDER_PATH/libintl.8.dylib"
+          fi
+        outputFiles:
+          - "$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/ThirdPartyLicenses"
+          - "$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/TheAll-LICENSE.txt"
+        basedOnDependencyAnalysis: false
       - name: Copy theall agent hooks
         script: |
           rm -rf "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/agent-hooks"
           mkdir -p "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/agent-hooks"
-          cp -R "$SRCROOT/Resources/agent-hooks/" "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/agent-hooks/"
+          rsync -a --exclude tests --exclude __pycache__ --exclude .pytest_cache --exclude '*.pyc' \
+            "$SRCROOT/Resources/agent-hooks/" "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/agent-hooks/"
           chmod +x "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/agent-hooks/"*.sh 2>/dev/null || true
 
           # --- auto-activate theall status hooks by appending to ghostty's shell-integration scripts ---
@@ -126,7 +146,7 @@ targets:
         SWIFT_OBJC_BRIDGING_HEADER: TheAll/Ghostty/ghostty-bridging-header.h
         LIBRARY_SEARCH_PATHS: $(PROJECT_DIR)/Vendor/ghostty/lib
         HEADER_SEARCH_PATHS: $(PROJECT_DIR)/Vendor/ghostty/include
-        OTHER_LDFLAGS: -lghostty -lc++ -framework Carbon
+        OTHER_LDFLAGS: $(THEALL_INTL_LIBRARY) $(THEALL_GHOSTTY_LIBRARY) -lc++ -framework Carbon
         MACOSX_DEPLOYMENT_TARGET: "14.0"
         LD_RUNPATH_SEARCH_PATHS: '@executable_path/../Frameworks'
         CODE_SIGN_STYLE: $(THEALL_CODE_SIGN_STYLE)

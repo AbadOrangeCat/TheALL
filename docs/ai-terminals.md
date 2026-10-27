@@ -14,7 +14,14 @@ After connecting, TheAll provides a native chat transcript and input box. The mo
 dropdown sits directly to the left of Send/Stop below the input; the clickable working-folder path is at the left edge of that row. The model-change hint appears only after changing the model and disappears when a message is submitted with that selection. Changing it affects the **next submitted message**:
 it does not interrupt a running turn, replace the process, erase history, or alter
 the draft. Send with the button or Cmd+Return; Return inserts a newline. Stop
-interrupts the active turn. All tool operations run automatically, including file edits,
+interrupts the active turn. In the native composer, Up on the first visual line recalls
+older questions from the current conversation; Down on the last visual line moves
+forward and restores the draft and caret saved before browsing. Recalled questions
+can be edited and sent again without changing their original transcript entries.
+History is also available after restoring a saved conversation. Multiline cursor
+movement, selected text, modified arrows and input-method candidate selection stay
+native. A phone message arriving during browsing is included on the next browsing
+pass; it does not replace the saved desktop draft. All tool operations run automatically, including file edits,
 deletions, dependency installation, tests and pushes, as explicitly selected by the user.
 Only questions requiring a user answer appear above the input. Routine Bash/Read/tool records are
 hidden; actual provider thinking/summary text is shown expanded during generation.

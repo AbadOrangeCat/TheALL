@@ -6,10 +6,8 @@
 # project.yml 是版本号唯一 source of truth（见 docs/build.md#release-流程），
 # landing 里所有 "vX.Y.Z" 字样都应以它为准。
 #
-# 匹配规则：
-#   用 perl 正则把 landing-page/index.html 中所有形如 "vMAJOR.MINOR.PATCH"
-#   的字串替换成当前的 MARKETING_VERSION。只匹配前缀 v + 三段数字版本号，
-#   其他内容（日期、macOS 14.4、uptime 等）都不会被误伤。
+# 匹配规则：版本标签 vX.Y.Z、TheAll-X.Y.Z 下载文件名和 JSON-LD
+# softwareVersion。其他内容（日期、macOS 14 等）不变。
 #
 # 用法：
 #   ./scripts/sync-landing-version.sh          # 原地改 landing-page/index.html
@@ -42,8 +40,8 @@ if [[ "${1-}" == "--check" ]]; then
   mode="check"
 fi
 
-# Landing 里所有形如 vX.Y.Z 的版本号都应等于 $version。
-stale="$(grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' "$landing_html" | grep -vx "v$version" || true)"
+# Check visible tags, download filenames and structured data together.
+stale="$(perl -ne 'while (/(?:v|TheAll-)([0-9]+\.[0-9]+\.[0-9]+)|"softwareVersion"\s*:\s*"([0-9]+\.[0-9]+\.[0-9]+)"/g) { print(($1 // $2), "\n") }' "$landing_html" | grep -vx "$version" || true)"
 
 if [[ -z "$stale" ]]; then
   # 全部已经是最新版本。
@@ -58,5 +56,5 @@ if [[ "$mode" == "check" ]]; then
 fi
 
 # 原地替换：perl 比 sed 的 -i 更跨平台（macOS 与 GNU 行为一致）。
-perl -i -pe "s/v[0-9]+\.[0-9]+\.[0-9]+/v$version/g" "$landing_html"
+THEALL_RELEASE_VERSION="$version" perl -i -pe 's/(v|TheAll-)[0-9]+\.[0-9]+\.[0-9]+/$1$ENV{THEALL_RELEASE_VERSION}/g; s/("softwareVersion"\s*:\s*")[0-9]+\.[0-9]+\.[0-9]+/$1$ENV{THEALL_RELEASE_VERSION}/g' "$landing_html"
 echo "synced landing-page/index.html -> v$version"

@@ -1,0 +1,202 @@
+[
+  {
+    "file": "Ghostty-LICENSE.txt",
+    "source": "https://github.com/ghostty-org/ghostty/blob/81af65766f319a954a26196b4812d159496d4f00/LICENSE",
+    "sha256": "386211873e5b7a02f663ae4d7adf96285999f91608f8f9f31fecfd0f4095e6f1"
+  },
+  {
+    "file": "Sparkle-LICENSE.txt",
+    "source": "https://github.com/sparkle-project/Sparkle/blob/066e75a8b3e99962685d6a90cdd5293ebffd9261/LICENSE",
+    "sha256": "389a4e4e9a32f059775b13a06e25a591445ba229d2838d26dd3e7c0c45127cfe"
+  },
+  {
+    "file": "libxev-LICENSE.txt",
+    "source": "https://deps.files.ghostty.org/libxev-34fa50878aec6e5fa8f532867001ab3c36fae23e.tar.gz#LICENSE",
+    "sha256": "fcd26bcead569a910dd778cb864e027683498ca414e15db1694a5893eee1b835"
+  },
+  {
+    "file": "vaxis-LICENSE.txt",
+    "source": "https://deps.files.ghostty.org/vaxis-7dbb9fd3122e4ffad262dd7c151d80d863b68558.tar.gz#LICENSE",
+    "sha256": "cca4ffa6a45c0b17d3e9840b4cbe5be1e76ab84fda69850e0cb3f117729eeeea"
+  },
+  {
+    "file": "zig-objc-LICENSE.txt",
+    "source": "https://deps.files.ghostty.org/zig_objc-f356ed02833f0f1b8e84d50bed9e807bf7cdc0ae.tar.gz#LICENSE",
+    "sha256": "fcd26bcead569a910dd778cb864e027683498ca414e15db1694a5893eee1b835"
+  },
+  {
+    "file": "uucode/LICENSE.md",
+    "source": "https://deps.files.ghostty.org/uucode-0.2.0-ZZjBPqZVVABQepOqZHR7vV_NcaN-wats0IB6o-Exj6m9.tar.gz#LICENSE.md",
+    "sha256": "312e901e142be2477b4ca859e9311f9e3f80d33372991759b7921c1893605f33"
+  },
+  {
+    "file": "zf-LICENSE.txt",
+    "source": "https://deps.files.ghostty.org/zf-3c52637b7e937c5ae61fd679717da3e276765b23.tar.gz#LICENSE",
+    "sha256": "0629000344ad0dc3c6e0e4c1b0c4a5cacf090e17d56e8bc5272705e3d35b7def"
+  },
+  {
+    "file": "JetBrainsMono-OFL.txt",
+    "source": "https://deps.files.ghostty.org/JetBrainsMono-2.304.tar.gz#OFL.txt",
+    "sha256": "30f0c136e3c88e422d0791acd97238870f9054a9729bc34cf2ff0d4ed8cac4ad"
+  },
+  {
+    "file": "NerdFontsSymbolsOnly-LICENSE.txt",
+    "source": "https://deps.files.ghostty.org/NerdFontsSymbolsOnly-3.4.0.tar.gz#LICENSE",
+    "sha256": "84a7a98c82140fb12c37fe42b93805baa16024cb3e5acc599b7ffe612c55d847"
+  },
+  {
+    "file": "Breakpad-LICENSE.txt",
+    "source": "https://deps.files.ghostty.org/breakpad-b99f444ba5f6b98cac261cbb391d8766b34a5918.tar.gz#LICENSE",
+    "sha256": "69b3d80c19a460e09716910d54d1ada5d800716e2b73751bebac44352590f646"
+  },
+  {
+    "file": "ImGui-LICENSE.txt",
+    "source": "https://github.com/ocornut/imgui/archive/refs/tags/v1.92.5-docking.tar.gz#LICENSE.txt",
+    "sha256": "c80c5789748d955c4a650562baa0d750494e2c7128c2ca66aaebe2e3c4e198bf"
+  },
+  {
+    "file": "FreeType/LICENSE.TXT",
+    "source": "https://deps.files.ghostty.org/freetype-1220b81f6ecfb3fd222f76cf9106fecfa6554ab07ec7fdc4124b9bb063ae2adf969d.tar.gz#LICENSE.TXT",
+    "sha256": "2e3bbb7d7c5c396368dd0853a790ec29ce5b8647163dde42a0493fb0d6556b2b"
+  },
+  {
+    "file": "FreeType/FTL.TXT",
+    "source": "https://deps.files.ghostty.org/freetype-1220b81f6ecfb3fd222f76cf9106fecfa6554ab07ec7fdc4124b9bb063ae2adf969d.tar.gz#docs/FTL.TXT",
+    "sha256": "08c135755dd589039470f1fdbb400daaabaaa50d0b366d19cebff4d22986baa1"
+  },
+  {
+    "file": "glslang-LICENSE.txt",
+    "source": "https://deps.files.ghostty.org/glslang-12201278a1a05c0ce0b6eb6026c65cd3e9247aa041b1c260324bf29cee559dd23ba1.tar.gz#LICENSE.txt",
+    "sha256": "adb783e734e906d1f46db5df29991dbde84bdb0ceab502ac2febb44fe3c2b5f4"
+  },
+  {
+    "file": "HarfBuzz-COPYING.txt",
+    "source": "https://deps.files.ghostty.org/harfbuzz-11.0.0.tar.xz#COPYING",
+    "sha256": "ba8f810f2455c2f08e2d56bb49b72f37fcf68f1f4fade38977cfd7372050ad64"
+  },
+  {
+    "file": "Highway-LICENSE.txt",
+    "source": "https://deps.files.ghostty.org/highway-66486a10623fa0d72fe91260f96c892e41aceb06.tar.gz#LICENSE",
+    "sha256": "43070e2d4e532684de521b885f385d0841030efa2b1a20bafb76133a5e1379c1"
+  },
+  {
+    "file": "Highway-LICENSE-BSD3.txt",
+    "source": "https://deps.files.ghostty.org/highway-66486a10623fa0d72fe91260f96c892e41aceb06.tar.gz#LICENSE-BSD3",
+    "sha256": "d25e82e26acd42ca3ccc9993622631163425b869b9e16284226d534cff6470f2"
+  },
+  {
+    "file": "libintl-COPYING.LIB.txt",
+    "source": "https://deps.files.ghostty.org/gettext-0.24.tar.gz#gettext-runtime/intl/COPYING.LIB",
+    "sha256": "20e50fe7aae3e56378ebf0417d9de904f55a0e61e4df315333e632a4d3555d95"
+  },
+  {
+    "file": "libpng-LICENSE.txt",
+    "source": "https://deps.files.ghostty.org/libpng-1220aa013f0c83da3fb64ea6d327f9173fa008d10e28bc9349eac3463457723b1c66.tar.gz#LICENSE",
+    "sha256": "7317e078e2d3b5d7ba5a6159e650945153262b44b76f6700f8e9edb261c5143e"
+  },
+  {
+    "file": "Oniguruma-COPYING.txt",
+    "source": "https://deps.files.ghostty.org/oniguruma-1220c15e72eadd0d9085a8af134904d9a0f5dfcbed5f606ad60edc60ebeccd9706bb.tar.gz#COPYING",
+    "sha256": "70ba5469ea0bab6e18a32d7009068f996503168d27be57747e08da34337ff26f"
+  },
+  {
+    "file": "Sentry-LICENSE.txt",
+    "source": "https://deps.files.ghostty.org/sentry-1220446be831adcca918167647c06c7b825849fa3fba5f22da394667974537a9c77e.tar.gz#LICENSE",
+    "sha256": "5ef07a3d95f1f779c1597c0fbaecbb7ba242128ff0587ed1e3214c7ac6154523"
+  },
+  {
+    "file": "SPIRV-Cross-LICENSE.txt",
+    "source": "https://deps.files.ghostty.org/spirv_cross-1220fb3b5586e8be67bc3feb34cbe749cf42a60d628d2953632c2f8141302748c8da.tar.gz#LICENSE",
+    "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+  },
+  {
+    "file": "Wuffs-LICENSE-MIT.txt",
+    "source": "https://deps.files.ghostty.org/wuffs-122037b39d577ec2db3fd7b2130e7b69ef6cc1807d68607a7c232c958315d381b5cd.tar.gz#LICENSE-MIT",
+    "sha256": "bb811a4b485eac3caeb8bdc58bbafb355fbcb6116010a7ea9179e5c70b0bc878"
+  },
+  {
+    "file": "zlib-LICENSE.txt",
+    "source": "https://deps.files.ghostty.org/zlib-1220fed0c74e1019b3ee29edae2051788b080cd96e90d56836eea857b0b966742efb.tar.gz#LICENSE",
+    "sha256": "845efc77857d485d91fb3e0b884aaa929368c717ae8186b66fe1ed2495753243"
+  },
+  {
+    "file": "z2d/COPYING",
+    "source": "https://raw.githubusercontent.com/vancluever/z2d/v0.10.0/COPYING",
+    "sha256": "d8d2562a7cb68ffdfe91fc66af1ed4a8a4e272aa4ab59bea7451ba34b9aba3d4"
+  },
+  {
+    "file": "z2d/LICENSE",
+    "source": "https://raw.githubusercontent.com/vancluever/z2d/v0.10.0/LICENSE",
+    "sha256": "3ca3ed7707db3f5561bff7c2eec62ee1c127947af928189572148f122917b474"
+  },
+  {
+    "file": "DearBindings-LICENSE.txt",
+    "source": "https://raw.githubusercontent.com/dearimgui/dear_bindings/v0.17/LICENSE.txt",
+    "sha256": "b08fd9947ec127fd7785801cac8b1eea2ab4282008cdaae8e50331d870f30d0d"
+  },
+  {
+    "file": "uucode/licenses/LICENSE_Bjoern_Hoehrmann",
+    "source": "https://raw.githubusercontent.com/jacobsandlund/uucode/v0.2.0/licenses/LICENSE_Bjoern_Hoehrmann",
+    "sha256": "de219cece932aad5a817bf763393d8d149d378a15d2ad5320e3331eac07626dd"
+  },
+  {
+    "file": "uucode/licenses/LICENSE_unicode",
+    "source": "https://raw.githubusercontent.com/jacobsandlund/uucode/v0.2.0/licenses/LICENSE_unicode",
+    "sha256": "1eda5a3b026870c737b22e8bcd4954338612c790db688242e003f41a4fa95175"
+  },
+  {
+    "file": "Themes-LICENSE.txt",
+    "source": "https://raw.githubusercontent.com/mbadolato/iTerm2-Color-Schemes/5e4d1de/LICENSE",
+    "sha256": "2373168614b527494dff99eb393024608216db79f687d58bad420f6c1e0ad192"
+  },
+  {
+    "file": "simdutf-LICENSE-MIT.txt",
+    "source": "https://raw.githubusercontent.com/simdutf/simdutf/v9.0.0/LICENSE-MIT",
+    "sha256": "fc8dbc04e03ad4efc08a647ffe7f995b811a95bc04c0e85a56d5277c6593fa5f"
+  },
+  {
+    "file": "Zig-LICENSE.txt",
+    "source": "https://github.com/ziglang/zig/blob/0.15.2/LICENSE",
+    "sha256": "5c537d6853e005298a285d508cff9ac7192cea23576c840d485b2b586a7ff177"
+  },
+  {
+    "file": "stb-stb_image.h.LICENSE.txt",
+    "source": "https://github.com/ghostty-org/ghostty/blob/81af65766f319a954a26196b4812d159496d4f00/src/stb/stb_image.h#license",
+    "sha256": "7169810d8b6cf25c9bc0d1067ecce30bbff74a1ccafdfe37ccbe1ee7849d5c36"
+  },
+  {
+    "file": "stb-stb_image_resize.h.LICENSE.txt",
+    "source": "https://github.com/ghostty-org/ghostty/blob/81af65766f319a954a26196b4812d159496d4f00/src/stb/stb_image_resize.h#license",
+    "sha256": "7169810d8b6cf25c9bc0d1067ecce30bbff74a1ccafdfe37ccbe1ee7849d5c36"
+  },
+  {
+    "file": "FreeType/BDF-README.txt",
+    "source": "https://deps.files.ghostty.org/freetype-1220b81f6ecfb3fd222f76cf9106fecfa6554ab07ec7fdc4124b9bb063ae2adf969d.tar.gz#src/bdf/README",
+    "sha256": "7984455e7e5a9faba3797c8bf095fbe10cc846316b7320aff8c58402e22b82fe"
+  },
+  {
+    "file": "FreeType/PCF-README.txt",
+    "source": "https://deps.files.ghostty.org/freetype-1220b81f6ecfb3fd222f76cf9106fecfa6554ab07ec7fdc4124b9bb063ae2adf969d.tar.gz#src/pcf/README",
+    "sha256": "18d9782898d9eac04476e2f744678137b2a889689ed3e923e052fc396a86f86b"
+  },
+  {
+    "file": "FreeType/gzip-zlib-notice.txt",
+    "source": "https://deps.files.ghostty.org/freetype-1220b81f6ecfb3fd222f76cf9106fecfa6554ab07ec7fdc4124b9bb063ae2adf969d.tar.gz#src/gzip/zlib.h",
+    "sha256": "ab234c46f13c0dd02f494a713ecb48b20afd435aa6d0b3418da7686b5b7fcdfe"
+  },
+  {
+    "file": "FreeType/HarfBuzz-notice.txt",
+    "source": "https://deps.files.ghostty.org/freetype-1220b81f6ecfb3fd222f76cf9106fecfa6554ab07ec7fdc4124b9bb063ae2adf969d.tar.gz#src/autofit/ft-hb.c",
+    "sha256": "9eb9395c70e884f61081775892fae5949ad7762461bea5753dc5478b0c080302"
+  },
+  {
+    "file": "FreeType/fthash-notice.txt",
+    "source": "https://deps.files.ghostty.org/freetype-1220b81f6ecfb3fd222f76cf9106fecfa6554ab07ec7fdc4124b9bb063ae2adf969d.tar.gz#src/base/fthash.c",
+    "sha256": "5285d96f6aa3188193d5fbefd8710ed6a46af185e0a43817c17acee5f4b1ab3d"
+  },
+  {
+    "file": "NerdFonts-LICENSE.txt",
+    "source": "https://github.com/ghostty-org/ghostty/blob/81af65766f319a954a26196b4812d159496d4f00/vendor/nerd-fonts/LICENSE",
+    "sha256": "1f6ad4edae6479aaace3112ede5279a23284ae54b2a34db66357aef5f64df160"
+  }
+]

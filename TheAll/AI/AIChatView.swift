@@ -75,7 +75,9 @@ struct AIChatView: View {
                 }.frame(maxHeight: 230)
             }
             VStack(alignment: .leading, spacing: 8) {
-                AIChatComposer(text: $chat.input, theme: theme, onFocus: onFocus, onSend: send)
+                AIChatComposer(text: $chat.input, conversation: ObjectIdentifier(chat),
+                    history: { chat.messages.filter { $0.role == .user }.map(\.text) },
+                    theme: theme, onFocus: onFocus, onSend: send)
                     .frame(height: 88)
                     .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color(nsColor: theme.border)))
                 HStack(spacing: 8) {
@@ -378,8 +380,10 @@ private struct AIQuestionCard: View {
 
 /// Native editing keeps marked text, selection, paste and undo under AppKit's
 /// control. Wheel events over the transcript never depend on this focus.
-private struct AIChatComposer: NSViewRepresentable {
+struct AIChatComposer: NSViewRepresentable {
     @Binding var text: String
+    let conversation: ObjectIdentifier
+    let history: () -> [String]
     let theme: AppTheme
     let onFocus: () -> Void
     let onSend: () -> Void
@@ -387,20 +391,125 @@ private struct AIChatComposer: NSViewRepresentable {
     final class Editor: NSTextView {
         var onFocus: (() -> Void)?
         var onSend: (() -> Void)?
+        var history: (() -> [String])?
+        private var conversation: ObjectIdentifier?
+        private let editingUndoManager = UndoManager()
+        override var undoManager: UndoManager? { editingUndoManager }
+        private struct Draft {
+            var text: String
+            var selection: NSRange
+        }
+        private var savedDraft: Draft?
+        private var historyEntries: [String] = []
+        private var historyEdits: [Int: Draft] = [:]
+        private var historyIndex: Int?
+
+        func synchronize(text: String, conversation: ObjectIdentifier) {
+            if self.conversation != conversation || string != text {
+                resetHistory()
+                editingUndoManager.removeAllActions()
+                if string != text { string = text }
+            }
+            self.conversation = conversation
+        }
+
+        private func resetHistory() {
+            savedDraft = nil
+            historyEntries = []
+            historyEdits = [:]
+            historyIndex = nil
+        }
+
+        override func didChangeText() {
+            // Undo restores text, not the browsing cursor. Treat the restored
+            // text as a fresh draft so it cannot overwrite another entry's edit.
+            if editingUndoManager.isUndoing || editingUndoManager.isRedoing { resetHistory() }
+            super.didChangeText()
+        }
+
         override func becomeFirstResponder() -> Bool {
             let accepted = super.becomeFirstResponder()
             if accepted { onFocus?() }
             return accepted
         }
         override func keyDown(with event: NSEvent) {
+            // Real arrow events also carry function/numericPad flags. Modified
+            // arrows, selections and IME candidate navigation stay with AppKit.
+            if (event.keyCode == 126 || event.keyCode == 125), isEditable,
+               event.modifierFlags.intersection([.shift, .control, .option, .command]).isEmpty,
+               !hasMarkedText(), selectedRanges.count == 1, selectedRange().length == 0 {
+                let older = event.keyCode == 126
+                if isAtHistoryBoundary(older: older), recallHistory(older: older) { return }
+            }
             if event.keyCode == 36, event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command {
                 onSend?()
             } else { super.keyDown(with: event) }
+        }
+
+        private func isAtHistoryBoundary(older: Bool) -> Bool {
+            if string.isEmpty { return true }
+            guard let layoutManager, let textContainer else { return false }
+            layoutManager.ensureLayout(for: textContainer)
+            let length = (string as NSString).length
+            let caret = selectedRange().location
+            guard caret <= length, layoutManager.numberOfGlyphs > 0 else { return false }
+            let hasTrailingLine = layoutManager.extraLineFragmentTextContainer === textContainer
+            if caret == length, hasTrailingLine { return !older }
+            var line = NSRange()
+            var glyph = layoutManager.glyphIndexForCharacter(at: min(caret, length - 1))
+            layoutManager.lineFragmentRect(forGlyphAt: glyph, effectiveRange: &line)
+            // A caret at a soft wrap may belong to the end of the preceding line.
+            let followsNewline = caret > 0 && UnicodeScalar((string as NSString).character(at: caret - 1))
+                .map { CharacterSet.newlines.contains($0) } == true
+            if caret > 0, caret < length, !followsNewline, selectionAffinity == .upstream,
+               glyph == line.location, glyph > 0 {
+                glyph = layoutManager.glyphIndexForCharacter(at: caret - 1)
+                layoutManager.lineFragmentRect(forGlyphAt: glyph, effectiveRange: &line)
+            }
+            return older ? line.location == 0 : NSMaxRange(line) == layoutManager.numberOfGlyphs && !hasTrailingLine
+        }
+
+        private func recallHistory(older: Bool) -> Bool {
+            if historyIndex == nil {
+                guard older else { return false }
+                let entries = (history?() ?? []).filter { !$0.isEmpty }
+                guard !entries.isEmpty else { return false }
+                // Freeze this browsing pass: a phone submission can append to
+                // the transcript without replacing the desktop's saved draft.
+                historyEntries = entries
+                savedDraft = Draft(text: string, selection: selectedRange())
+                historyIndex = entries.count
+            }
+            guard let index = historyIndex else { return false }
+            if index < historyEntries.count {
+                historyEdits[index] = Draft(text: string, selection: selectedRange())
+            }
+            let next = older ? max(0, index - 1) : index + 1
+            if next == index { return true }
+            if next >= historyEntries.count {
+                if let savedDraft { replaceDraft(savedDraft) }
+                resetHistory()
+            } else {
+                historyIndex = next
+                let recalled = historyEntries[next]
+                replaceDraft(historyEdits[next] ?? Draft(text: recalled,
+                    selection: NSRange(location: (recalled as NSString).length, length: 0)))
+            }
+            return true
+        }
+
+        private func replaceDraft(_ draft: Draft) {
+            breakUndoCoalescing()
+            insertText(draft.text, replacementRange: NSRange(location: 0, length: (string as NSString).length))
+            setSelectedRange(draft.selection)
+            scrollRangeToVisible(selectedRange())
+            breakUndoCoalescing()
         }
     }
     final class Coordinator: NSObject, NSTextViewDelegate {
         var parent: AIChatComposer
         init(_ parent: AIChatComposer) { self.parent = parent }
+        func undoManager(for view: NSTextView) -> UndoManager? { view.undoManager }
         func textDidChange(_ notification: Notification) {
             if let editor = notification.object as? NSTextView { parent.text = editor.string }
         }
@@ -412,6 +521,7 @@ private struct AIChatComposer: NSViewRepresentable {
         scroll.borderType = .noBorder
         let editor = Editor(frame: .zero)
         editor.isRichText = false
+        editor.allowsUndo = true
         editor.isAutomaticQuoteSubstitutionEnabled = false
         editor.isAutomaticDashSubstitutionEnabled = false
         editor.isVerticallyResizable = true
@@ -428,7 +538,8 @@ private struct AIChatComposer: NSViewRepresentable {
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         context.coordinator.parent = self
         guard let editor = scroll.documentView as? Editor else { return }
-        if editor.string != text { editor.string = text }
+        editor.synchronize(text: text, conversation: conversation)
+        editor.history = history
         editor.onFocus = onFocus
         editor.onSend = onSend
         editor.textColor = theme.textPrimary

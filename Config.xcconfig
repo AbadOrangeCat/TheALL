@@ -6,5 +6,8 @@
 THEALL_CODE_SIGN_STYLE = Automatic
 THEALL_APP_IDENTIFIER[config=Debug] = com.theall.app.dev
 THEALL_APP_IDENTIFIER[config=Release] = com.theall.app
+// Release packaging may supply the matching archive without static gettext.
+THEALL_GHOSTTY_LIBRARY = -lghostty
+THEALL_INTL_LIBRARY =
 THEALL_PREVIOUS_NAMESPACE =
 #include? "Local.xcconfig"

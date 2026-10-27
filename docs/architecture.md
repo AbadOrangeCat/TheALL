@@ -297,6 +297,8 @@ User click ──► SparkleBridge.{checkForUpdates | downloadAndInstall | skipV
 
 `AIChatHistoryStore` 将每个 terminal UUID 的提供商、模型、工作目录、草稿、消息（含折叠标记）和后端 conversation ID 原子保存到 Application Support/<bundleID>/ChatHistory/<UUID>.json。串行后台队列每 300ms 合并写入，退出和窗口解绑时同步 flush；目录 0700、文件 0600。快照不保存连接或 API Key。恢复先展示本地记录，再读取 Keychain 并以 Claude `--resume` / Codex `thread/resume` 接续同一后端上下文；凭据缺失和恢复失败都保留记录，不自动创建空白会话。旧版没有 terminal 映射，`AIChatLegacyHistory` 只读扫描本应用 Claude 目录，用户在选择页或空白 Claude 聊天的“恢复旧版 Claude 对话”中明确选择导入；导入前停止空会话并保留草稿/模型，随后按当前终端 UUID 保存，以后重开直接续接。
 
+`AIChatComposer.Editor` 在首个视觉行的 ↑ / 最后视觉行的 ↓ 上浏览当前会话的用户消息；按一次浏览冻结历史，恢复原草稿与光标，临时编辑不改写消息。多行、软换行、选区、修饰键和输入法组合文本保留 AppKit 行为。会话身份或外部草稿变化清理浏览与独立 undo 状态；撤销/重做后的文本作为新草稿，防止历史编辑错位。
+
 `AIChatView` 的消息滚动区域与输入框独立，模型下拉框位于输入框下方、紧邻 Send/Stop 左侧，工作目录靠左。聊天区自动加载模型列表，不显示刷新按钮；连接表单保留刷新功能。阅读旧消息时不强制滚动到底部，回答区右下角仅在未到底部时显示跳转按钮。通过原生 NSScrollView 的 clip bounds/document frame 观察计算底部位置，兼容 macOS 14，并随窗口大小和折叠后的内容高度更新。每轮新提问前用加粗分界线分隔上一轮。`AIModelCatalog` 使用用户配置的 API 地址和相同认证方式请求模型列表，支持 Anthropic 分页，拒绝重定向且不缓存凭据；配置改变时丢弃旧请求结果。
 
 首条消息成功提交后，`AIChatSession` → `AITerminalSession` → `TabContentView` 通知 `WorkspaceStore`，按 terminalId 找到实际归属工作区，将首问的简短主题作为名称（本地提取，不额外调用 API）。`needsAutomaticName` 随工作区持久化，一次自动命名或任意手动确认名称后关闭，后续提问、其他分屏及重启不覆盖。旧数据按 Default/workspace N 等默认名称识别是否待命名，自定义名称保留。Claude 在消息写入成功后通知，Codex 等待 `turn/start` 成功，失败提交不命名。

@@ -1,6 +1,8 @@
 .superpowers/
 .worktrees/
-.claude/worktrees/
+# Local AI development helpers (not required by the app)
+/.agents/
+/.claude/
 .codex/
 
 # Build outputs
