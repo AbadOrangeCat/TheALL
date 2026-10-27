@@ -5,6 +5,7 @@ import Observation
 @Observable
 final class MobileAccessController {
     enum Entry: String, CaseIterable { case preview, lan, relay }
+    enum LANMode: String, CaseIterable { case quick, encrypted }
     private(set) var isEnabled = false
     private(set) var isListening = false
     private(set) var error: String?
@@ -29,6 +30,8 @@ final class MobileAccessController {
     var publicURL: String
     private(set) var useLAN: Bool
     private(set) var lanAddress: String
+    private(set) var lanMode: LANMode
+    private(set) var isPreparingLANInvitation = false
     let port: UInt16
     let lanPort: UInt16
     var localURL: String { "http://127.0.0.1:\(port)" }
@@ -43,6 +46,7 @@ final class MobileAccessController {
     @ObservationIgnored private let listAddresses: () -> [MobileLANAddress]
     @ObservationIgnored private var nextLANRenewal = Date.distantFuture
     @ObservationIgnored private var lanMaterial: MobileLANIdentity.Material?
+    @ObservationIgnored private var pendingLANInvitation: MobilePairingStore.Access?
     @ObservationIgnored private let api: MobileChatAPI
     @ObservationIgnored private lazy var events: MobileEventHub = {
         let hub = MobileEventHub(registry: registry, bootID: api.bootID)
@@ -75,6 +79,10 @@ final class MobileAccessController {
         useRelay = defaults.object(forKey: "theall.mobile.useRelay") as? Bool ?? true
         useLAN = defaults.bool(forKey: "theall.mobile.useLAN")
         lanAddress = defaults.string(forKey: "theall.mobile.lanAddress") ?? ""
+        // Existing enabled HTTPS installations retain their transport until the
+        // user chooses quick connect. New installations default to QR-only setup.
+        lanMode = defaults.string(forKey: "theall.mobile.lanMode").flatMap(LANMode.init(rawValue:)) ??
+            (defaults.bool(forKey: "theall.mobile.useLAN") ? .encrypted : .quick)
         api = MobileChatAPI(registry: registry)
         devices = pairing.devices
         server.handler = { [weak self] request in
@@ -105,6 +113,12 @@ final class MobileAccessController {
         lanServer.onState = { [weak self] ready, error in
             guard let self, self.isEnabled, self.useLAN else { return }
             self.isLANListening = ready
+            if ready, let access = self.pendingLANInvitation {
+                self.pendingLANInvitation = nil; self.isPreparingLANInvitation = false
+                self.createInvitation(via: .lan, access: access)
+            } else if !ready {
+                self.pendingLANInvitation = nil; self.isPreparingLANInvitation = false
+            }
             if !ready, let error { self.stopLAN(); self.lanError = error }
         }
         relay.onState = { [weak self] connected, error in
@@ -150,6 +164,26 @@ final class MobileAccessController {
         useLAN = value; defaults.set(value, forKey: "theall.mobile.useLAN")
         if !value { stopLAN() } else if isEnabled { refreshLANAddresses(); if lanURL == nil { startLAN() } }
     }
+    func setLANMode(_ value: LANMode) {
+        guard value != lanMode else { return }
+        stopLAN(); lanMode = value; defaults.set(value.rawValue, forKey: "theall.mobile.lanMode")
+        if isEnabled, useLAN { startLAN() }
+    }
+    /// One action enables the local listener and creates a QR as soon as ready.
+    /// Choosing this action explicitly selects certificate-free LAN access.
+    func connectPhone(access: MobilePairingStore.Access = .init()) {
+        guard access.workspaceID == nil || shareWorkspaces.contains(where: { $0.id == access.workspaceID }) else {
+            error = L10n.string("mobile.error.scope"); return
+        }
+        cancelInvitation()
+        setLANMode(.quick)
+        setLANEnabled(true)
+        enable()
+        refreshLANAddresses()
+        guard lanAddresses.contains(where: { $0.address == lanAddress }), lanError == nil else { return }
+        if canPair(via: .lan) { createInvitation(via: .lan, access: access) }
+        else { pendingLANInvitation = access; isPreparingLANInvitation = true }
+    }
     func setRelayEnabled(_ value: Bool) {
         useRelay = value; defaults.set(value, forKey: "theall.mobile.useRelay")
         if isEnabled { startRelay() }
@@ -161,7 +195,11 @@ final class MobileAccessController {
     }
     func refreshLANAddresses() {
         lanAddresses = listAddresses()
-        if lanAddress.isEmpty, let address = lanAddresses.first { lanAddress = address.address }
+        if lanAddress.isEmpty || (lanMode == .quick && !lanAddresses.contains(where: { $0.address == lanAddress })) {
+            if let address = MobileLANAddress.preferred(in: lanAddresses) {
+                if lanAddress != address.address { stopLAN(); lanAddress = address.address }
+            }
+        }
         guard isEnabled, useLAN else { return }
         if !lanAddresses.contains(where: { $0.address == lanAddress }) {
             stopLAN(); lanError = L10n.string("mobile.lan.unavailable")
@@ -174,19 +212,27 @@ final class MobileAccessController {
             lanError = L10n.string("mobile.lan.unavailable"); return
         }
         do {
-            let material = try lanIdentity.prepare(address: lanAddress)
-            lanMaterial = material
-            // Renew long-running listeners well before the 90-day leaf expires.
-            nextLANRenewal = min(Date().addingTimeInterval(30 * 86400),
-                                 max(Date().addingTimeInterval(60), material.expiresAt.addingTimeInterval(-86400)))
-            lanCertificateName = material.authorityName; lanCertificateFingerprint = material.fingerprint
-            try lanServer.start(port: lanPort, host: lanAddress, identity: material.identity, localNetworkOnly: true)
-            lanURL = "https://\(lanAddress):\(lanPort)"
+            if lanMode == .quick {
+                // No certificate or private-key preparation is needed for quick pairing.
+                nextLANRenewal = .distantFuture
+                try lanServer.start(port: lanPort, host: lanAddress, localNetworkOnly: true, allowLANHTTP: true)
+                lanURL = "http://\(lanAddress):\(lanPort)"
+            } else {
+                let material = try lanIdentity.prepare(address: lanAddress)
+                lanMaterial = material
+                // Renew long-running listeners well before the 90-day leaf expires.
+                nextLANRenewal = min(Date().addingTimeInterval(30 * 86400),
+                                     max(Date().addingTimeInterval(60), material.expiresAt.addingTimeInterval(-86400)))
+                lanCertificateName = material.authorityName; lanCertificateFingerprint = material.fingerprint
+                try lanServer.start(port: lanPort, host: lanAddress, identity: material.identity, localNetworkOnly: true)
+                lanURL = "https://\(lanAddress):\(lanPort)"
+            }
             defaults.set(lanAddress, forKey: "theall.mobile.lanAddress")
-        } catch { lanError = L10n.string("mobile.lan.failed") }
+        } catch { lanError = L10n.string(lanMode == .quick ? "mobile.error.listen" : "mobile.lan.failed") }
     }
     private func stopLAN() {
         lanGeneration = UUID(); lanServer.stop(); isLANListening = false; lanURL = nil
+        pendingLANInvitation = nil; isPreparingLANInvitation = false
         if pairingEntry == .lan { cancelInvitation() }
         events.validate()
     }
@@ -215,6 +261,7 @@ final class MobileAccessController {
         }
     }
     func createInvitation(via entry: Entry? = nil, access: MobilePairingStore.Access = .init()) {
+        pendingLANInvitation = nil; isPreparingLANInvitation = false
         let entry = entry ?? (canPair(via: .lan) ? .lan : canPair(via: .relay) ? .relay : .preview)
         guard canPair(via: entry), let origin = origins(for: entry).first else { return }
         guard access.workspaceID == nil || shareWorkspaces.contains(where: { $0.id == access.workspaceID }) else {
@@ -269,7 +316,7 @@ final class MobileAccessController {
               let origin = origins(for: entry).first(where: { $0.components(separatedBy: "://").last == host }),
               request.headers["origin"] == origin, request.headers["sec-fetch-site"] != "cross-site"
         else { return .error(L10n.string("mobile.error.origin"), status: 403) }
-        guard let token = sessionToken(request), let device = pairing.authenticate(token, origin: origin), scopeExists(device) else {
+        guard let token = sessionToken(request, origin: origin, via: entry), let device = pairing.authenticate(token, origin: origin), scopeExists(device) else {
             return .error(L10n.string("mobile.error.authorization"), status: 401)
         }
         let current = generation(for: entry), enabled = enableGeneration
@@ -321,13 +368,13 @@ final class MobileAccessController {
                 devices = pairing.devices; pairingURL = nil; pairingExpires = nil; pairingEntry = nil
                 pairedDevice = device
                 var response = MobileHTTPResponse.json(["deviceName": device.name, "bootID": api.bootID, "access": device.access.json])
-                response.headers["Set-Cookie"] = cookie(accessToken, secure: secure)
+                response.headers["Set-Cookie"] = cookie(accessToken, secure: secure, via: entry)
                 return response
             } catch MobilePairingStore.PairingError.limited { return .error(L10n.string("mobile.error.rate"), status: 429) }
             catch { return .error(L10n.string("mobile.error.pair"), status: 401) }
         }
         if !request.path.hasPrefix("/api/") { return staticFile(request) }
-        guard let token = sessionToken(request), let device = pairing.authenticate(token, origin: origin) else {
+        guard let token = sessionToken(request, origin: origin, via: entry), let device = pairing.authenticate(token, origin: origin) else {
             return .error(L10n.string("mobile.error.authorization"), status: 401)
         }
         if request.path == "/api/session", request.method == "GET" {
@@ -338,7 +385,7 @@ final class MobileAccessController {
             do { try pairing.revoke(device.id); devices = pairing.devices; events.revoke(device.id) }
             catch { return .error(L10n.string("mobile.error.storage"), status: 500) }
             var response = MobileHTTPResponse.json(["ok": true])
-            response.headers["Set-Cookie"] = cookie("", secure: secure, maxAge: 0)
+            response.headers["Set-Cookie"] = cookie("", secure: secure, via: entry, maxAge: 0)
             return response
         }
         let generation = generation(for: entry)
@@ -350,14 +397,20 @@ final class MobileAccessController {
         })
     }
 
-    private func sessionToken(_ request: MobileHTTPRequest) -> String? {
-        let values = (request.headers["cookie"] ?? "").split(separator: ";").map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { $0.hasPrefix("TheAllMobileSession=") }
-        guard values.count == 1 else { return nil }
-        return String(values[0].dropFirst("TheAllMobileSession=".count))
+    private func cookieName(secure: Bool, via entry: Entry) -> String {
+        // Cookies are shared across ports. Never overwrite a pre-existing Secure
+        // HTTPS cookie from the certificate-free listener on the same IP.
+        entry == .lan && !secure ? "TheAllLANSession" : "TheAllMobileSession"
     }
-    private func cookie(_ token: String, secure: Bool, maxAge: Int = 30 * 86400) -> String {
-        "TheAllMobileSession=\(token); Path=/; HttpOnly; SameSite=Strict; Max-Age=\(maxAge)" + (secure ? "; Secure" : "")
+    private func sessionToken(_ request: MobileHTTPRequest, origin: String, via entry: Entry) -> String? {
+        let prefix = cookieName(secure: origin.hasPrefix("https://"), via: entry) + "="
+        let values = (request.headers["cookie"] ?? "").split(separator: ";").map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { $0.hasPrefix(prefix) }
+        guard values.count == 1 else { return nil }
+        return String(values[0].dropFirst(prefix.count))
+    }
+    private func cookie(_ token: String, secure: Bool, via entry: Entry, maxAge: Int = 30 * 86400) -> String {
+        cookieName(secure: secure, via: entry) + "=\(token); Path=/; HttpOnly; SameSite=Strict; Max-Age=\(maxAge)" + (secure ? "; Secure" : "")
     }
     private func staticFile(_ request: MobileHTTPRequest) -> MobileHTTPResponse {
         guard request.method == "GET" else { return .error("Not found", status: 404) }

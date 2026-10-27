@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 const bundle = new URL('../TheAll/Mobile/MobileWeb.bundle/', import.meta.url);
 const source = await readFile(new URL('core.js', bundle), 'utf8');
-const { APIError, request, chatPath, mergePage, turns, operation, readPairToken, safeLink } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
+const { APIError, request, chatPath, mergePage, turns, operation, readPairToken, safeLink, randomUUID, isPrivateLANHTTP } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
 
 test('API reads use same-origin cookies, no-store and no token in headers or query', async () => {
   let observed;
@@ -136,4 +136,30 @@ test('shifted overlap or changed Mac process discards stale history pages', () =
 test('uncertain Mac acknowledgement remains retryable while tool errors remain visible', () => {
   assert.equal(new APIError('Unknown acknowledgement', 503, 'outcome_unknown').uncertain, true);
   assert.equal(turns([{ id: 'error', role: 'tool', isError: true, text: 'Tool failed' }])[0].answers.length, 1);
+});
+
+
+test('quick LAN accepts only canonical RFC1918 IPv4 HTTP addresses', () => {
+  for (const hostname of ['10.0.0.1', '10.255.255.254', '172.16.0.1', '172.31.255.254', '192.168.1.2']) {
+    assert.equal(isPrivateLANHTTP({ protocol: 'http:', hostname }), true, hostname);
+  }
+  for (const hostname of ['172.15.1.1', '172.32.0.1', '192.169.1.1', '8.8.8.8', '127.0.0.1', '169.254.1.1',
+    '192.168.1.2.example.com', '192.168.1.256', '192.168.001.2', '0xC0A80102', '3232235778', 'localhost', '', '::1']) {
+    assert.equal(isPrivateLANHTTP({ protocol: 'http:', hostname }), false, hostname);
+  }
+  assert.equal(isPrivateLANHTTP({ protocol: 'https:', hostname: '192.168.1.2' }), false);
+});
+test('UUID generation works without secure-context randomUUID and never falls back to Math.random', () => {
+  const fake = { getRandomValues: values => { values.fill(255); return values; } };
+  assert.equal(randomUUID(fake), 'ffffffff-ffff-4fff-bfff-ffffffffffff');
+  assert.equal(randomUUID({ randomUUID: () => 'native-id' }), 'native-id');
+  assert.throws(() => randomUUID({}), /Secure random/);
+  assert.match(randomUUID(), /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+});
+test('quick connection and shortcut instructions are translated in all five languages', async () => {
+  const source = await readFile(new URL('i18n.js', bundle), 'utf8');
+  const { catalog } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
+  for (const code of ['en', 'zh-Hans', 'fr', 'ja', 'ko']) {
+    for (const key of ['pairing', 'quickLANNote', 'installAndroidLAN', 'installNetworkLAN']) assert.ok(catalog[code][key], `${code}.${key}`);
+  }
 });

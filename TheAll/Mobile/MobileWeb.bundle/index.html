@@ -22,13 +22,14 @@
       <span class="eyebrow">THEALL · <span data-i18n="mobile">Mobile</span></span>
       <h1 data-i18n="pairTitle">Your workspace.<br>Anywhere.</h1>
       <p class="muted" data-i18n="pairDescription">Connect to TheAll on your Mac to continue your conversations and keep work moving.</p>
-      <form id="pair-form">
+      <p id="pair-status" class="pair-status" role="status" hidden><span class="spinner" aria-hidden="true"></span><span data-i18n="pairing">Connecting to your Mac…</span></p>
+      <form id="pair-form" hidden>
         <label for="pair-token" data-i18n="pairToken">Pairing code</label>
         <input id="pair-token" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" required>
-        <label for="device-name" data-i18n="deviceName">This device</label>
-        <input id="device-name" maxlength="80" autocomplete="off" required>
+        <input id="device-name" type="hidden">
         <button class="primary wide" type="submit" id="pair-submit" data-i18n="connect">Connect to Mac</button>
       </form>
+      <p id="connection-note" class="small muted" hidden></p>
       <p id="pair-error" class="error" role="alert" hidden></p>
       <p class="small muted" data-i18n="pairHelp">On your Mac, open TheAll → Mobile access and scan the QR code or enter its one-time pairing code here.</p>
       <button class="text-button install-help" type="button" data-i18n="install">Add to home screen</button>
@@ -85,8 +86,8 @@
   <dialog id="photo-dialog" class="photo-dialog"><div class="dialog-heading"><h2 data-i18n="photosPreview">Photo</h2><button id="close-photo" type="button" class="icon-button" aria-label="Close">×</button></div><img id="photo-full" alt=""></dialog>
   <dialog id="install-dialog"><div class="dialog-heading"><h2 data-i18n="install">Add to home screen</h2><button type="button" class="icon-button" id="close-install" aria-label="Close">×</button></div>
     <h3>iPhone / iPad</h3><p data-i18n="installIOS">Open this address in Safari, tap Share, then Add to Home Screen. If the installed app asks you to pair again, generate a new code on your Mac.</p>
-    <h3>Android</h3><p data-i18n="installAndroid">Open this address in Chrome, then choose Install app or Add to home screen from the menu.</p>
-    <p class="small muted" data-i18n="installNetwork">Keep your Mac awake and TheAll running. Connect using your configured TheAll HTTPS address; no VPN app is needed.</p>
+    <h3>Android</h3><p id="install-android">Open this address in Chrome, then choose Install app or Add to home screen from the menu.</p>
+    <p id="install-network" class="small muted">Keep your Mac awake and TheAll running. Connect using your configured TheAll HTTPS address; no VPN app is needed.</p>
     <button id="install-prompt" class="primary wide" hidden data-i18n="installNow">Install TheAll</button>
   </dialog>
   <noscript>TheAll requires JavaScript to connect to your Mac.</noscript>

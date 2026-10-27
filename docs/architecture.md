@@ -21,7 +21,7 @@ TheAll.app
 │               └── AIChatView → AIChatSession → AIChatProcess (选择并配置后创建)
 ├── SettingsView (SwiftUI，叠在 TabBridge 上；showSettings 时压底层且关交互)
 ├── TheAllRuntime → AIChatSessionRegistry — app 生命周期的共享会话，与 MobileChatAPI 共用
-├── MobileAccessController → MobileHTTPServer (loopback HTTP + LAN HTTPS) / MobileRelayClient (outbound WSS)
+├── MobileAccessController → MobileHTTPServer (loopback HTTP + LAN HTTP/HTTPS) / MobileRelayClient (outbound WSS)
 ├── WorkspaceStore (@Observable)        — 持久化状态唯一来源
 ├── TerminalStatusStore (@Observable)   — 终端运行态聚合（running/idle/needsInput）
 ├── TerminalPwdStore (@Observable)      — terminalId → pwd 映射（持久化到 UserDefaults；sidebar git 分支读取 / 重启恢复目录）
@@ -323,15 +323,15 @@ AI 路径不执行旧的 quick action、workspace defaultCommand 或 resume shel
 
 `AIChatSessionRegistry.swift` 中的 `TheAllRuntime` 持有跨窗口共享的 WorkspaceStore、PWD/status/title stores 和 terminal UUID → AITerminalSession registry。`TabBridge` 注入 registry，`AITerminalPaneView` 观察同一个 session 的 chat，而不接管共享 session 的启动回调。关闭窗口不会结束后台会话；删除 workspace/tab 后 registry 会停止对应会话并保存历史。
 
-`MobileAccessController` 默认关闭，局域网和外网中继可独立或同时启用。保留 loopback HTTP 预览；`MobileLANAddress` 枚举 RFC1918 IPv4，第二个 `MobileHTTPServer` 只绑定用户选择的地址，使用 TLS 1.2+。`MobileLANIdentity` 用 CryptoKit P-256 创建持久化的本机 CA，签发 90 天、带 IP SAN 的服务器证书，通过 SecIdentityCreate 构造内存身份，不写 Keychain。手机首次导入并信任公开 CA/profile；不提供 LAN 明文 API。IP 消失时关闭该入口并提示重新选择，不自动换网卡。外网由 `MobileRelayClient` 主动连接用户自建中继的 WSS `/host`，用独立 Ed25519 身份签署一次性挑战。两种入口共用会话和设备表，生命周期与错误分开；停止其中一个不停止另一个或 AI 任务。
+`MobileAccessController` 默认关闭，点击“手机扫码连接”后选择 quick 模式、开启局域网并在监听就绪时生成一次性二维码；手机从 URL fragment 获取邀请后自动配对。新安装默认 quick，已启用 HTTPS 的旧安装保留 encrypted，直到用户主动选择快捷连接。`MobileLANAddress` 枚举 RFC1918 IPv4，优先 en* 的 Wi-Fi/以太网，保留可用的用户选择；quick 模式地址失效时自动重新选择，取消旧邀请和授权 generation。第二个 `MobileHTTPServer` 仅绑定所选地址；HTTP 必须明确 allowLANHTTP 且 localNetworkOnly，拒绝公网地址及通配地址。HTTPS 模式使用 TLS 1.2+；`MobileLANIdentity` 用 CryptoKit P-256 持久化本机 CA，签发 90 天 IP-SAN 证书，通过 SecIdentityCreate 构造内存身份，不写 Keychain。证书导出、信任与手选网卡保留在高级设置；quick 路径不读取/生成 CA。外网由 `MobileRelayClient` 主动连接用户自建中继的 WSS `/host`，用独立 Ed25519 身份签署一次性挑战。两种入口共用会话和设备表，生命周期与错误分开；停止其中一个不停止另一个或 AI 任务。
 
-`MobilePairingStore` 将 256-bit 手机令牌的 SHA-256 摘要保存到权限 0600 的设备文件，5 分钟邀请仅内存、绑定配对 origin 且只能使用一次，设备 30 天过期或手动撤销。新设备凭据也绑定 origin；不同地址独立配对。Web App 使用 HttpOnly/Secure/SameSite cookie，每条请求带服务器内部的入口上下文，分别严格检查 Origin/Host 和 JSON 自定义头，防止 LAN 冒充中继入口。停用任一入口会更新该入口 generation，使等待后端恢复的旧请求失效。中继不持久化聊天、凭据或请求内容，但它是 HTTPS/WSS 的受信任终点，必须由用户控制。
+`MobilePairingStore` 将 256-bit 手机令牌的 SHA-256 摘要保存到权限 0600 的设备文件，5 分钟邀请仅内存、绑定配对 origin 且只能使用一次，设备 30 天过期或手动撤销。新设备凭据也绑定 origin；不同地址独立配对。Web App 使用 HttpOnly/SameSite=Strict cookie，HTTPS 额外设置 Secure；快捷 LAN 的 `TheAllLANSession` 与原 HTTPS/预览/中继的 `TheAllMobileSession` 分开，避免同 IP 跨端口的 Secure cookie 覆盖冲突。每条请求带服务器内部的入口上下文，分别严格检查 Origin/Host 和 JSON 自定义头，防止 LAN 冒充中继入口。停用任一入口会更新该入口 generation，使等待后端恢复的旧请求失效。中继不持久化聊天、凭据或请求内容，但它是 HTTPS/WSS 的受信任终点，必须由用户控制。
 
 `MobileChatAPI` 遍历所有 workspace/tab/split leaves，读历史不启动闲置 CLI；发送时才按需恢复。手机发送采用独立文本入口，保留 Mac 草稿；实际提交确认后才返回成功。所有变更带每次应用启动的 bootID 和请求 UUID，重复请求读取回执，未知结果不能自动换 ID 重发。前端分页加载全部记录、通过同源 WebSocket 接收变化通知后拉取授权快照，断线回退轮询且离线禁发；Service Worker 只缓存公开页面，不缓存聊天和 API。详见 [连接与部署](mobile-access.md)。
 
 `MobilePairingStore.Access` 把邀请限制为全部或指定 workspace，并选择只读/可操作。服务端在读取历史、启动CLI、查重试回执前验证范围；只读设备不能发送、回答、停止或新建。指定 workspace 的可操作设备只能在该 workspace 新建对话。异步恢复及 Claude 模型 ACK 后真正发送前再次校验，工作空间移动、删除或撤销授权会使旧请求失效。旧设备记录缺少 access 字段时兼容原有全部可操作权限；修改下一张二维码的选项不改变已配对设备。
 
-`MobileEventChannel` 提供有界 RFC6455 text 通道，LAN/回环 `/api/events` 与中继虚拟通道统一交给 Controller 的 Origin/Cookie 鉴权。`MobileEventHub` 通过 Observation 读取授权 workspace 的布局、会话状态与 revision，合并通知，仅推送 hello/changed/pong，不发送聊天内容或桌面草稿。隐藏 workspace 变化不产生通知；断线后客户端重新读取快照，不自动提交写操作。20 秒应用心跳、超时关闭、退避重连与设备在线状态独立于配对凭据的有效期。前端 `live.js` 管连接，`i18n.js` 管五种语言与本机语言偏好；普通HTTP和实时通道都保留现有权限检查。
+`MobileEventChannel` 提供有界 RFC6455 text 通道，LAN/回环 `/api/events` 与中继虚拟通道统一交给 Controller 的 Origin/Cookie 鉴权。`MobileEventHub` 通过 Observation 读取授权 workspace 的布局、会话状态与 revision，合并通知，仅推送 hello/changed/pong，不发送聊天内容或桌面草稿。隐藏 workspace 变化不产生通知；断线后客户端重新读取快照，不自动提交写操作。20 秒应用心跳、超时关闭、退避重连与设备在线状态独立于配对凭据的有效期。前端 `live.js` 管连接，`i18n.js` 管五种语言与本机语言偏好；普通 HTTP 和实时通道都保留现有权限检查。前端仅允许安全上下文或严格 RFC1918 HTTP；UUID 在非安全上下文通过 crypto.getRandomValues 生成，Service Worker 仅 HTTPS/可信回环注册。扫码自动配对与 Cookie 恢复探测互斥，错误不自动重复消耗邀请。
 
 ## Application namespace migration
 

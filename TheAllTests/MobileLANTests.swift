@@ -59,6 +59,7 @@ final class MobileLANTests: XCTestCase {
         let relayIdentity: MobileRelayIdentity
         let addresses: Addresses
         let pipe: Pipe
+        let defaults: UserDefaults
     }
 
     private func directory() throws -> URL {
@@ -86,7 +87,7 @@ final class MobileLANTests: XCTestCase {
         guard result == 0 else { throw POSIXError(.EIO) }
         return UInt16(bigEndian: address.sin_port)
     }
-    @MainActor private func fixture() throws -> Fixture {
+    @MainActor private func fixture(mode: MobileAccessController.LANMode? = .encrypted, previouslyEnabled: Bool = false) throws -> Fixture {
         let folder = try directory(), pipe = Pipe(), addresses = Addresses()
         let key = "MobileLANTests." + UUID().uuidString
         let defaults = try XCTUnwrap(UserDefaults(suiteName: key))
@@ -107,13 +108,15 @@ final class MobileLANTests: XCTestCase {
         let previewPort = try freePort()
         var lanPort = try freePort()
         while lanPort == previewPort { lanPort = try freePort() }
+        if previouslyEnabled { defaults.set(true, forKey: "theall.mobile.useLAN") }
         let controller = MobileAccessController(registry: registry, pairing: pairing, defaults: defaults,
             port: previewPort, lanPort: lanPort, relayIdentity: relayIdentity, lanIdentity: identity,
             listAddresses: { addresses.values })
         controller.useRelay = false
+        if let mode { controller.setLANMode(mode) }
         controller.setLANEnabled(true)
         return Fixture(folder: folder, registry: registry, controller: controller, pairing: pairing,
-                       identity: identity, relayIdentity: relayIdentity, addresses: addresses, pipe: pipe)
+                       identity: identity, relayIdentity: relayIdentity, addresses: addresses, pipe: pipe, defaults: defaults)
     }
     @MainActor private func waitFor(_ predicate: () -> Bool) async throws {
         for _ in 0..<200 {
@@ -170,10 +173,138 @@ final class MobileLANTests: XCTestCase {
         XCTAssertFalse(MobileLANAddress.isLoopback("127.0.0.1."))
     }
 
-    @MainActor func testSettingsDisplaysBothConnectionModesAndCertificateSetup() async throws {
+    func testQuickAddressSelectionPrefersPhysicalNetworkAndKeepsExplicitChoice() {
+        let addresses: [MobileLANAddress] = [.init(interface: "bridge100", address: "192.168.64.1"),
+            .init(interface: "en0", address: "192.168.1.20"), .init(interface: "en5", address: "10.1.0.20")]
+        XCTAssertEqual(MobileLANAddress.preferred(in: addresses)?.interface, "en0")
+        XCTAssertEqual(MobileLANAddress.preferred(in: addresses, keeping: "10.1.0.20")?.interface, "en5")
+        XCTAssertEqual(MobileLANAddress.preferred(in: addresses, keeping: "192.168.1.19")?.interface, "en0")
+        XCTAssertNil(MobileLANAddress.preferred(in: []))
+    }
+
+    @MainActor func testHTTPListenerRequiresPrivateAddressAndExplicitLocalOptIn() throws {
+        let server = MobileHTTPServer(); defer { server.stop() }
+        for host in ["0.0.0.0", "8.8.8.8", "192.168.1.2.example.com", "10.0.00.1"] {
+            XCTAssertThrowsError(try server.start(port: 0, host: host, localNetworkOnly: true, allowLANHTTP: true), host)
+        }
+        XCTAssertThrowsError(try server.start(port: 0, host: "192.168.1.2", localNetworkOnly: true))
+        XCTAssertThrowsError(try server.start(port: 0, host: "192.168.1.2", allowLANHTTP: true))
+        XCTAssertNoThrow(try server.start(port: 0))
+    }
+
+    @MainActor func testNewLANDefaultsToQuickButExistingHTTPSIsPreserved() throws {
+        let fresh = try fixture(mode: nil)
+        XCTAssertEqual(fresh.controller.lanMode, .quick)
+        XCTAssertFalse(fresh.controller.isEnabled)
+        let existing = try fixture(mode: nil, previouslyEnabled: true)
+        XCTAssertEqual(existing.controller.lanMode, .encrypted)
+        existing.controller.setLANMode(.quick)
+        XCTAssertEqual(existing.defaults.string(forKey: "theall.mobile.lanMode"), "quick")
+    }
+
+    @MainActor func testOneActionStartsQuickLANAndPairsWithoutReadingCertificate() async throws {
+        let fixture = try fixture(), controller = fixture.controller
+        // A damaged optional CA must neither block quick pairing nor get replaced.
+        let ca = fixture.folder.appendingPathComponent("lan.json")
+        let original = Data("existing-unavailable-certificate".utf8)
+        try original.write(to: ca)
+        let chat = fixture.registry.workspaces.createWorkspace(name: "Quick fixture")
+        let workspace = try XCTUnwrap(fixture.registry.workspaces.workspaces.first?.id)
+        fixture.registry.history.save(AIChatSnapshot(provider: .claude, directory: "/tmp", model: "fixture", input: "Mac draft",
+            messages: [AIChatMessage(id: UUID().uuidString, role: .user, text: "Saved QR history")], conversationID: "fixture"), for: chat) { _ in }
+        fixture.registry.history.flush()
+        controller.setLANEnabled(false)
+        controller.connectPhone(access: .init(workspaceID: workspace, writable: false))
+        defer { controller.disable() }
+        try await waitFor { controller.pairingURL != nil }
+        XCTAssertTrue(controller.isEnabled); XCTAssertTrue(controller.useLAN)
+        XCTAssertFalse(controller.isPreparingLANInvitation)
+        XCTAssertEqual(controller.lanMode, .quick)
+        XCTAssertNil(controller.certificateExport(iOS: true))
+        XCTAssertEqual(try Data(contentsOf: ca), original)
+        let origin = try XCTUnwrap(controller.lanURL)
+        XCTAssertTrue(origin.hasPrefix("http://"))
+        let token = try invitation(controller)
+        let browser = web()
+        let (_, pair) = try await fetch(browser, origin: origin, path: "/api/pair", body: ["token": token, "deviceName": "iPhone"])
+        XCTAssertEqual(pair.statusCode, 200)
+        let setCookie = try XCTUnwrap(pair.value(forHTTPHeaderField: "Set-Cookie"))
+        XCTAssertTrue(setCookie.hasPrefix("TheAllLANSession="))
+        XCTAssertTrue(setCookie.contains("HttpOnly")); XCTAssertTrue(setCookie.contains("SameSite=Strict"))
+        XCTAssertFalse(setCookie.contains("Secure"))
+        let access = try cookie(pair)
+        let (data, history) = try await fetch(browser, origin: origin, path: "/api/chats/\(chat)", cookie: access)
+        XCTAssertEqual(history.statusCode, 200)
+        XCTAssertTrue(String(decoding: data, as: UTF8.self).contains("Saved QR history"))
+        XCTAssertEqual(fixture.pipe.starts, 0)
+        XCTAssertEqual(controller.pairedDevice?.access, .init(workspaceID: workspace, writable: false))
+        let (_, duplicate) = try await fetch(browser, origin: origin, path: "/api/pair", body: ["token": token, "deviceName": "Duplicate"])
+        XCTAssertEqual(duplicate.statusCode, 401)
+        let (_, denied) = try await fetch(browser, origin: origin, path: "/api/chats/\(chat)/stop", body: ["requestId": UUID().uuidString], cookie: access)
+        XCTAssertEqual(denied.statusCode, 403)
+        controller.revoke(try XCTUnwrap(controller.pairedDevice?.id))
+        let (_, revoked) = try await fetch(browser, origin: origin, path: "/api/session", cookie: access)
+        XCTAssertEqual(revoked.statusCode, 401)
+    }
+
+    @MainActor func testQuickAndEncryptedCookiesAndInvitationsRemainSeparate() async throws {
         let fixture = try fixture(), controller = fixture.controller
         controller.enable(); defer { controller.disable() }
         try await waitFor { controller.isLANListening }
+        let encrypted = try XCTUnwrap(controller.lanURL)
+        controller.createInvitation(via: .lan)
+        let paired = await controller.handle(try request(origin: encrypted, path: "/api/pair", body: [
+            "token": try invitation(controller), "deviceName": "HTTPS phone"]), via: .lan)
+        let secureCookie = try XCTUnwrap(paired.headers["Set-Cookie"]?.components(separatedBy: ";").first)
+        XCTAssertTrue(secureCookie.hasPrefix("TheAllMobileSession="))
+        controller.createInvitation(via: .lan)
+        let oldInvitation = try invitation(controller)
+        controller.connectPhone()
+        try await waitFor { controller.pairingURL != nil && controller.isLANListening }
+        let quick = try XCTUnwrap(controller.lanURL)
+        let invalid = await controller.handle(try request(origin: quick, path: "/api/pair", body: [
+            "token": oldInvitation, "deviceName": "Old QR"]), via: .lan)
+        XCTAssertEqual(invalid.status, 401)
+        let quickPair = await controller.handle(try request(origin: quick, path: "/api/pair", body: [
+            "token": try invitation(controller), "deviceName": "Quick phone"], cookie: secureCookie), via: .lan)
+        let quickCookie = try XCTUnwrap(quickPair.headers["Set-Cookie"]?.components(separatedBy: ";").first)
+        XCTAssertTrue(quickCookie.hasPrefix("TheAllLANSession="))
+        let both = secureCookie + "; " + quickCookie
+        let session = await controller.handle(try request(origin: quick, path: "/api/session", cookie: both), via: .lan)
+        XCTAssertEqual(session.status, 200)
+        let duplicated = await controller.handle(try request(origin: quick, path: "/api/session", cookie: quickCookie + "; " + quickCookie), via: .lan)
+        XCTAssertEqual(duplicated.status, 401)
+        let wrongCookie = await controller.handle(try request(origin: quick, path: "/api/session", cookie: secureCookie), via: .lan)
+        XCTAssertEqual(wrongCookie.status, 401)
+        var foreign = try request(origin: quick, path: "/api/session", cookie: both).headers
+        foreign["origin"] = "https://other.example"
+        let cross = await controller.handle(.init(method: "GET", target: "/api/session", headers: foreign, body: Data()), via: .lan)
+        XCTAssertEqual(cross.status, 403)
+        controller.setLANMode(.encrypted)
+        try await waitFor { controller.isLANListening }
+        let restored = await controller.handle(try request(origin: encrypted, path: "/api/session", cookie: both), via: .lan)
+        XCTAssertEqual(restored.status, 200, "The original HTTPS pairing remains usable when returning to HTTPS")
+        XCTAssertEqual(try object(restored.body)["deviceName"] as? String, "HTTPS phone")
+    }
+
+    @MainActor func testQuickPairingDoesNotSurviveDisableOrMissingNetwork() async throws {
+        let fixture = try fixture(), controller = fixture.controller
+        fixture.addresses.values = []
+        controller.connectPhone(); defer { controller.disable() }
+        XCTAssertNil(controller.pairingURL); XCTAssertFalse(controller.isPreparingLANInvitation)
+        XCTAssertNotNil(controller.lanError)
+        fixture.addresses.values = [.init(interface: "en0", address: "127.0.0.1")]
+        controller.connectPhone()
+        controller.disable()
+        try await Task.sleep(nanoseconds: 200_000_000)
+        XCTAssertNil(controller.pairingURL); XCTAssertFalse(controller.isPreparingLANInvitation)
+        XCTAssertFalse(controller.isLANListening)
+    }
+
+    @MainActor func testQuickConnectionSettingsShowsQRWithoutCertificateSetup() async throws {
+        let fixture = try fixture(), controller = fixture.controller
+        controller.connectPhone(); defer { controller.disable() }
+        try await waitFor { controller.pairingURL != nil }
         let hosting = NSHostingView(rootView: MobileAccessSectionView(theme: .systemFallback(isDark: false), controller: controller))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 760, height: 860), styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false; window.contentView = hosting; window.orderFront(nil)
@@ -186,7 +317,6 @@ final class MobileLANTests: XCTestCase {
         let scroll = try XCTUnwrap(scrollViews(hosting).first)
         let document = try XCTUnwrap(scroll.documentView)
         XCTAssertLessThanOrEqual(document.bounds.width, hosting.bounds.width + 2)
-        XCTAssertGreaterThan(document.bounds.height, scroll.contentView.bounds.height)
         for (name, y) in [("lan-settings-top", CGFloat(0)), ("lan-settings-bottom", max(0, document.bounds.height - scroll.contentView.bounds.height))] {
             scroll.contentView.scroll(to: NSPoint(x: 0, y: y)); scroll.reflectScrolledClipView(scroll.contentView)
             hosting.layoutSubtreeIfNeeded()
@@ -409,7 +539,15 @@ final class MobileLANTests: XCTestCase {
         XCTAssertEqual(preview.statusCode, 401, "The preview server stays reachable while the LAN listener is replaced")
     }
     @MainActor func testScopedLiveUpdatesPairingConfirmationPresenceAndRevocation() async throws {
-        let fixture = try fixture(), controller = fixture.controller
+        try await verifyScopedLiveUpdates(mode: .encrypted)
+    }
+
+    @MainActor func testQuickLANWebSocketUsesItsOwnCookieAndRevokesLiveAccess() async throws {
+        try await verifyScopedLiveUpdates(mode: .quick)
+    }
+
+    @MainActor private func verifyScopedLiveUpdates(mode: MobileAccessController.LANMode) async throws {
+        let fixture = try fixture(mode: mode), controller = fixture.controller
         let first = fixture.registry.workspaces.createWorkspace(name: "Shared")
         _ = fixture.registry.workspaces.createWorkspace(name: "Hidden")
         let shared = fixture.registry.workspaces.workspaces[0].id
@@ -426,9 +564,9 @@ final class MobileLANTests: XCTestCase {
         XCTAssertEqual(device.access, .init(workspaceID: shared, writable: false))
         XCTAssertNil(controller.pairingURL)
         let cookie = try XCTUnwrap(response.headers["Set-Cookie"]?.components(separatedBy: ";").first)
-        let material = try fixture.identity.prepare(address: "127.0.0.1")
-        let session = web(authority: material.authorityCertificate)
-        var req = URLRequest(url: try XCTUnwrap(URL(string: origin.replacingOccurrences(of: "https:", with: "wss:") + "/api/events")))
+        let session = mode == .quick ? web() : web(authority: try fixture.identity.prepare(address: "127.0.0.1").authorityCertificate)
+        let eventOrigin = origin.replacingOccurrences(of: "https:", with: "wss:").replacingOccurrences(of: "http:", with: "ws:")
+        var req = URLRequest(url: try XCTUnwrap(URL(string: eventOrigin + "/api/events")))
         req.setValue(origin, forHTTPHeaderField: "Origin"); req.setValue(cookie, forHTTPHeaderField: "Cookie")
         let socket = session.webSocketTask(with: req)
         var received: [[String: Any]] = []

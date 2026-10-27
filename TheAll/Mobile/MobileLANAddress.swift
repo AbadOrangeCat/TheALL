@@ -1,12 +1,22 @@
 import Foundation
 import Darwin
 
-/// Explicit private IPv4 selection avoids publishing on VPN/public interfaces.
+/// Private IPv4 selection avoids publishing on VPN/public interfaces.
 struct MobileLANAddress: Identifiable, Equatable {
     let interface: String
     let address: String
     var id: String { address }
     var title: String { "\(address) (\(interface))" }
+
+    /// Wi-Fi/Ethernet usually use en*. Prefer them over VM/container bridges.
+    /// Keep an available explicit choice; only recover automatically when it disappears.
+    static func preferred(in addresses: [Self], keeping selected: String = "") -> Self? {
+        addresses.first(where: { $0.address == selected }) ?? addresses.sorted {
+            let left = $0.interface.hasPrefix("en") ? 0 : 1
+            let right = $1.interface.hasPrefix("en") ? 0 : 1
+            return (left, $0.interface, $0.address) < (right, $1.interface, $1.address)
+        }.first
+    }
 
     static func isPrivate(_ value: String) -> Bool {
         guard let bytes = bytes(value) else { return false }
@@ -37,6 +47,10 @@ struct MobileLANAddress: Identifiable, Equatable {
             guard isPrivate(address), !result.contains(where: { $0.address == address }) else { continue }
             result.append(.init(interface: String(cString: item.pointee.ifa_name), address: address))
         }
-        return result.sorted { ($0.interface, $0.address) < ($1.interface, $1.address) }
+        return result.sorted {
+            let left = $0.interface.hasPrefix("en") ? 0 : 1
+            let right = $1.interface.hasPrefix("en") ? 0 : 1
+            return (left, $0.interface, $0.address) < (right, $1.interface, $1.address)
+        }
     }
 }

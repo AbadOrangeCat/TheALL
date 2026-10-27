@@ -24,6 +24,7 @@ struct SidebarView: View {
     /// Drives the footer version number + red pulsing dot when an update
     /// is available. Clicking the version jumps to Settings → Update.
     @Bindable var updateStore: UpdateStore
+    var onConnectPhone: () -> Void = {}
     @Environment(LanguageStore.self) private var languageStore
     @Environment(\.locale) private var locale
     @State private var metadataMap: [UUID: WorkspaceMetadata] = [:]
@@ -61,6 +62,7 @@ struct SidebarView: View {
             // lg + xs(20) 让 workspace 列表距 trafficLightInset 下沿有足够喘息——
             // tab 行新增 4pt 上间距、整体顶区下移后，第一行随之多让 4pt 才不显得贴交通灯。
             .padding(.top, DT.Space.lg + DT.Space.xs)
+            connectPhoneButton
             footer
         }
         .frame(width: DT.Layout.sidebarWidth)
@@ -115,6 +117,31 @@ struct SidebarView: View {
     }
 
     // MARK: - Footer
+
+    private var connectPhoneButton: some View {
+        Button(action: onConnectPhone) {
+            HStack(spacing: DT.Space.sm) {
+                Image(systemName: "qrcode.viewfinder")
+                    .font(.system(size: 16, weight: .semibold))
+                Text(L10n.string("mobile.shortcut"))
+                    .font(Font(DT.Font.bodyB))
+                    .multilineTextAlignment(.leading)
+                Spacer(minLength: 0)
+            }
+            .foregroundStyle(Color(theme.accent))
+            .padding(.horizontal, DT.Space.md)
+            .padding(.vertical, DT.Space.md)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color(theme.accentMuted), in: RoundedRectangle(cornerRadius: DT.Radius.window))
+            .contentShape(RoundedRectangle(cornerRadius: DT.Radius.window))
+        }
+        .buttonStyle(.plain)
+        .help(L10n.string("mobile.lan.quickPair"))
+        .accessibilityIdentifier("sidebar-connect-phone")
+        .padding(.horizontal, DT.Space.md)
+        .padding(.top, DT.Space.sm)
+        .padding(.bottom, DT.Space.xs)
+    }
 
     private var footer: some View {
         HStack(spacing: DT.Space.xs) {

@@ -43,7 +43,7 @@ struct MobileHTTPResponse {
 }
 
 /// One bounded request per connection; no chunked requests or HTTP pipelining.
-/// Plain HTTP is loopback-only; LAN uses a separately bound TLS listener.
+/// LAN HTTP requires an explicit opt-in and a private, locally bound listener.
 final class MobileHTTPServer {
     static let maximumBody = 3 * 1024 * 1024
     private let queue = DispatchQueue.main
@@ -58,9 +58,11 @@ final class MobileHTTPServer {
     var onState: ((Bool, String?) -> Void)?
 
     func start(port: UInt16, host: String = "127.0.0.1", identity: sec_identity_t? = nil,
-               localNetworkOnly: Bool = false) throws {
+               localNetworkOnly: Bool = false, allowLANHTTP: Bool = false) throws {
         stop()
-        guard identity != nil || MobileLANAddress.isLoopback(host) else { throw URLError(.secureConnectionFailed) }
+        guard identity != nil || MobileLANAddress.isLoopback(host) ||
+                (allowLANHTTP && localNetworkOnly && MobileLANAddress.isPrivate(host))
+        else { throw URLError(.secureConnectionFailed) }
         self.localNetworkOnly = localNetworkOnly
         let parameters: NWParameters
         if let identity {
