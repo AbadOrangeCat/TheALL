@@ -63,9 +63,13 @@
         <form id="composer" class="composer">
           <div id="mutation-error" class="mutation-error" role="alert" hidden><span></span><button id="retry-operation" class="text-button" type="button" data-i18n="retry">Retry same request</button><button id="discard-operation" class="text-button" type="button" data-i18n="discardRetry">Keep draft; stop retrying</button></div>
           <p id="setup-notice" class="small muted" hidden data-i18n="setupNotice">Configure this AI connection in TheAll on your Mac before sending messages.</p>
+          <div id="photo-previews" class="photo-previews" hidden></div>
+          <p id="photo-loading" class="small muted" role="status" hidden data-i18n="photosPreparing">Preparing photos…</p>
+          <p id="photo-error" class="small error" role="alert" hidden></p>
+          <input id="photo-files" type="file" accept="image/*" multiple hidden>
           <label class="sr-only" for="draft" data-i18n="message">Message</label>
           <textarea id="draft" rows="2" data-i18n-placeholder="messagePlaceholder" placeholder="Continue the conversation…"></textarea>
-          <div class="composer-actions"><span id="directory" class="directory" title="Working directory"></span><div class="send-actions"><label class="sr-only" for="model" data-i18n="model">Model</label><select id="model"></select><button id="send" class="primary send" type="submit" data-i18n="send">Send ↑</button><button id="stop" class="stop" type="button" hidden data-i18n="stop">Stop ■</button></div></div>
+          <div class="composer-actions"><button id="add-photos" class="photo-add" type="button" data-i18n="photosAdd">Add photos</button><span id="directory" class="directory" title="Working directory"></span><div class="send-actions"><label class="sr-only" for="model" data-i18n="model">Model</label><select id="model"></select><button id="send" class="primary send" type="submit" data-i18n="send">Send ↑</button><button id="stop" class="stop" type="button" hidden data-i18n="stop">Stop ■</button></div></div>
           <p id="model-notice" class="small muted" hidden data-i18n="modelNotice">The selected model applies to your next message. Chat history is kept.</p>
         </form>
       </section>
@@ -78,6 +82,7 @@
     <p class="small muted" data-i18n="newHelp">Uses the saved API connection on your Mac. Enter an existing folder on that Mac.</p>
     <p id="new-error" class="error" role="alert" hidden></p><button id="create-chat" type="submit" class="primary wide" data-i18n="create">Create conversation</button><button id="discard-create" type="button" class="text-button" data-i18n="discardRetry" hidden>Keep draft; stop retrying</button>
   </form></dialog>
+  <dialog id="photo-dialog" class="photo-dialog"><div class="dialog-heading"><h2 data-i18n="photosPreview">Photo</h2><button id="close-photo" type="button" class="icon-button" aria-label="Close">×</button></div><img id="photo-full" alt=""></dialog>
   <dialog id="install-dialog"><div class="dialog-heading"><h2 data-i18n="install">Add to home screen</h2><button type="button" class="icon-button" id="close-install" aria-label="Close">×</button></div>
     <h3>iPhone / iPad</h3><p data-i18n="installIOS">Open this address in Safari, tap Share, then Add to Home Screen. If the installed app asks you to pair again, generate a new code on your Mac.</p>
     <h3>Android</h3><p data-i18n="installAndroid">Open this address in Chrome, then choose Install app or Add to home screen from the menu.</p>

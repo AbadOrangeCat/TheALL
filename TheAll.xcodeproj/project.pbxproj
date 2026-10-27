@@ -48,6 +48,7 @@
 		433C08AFBB13A1EE3641DA42 /* AppNamespaceMigrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA0DF448E6D18DDDED172286 /* AppNamespaceMigrationTests.swift */; };
 		43B0A16073319FEB674FD18B /* TerminalPwdStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0AD0B25C6677665AECC5B3F6 /* TerminalPwdStoreTests.swift */; };
 		484A30B1A95D7D881E80C4FB /* MobileWeb.bundle in Resources */ = {isa = PBXBuildFile; fileRef = 52843694A4BA9AE67D553107 /* MobileWeb.bundle */; };
+		4A213D8A782FF4B6E8FE442C /* AIChatProcessPhotoTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C17EBEFC356F1D11F108C470 /* AIChatProcessPhotoTests.swift */; };
 		4C420C11DAF1FB8074CF17D1 /* AIChatLegacyHistoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF8253E58671ED046B7ED9D2 /* AIChatLegacyHistoryTests.swift */; };
 		5167ACFDD582B3C0299B3ED4 /* MetadataRefresherOnRefreshTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D3F97491E566BF39418BCCA /* MetadataRefresherOnRefreshTests.swift */; };
 		51AF09784659F9F68B41A3A0 /* MobileChatAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = E374B6551ED8560F63710B22 /* MobileChatAPI.swift */; };
@@ -68,7 +69,9 @@
 		613130525CC23CB3A32FE440 /* HoverHighlightURLTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10EFDC37E18B02F67F68519D /* HoverHighlightURLTests.swift */; };
 		618AD532E3D1C5514C798359 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = F45810B4A3D36CC8D56C96B3 /* Sparkle */; };
 		61A586410E7DA77E8F20CAE3 /* SettingsTabBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C2728EE9265DCB295B1B615 /* SettingsTabBarView.swift */; };
+		647819C271103662D8C4A005 /* AIChatPhotoImportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A200C01909BFFB6220D3EAE1 /* AIChatPhotoImportTests.swift */; };
 		64E7AF619604FE59F7EE040A /* AIModelCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 630EA7E45BF5BAACE5A09E6F /* AIModelCatalog.swift */; };
+		66CE5C463868A62F2BD97BE7 /* AIChatImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7965C3CB1B9C1BF997F711BF /* AIChatImage.swift */; };
 		68025970375C0E1877C27A48 /* AppTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = D750E81DEAF6F7D87F11B334 /* AppTheme.swift */; };
 		6840C11B0087DA208B3D0040 /* LanguageStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F26555C845934B336910AC50 /* LanguageStoreTests.swift */; };
 		6A4613D037E41AB2B2C0471D /* AILaunchConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCA65019AFAAFBFB4DEF8A22 /* AILaunchConfiguration.swift */; };
@@ -85,6 +88,7 @@
 		7CC1CADD6294ED9B07236CAA /* DesignTokens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 504908E8B3D3053AC8E1F2B1 /* DesignTokens.swift */; };
 		7D13F4B5AAE63459E3AE1FCB /* PersistentAICredentialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D854F1619ABF6CC72D6BD19 /* PersistentAICredentialStore.swift */; };
 		8107A54CEC0BA9F07D5D44A8 /* NotificationNamesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D92D348C46A909DAD376C91 /* NotificationNamesTests.swift */; };
+		82F568CDCACDBAFB704011A1 /* AIChatImageTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70F551CA893B10F2A0F504EE /* AIChatImageTests.swift */; };
 		833C0AAF62DBE238BE1C3582 /* ThemeCatalogTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD4A9C0748652377B9072E66 /* ThemeCatalogTests.swift */; };
 		83E81FF55C2C3F8CD28F8B8F /* WorkspaceListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1EE13C5EC9336E0DFB6782 /* WorkspaceListView.swift */; };
 		858AE18113DD42ED42513885 /* TerminalScrollingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 750071D19292FFD55C721C98 /* TerminalScrollingTests.swift */; };
@@ -142,6 +146,7 @@
 		EB5614C57881143587DEBD06 /* SettingsConfigStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61945DEC6B56F4845B06F513 /* SettingsConfigStore.swift */; };
 		ED973E5142FD46F086338C5A /* SettingsResetRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = E53182B3832B46D71284C70F /* SettingsResetRow.swift */; };
 		F2DC469DCE2EB27EBDFB701B /* MobileHTTPServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A5B6C73E2A23ED433C05E6B /* MobileHTTPServer.swift */; };
+		F380FBE151612690E6B59FE8 /* AIChatImageViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDB8E3FE01E8568897521AE5 /* AIChatImageViews.swift */; };
 		F3BDCF0853307D2792193026 /* DraggedSnapshotShadow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2DF65158B4E7E24876E4AE02 /* DraggedSnapshotShadow.swift */; };
 		F481F59CB3B90E762627F8F6 /* SidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2AFD57111D0AA989884CFE6 /* SidebarView.swift */; };
 		F4CFB14F0E024BF3CAEC59AA /* GhosttyBridgeCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD59846E0B25C4C9FC8FED70 /* GhosttyBridgeCommandTests.swift */; };
@@ -224,6 +229,7 @@
 		6EC9A1EDEF4921696DAD2AA1 /* L10n.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = L10n.swift; sourceTree = "<group>"; };
 		6F6C1F96F0BC16D3CC123035 /* AITerminalTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AITerminalTests.swift; sourceTree = "<group>"; };
 		6F7441D7E4B068B57BD6C157 /* QuickActionsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickActionsStore.swift; sourceTree = "<group>"; };
+		70F551CA893B10F2A0F504EE /* AIChatImageTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIChatImageTests.swift; sourceTree = "<group>"; };
 		744EA0E0DE455405F841DC80 /* PlaceholderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaceholderTests.swift; sourceTree = "<group>"; };
 		74F079910919EB16816EFEC8 /* UpdateState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateState.swift; sourceTree = "<group>"; };
 		750071D19292FFD55C721C98 /* TerminalScrollingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalScrollingTests.swift; sourceTree = "<group>"; };
@@ -233,6 +239,7 @@
 		773629509DEEFEF383A14E7D /* AIChatSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIChatSession.swift; sourceTree = "<group>"; };
 		77F000B161DBD5CEB538817C /* AIChatLegacyHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIChatLegacyHistory.swift; sourceTree = "<group>"; };
 		7832ADF26714768F69D84D09 /* MobileLANIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileLANIdentity.swift; sourceTree = "<group>"; };
+		7965C3CB1B9C1BF997F711BF /* AIChatImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIChatImage.swift; sourceTree = "<group>"; };
 		7B03028698B14C8A06F6A427 /* HookDispatcherTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HookDispatcherTests.swift; sourceTree = "<group>"; };
 		7CA023B179D0682B3466D86D /* MobileRelayClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileRelayClient.swift; sourceTree = "<group>"; };
 		7CD29CB9AB52E8342FC52650 /* SurfaceScrollView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceScrollView.swift; sourceTree = "<group>"; };
@@ -251,6 +258,7 @@
 		9A1EE13C5EC9336E0DFB6782 /* WorkspaceListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceListView.swift; sourceTree = "<group>"; };
 		9B1F9F27419D760520539931 /* GhosttyTerminalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTerminalView.swift; sourceTree = "<group>"; };
 		9C2AEB98E84820C6BBEEB401 /* UpdateSectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateSectionView.swift; sourceTree = "<group>"; };
+		A200C01909BFFB6220D3EAE1 /* AIChatPhotoImportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIChatPhotoImportTests.swift; sourceTree = "<group>"; };
 		A54806DE021775D12948E3A7 /* Config.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Config.xcconfig; sourceTree = "<group>"; };
 		A6ED376EA67F1192A369B6A2 /* ThemeManagerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemeManagerTests.swift; sourceTree = "<group>"; };
 		A737D42B7979543379C05912 /* GhosttyBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyBridge.swift; sourceTree = "<group>"; };
@@ -269,6 +277,7 @@
 		BB2DEA51421C41B277A82183 /* SettingsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSection.swift; sourceTree = "<group>"; };
 		BBCEE1ACC2C19D127ABBAE58 /* IconButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IconButton.swift; sourceTree = "<group>"; };
 		BDBF481C89B34C3BA9B8CFF0 /* MobileAccessSectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileAccessSectionView.swift; sourceTree = "<group>"; };
+		C17EBEFC356F1D11F108C470 /* AIChatProcessPhotoTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIChatProcessPhotoTests.swift; sourceTree = "<group>"; };
 		C19EA94F51293774FED664B7 /* GhosttyConfigReaderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyConfigReaderTests.swift; sourceTree = "<group>"; };
 		C26E59AEDFB7517C89B2E898 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		C4F950D18AF69A39E40649CC /* QuickActionIconView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickActionIconView.swift; sourceTree = "<group>"; };
@@ -302,6 +311,7 @@
 		E90DACEB7A212BC7EA0F0365 /* TextLinkButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextLinkButton.swift; sourceTree = "<group>"; };
 		E9C32BBC26D98CDAFD929D30 /* TheAll.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TheAll.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		EB4AE869F54DBE34FB1B2589 /* GhosttyConfigReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyConfigReader.swift; sourceTree = "<group>"; };
+		EDB8E3FE01E8568897521AE5 /* AIChatImageViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIChatImageViews.swift; sourceTree = "<group>"; };
 		EE75EC0BFDB8861B4B2206F8 /* WorkspaceMetadata.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceMetadata.swift; sourceTree = "<group>"; };
 		EF2578177268DDEA4C204E27 /* TabBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabBridge.swift; sourceTree = "<group>"; };
 		EF80481375B0E8D50E017998 /* AIChatSessionRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIChatSessionRegistry.swift; sourceTree = "<group>"; };
@@ -400,7 +410,10 @@
 			children = (
 				23640EC48010FB2F240AD8A5 /* AIChatComposerTests.swift */,
 				0448CD85928DEA95855746A2 /* AIChatHistoryTests.swift */,
+				70F551CA893B10F2A0F504EE /* AIChatImageTests.swift */,
 				EF8253E58671ED046B7ED9D2 /* AIChatLegacyHistoryTests.swift */,
+				A200C01909BFFB6220D3EAE1 /* AIChatPhotoImportTests.swift */,
+				C17EBEFC356F1D11F108C470 /* AIChatProcessPhotoTests.swift */,
 				7639666A88AA0086D0FCA919 /* AIChatTests.swift */,
 				6F6C1F96F0BC16D3CC123035 /* AITerminalTests.swift */,
 				FA0DF448E6D18DDDED172286 /* AppNamespaceMigrationTests.swift */,
@@ -451,6 +464,8 @@
 			isa = PBXGroup;
 			children = (
 				D031DF619D6CF04ABDC41B3F /* AIChatHistoryStore.swift */,
+				7965C3CB1B9C1BF997F711BF /* AIChatImage.swift */,
+				EDB8E3FE01E8568897521AE5 /* AIChatImageViews.swift */,
 				77F000B161DBD5CEB538817C /* AIChatLegacyHistory.swift */,
 				96B45433145A763214148287 /* AIChatProcess.swift */,
 				773629509DEEFEF383A14E7D /* AIChatSession.swift */,
@@ -879,6 +894,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				3E1701A8EB7AAB79C4DE325F /* AIChatHistoryStore.swift in Sources */,
+				66CE5C463868A62F2BD97BE7 /* AIChatImage.swift in Sources */,
+				F380FBE151612690E6B59FE8 /* AIChatImageViews.swift in Sources */,
 				A79218F9F9AED8E2BF47C577 /* AIChatLegacyHistory.swift in Sources */,
 				6050B21600C65F3E50D910CF /* AIChatProcess.swift in Sources */,
 				B9AE662F78CCEDC889584A90 /* AIChatSession.swift in Sources */,
@@ -974,7 +991,10 @@
 			files = (
 				FF3C5EB5BF30EC3095DFE8DC /* AIChatComposerTests.swift in Sources */,
 				A3CFBB2BA48538DF6B2A4C46 /* AIChatHistoryTests.swift in Sources */,
+				82F568CDCACDBAFB704011A1 /* AIChatImageTests.swift in Sources */,
 				4C420C11DAF1FB8074CF17D1 /* AIChatLegacyHistoryTests.swift in Sources */,
+				647819C271103662D8C4A005 /* AIChatPhotoImportTests.swift in Sources */,
+				4A213D8A782FF4B6E8FE442C /* AIChatProcessPhotoTests.swift in Sources */,
 				77981C5E8D1B4E32F413D568 /* AIChatTests.swift in Sources */,
 				5B438184B45F2E8372E1BB27 /* AITerminalTests.swift in Sources */,
 				433C08AFBB13A1EE3641DA42 /* AppNamespaceMigrationTests.swift in Sources */,
@@ -1052,14 +1072,14 @@
 				CODE_SIGN_ENTITLEMENTS = TheAll/TheAll.entitlements;
 				CODE_SIGN_STYLE = "$(THEALL_CODE_SIGN_STYLE)";
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 3;
+				CURRENT_PROJECT_VERSION = 4;
 				ENABLE_HARDENED_RUNTIME = YES;
 				HEADER_SEARCH_PATHS = "$(PROJECT_DIR)/Vendor/ghostty/include";
 				INFOPLIST_FILE = TheAll/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/../Frameworks";
 				LIBRARY_SEARCH_PATHS = "$(PROJECT_DIR)/Vendor/ghostty/lib";
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.1.3;
+				MARKETING_VERSION = 0.1.4;
 				OTHER_LDFLAGS = "$(THEALL_INTL_LIBRARY) $(THEALL_GHOSTTY_LIBRARY) -lc++ -framework Carbon";
 				PRODUCT_BUNDLE_IDENTIFIER = "$(THEALL_APP_IDENTIFIER)";
 				PRODUCT_MODULE_NAME = TheAll;
@@ -1193,14 +1213,14 @@
 				CODE_SIGN_ENTITLEMENTS = TheAll/TheAll.entitlements;
 				CODE_SIGN_STYLE = "$(THEALL_CODE_SIGN_STYLE)";
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 3;
+				CURRENT_PROJECT_VERSION = 4;
 				ENABLE_HARDENED_RUNTIME = YES;
 				HEADER_SEARCH_PATHS = "$(PROJECT_DIR)/Vendor/ghostty/include";
 				INFOPLIST_FILE = TheAll/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/../Frameworks";
 				LIBRARY_SEARCH_PATHS = "$(PROJECT_DIR)/Vendor/ghostty/lib";
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.1.3;
+				MARKETING_VERSION = 0.1.4;
 				OTHER_LDFLAGS = "$(THEALL_INTL_LIBRARY) $(THEALL_GHOSTTY_LIBRARY) -lc++ -framework Carbon";
 				PRODUCT_BUNDLE_IDENTIFIER = "$(THEALL_APP_IDENTIFIER)";
 				PRODUCT_MODULE_NAME = TheAll;

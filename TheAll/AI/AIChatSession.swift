@@ -11,8 +11,28 @@ struct AIChatMessage: Identifiable, Codable {
     /// Set only after a successful reply identifies this as turn progress.
     /// Keep the original role/text so expanding it restores the full content.
     var isIntermediate = false
+    var images: [AIChatImage] = []
     var isVisibleInTranscript: Bool {
-        (role != .tool || isError) && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        (role != .tool || isError) && (!text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !images.isEmpty)
+    }
+
+    private enum CodingKeys: String, CodingKey { case id, role, text, model, isError, isIntermediate, images }
+
+    init(id: String, role: Role, text: String, model: String = "", isError: Bool = false,
+         isIntermediate: Bool = false, images: [AIChatImage] = []) {
+        self.id = id; self.role = role; self.text = text; self.model = model
+        self.isError = isError; self.isIntermediate = isIntermediate; self.images = images
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decode(String.self, forKey: .id)
+        role = try values.decode(Role.self, forKey: .role)
+        text = try values.decode(String.self, forKey: .text)
+        model = try values.decodeIfPresent(String.self, forKey: .model) ?? ""
+        isError = try values.decodeIfPresent(Bool.self, forKey: .isError) ?? false
+        isIntermediate = try values.decodeIfPresent(Bool.self, forKey: .isIntermediate) ?? false
+        images = try values.decodeIfPresent([AIChatImage].self, forKey: .images) ?? []
     }
 }
 
@@ -37,6 +57,8 @@ final class AIChatSession {
     let provider: AIProvider
     private(set) var directory: String { didSet { onStateChanged?() } }
     var input = "" { didSet { onStateChanged?() } }
+    var draftImages: [AIChatImage] = [] { didSet { onStateChanged?() } }
+    let imageStore: AIChatImageStore
     var model: String {
         didSet { if model != oldValue { showsModelChangeHint = true; onStateChanged?() } }
     }
@@ -59,8 +81,12 @@ final class AIChatSession {
     }
     var showsThinkingPlaceholder: Bool { isBusy && approvals.isEmpty && activeThinkingID == nil }
     var canChangeDirectory: Bool { !isBusy && approvals.isEmpty && responses.isEmpty }
+    var canSend: Bool {
+        isReady && !isBusy && approvals.isEmpty &&
+        (!input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !draftImages.isEmpty)
+    }
     var needsConfirmClose: Bool {
-        isBusy || !input.isEmpty || !messages.isEmpty || !approvals.isEmpty
+        isBusy || !input.isEmpty || !draftImages.isEmpty || !messages.isEmpty || !approvals.isEmpty
     }
     @ObservationIgnored private let transport: any AIChatTransport
     @ObservationIgnored private var responses: [String: (Result<[String: Any], Error>) -> Void] = [:]
@@ -80,6 +106,10 @@ final class AIChatSession {
     @ObservationIgnored private var claudeStopReasons: [String: String] = [:]
     @ObservationIgnored private var codexMessagePhases: [String: String] = [:]
     @ObservationIgnored private var stopped = false
+    @ObservationIgnored private var transportGeneration = UUID()
+    @ObservationIgnored private var pendingClaudeWrite = false
+    @ObservationIgnored private var deferredClaudeMessages: [[String: Any]] = []
+    @ObservationIgnored private var deferredClaudeBytes = 0
     @ObservationIgnored private var hasSubmittedFirstMessage = false
     @ObservationIgnored private var secrets: [String] = []
     enum RemoteSubmissionResult: Equatable { case accepted, rejected, uncertain }
@@ -87,17 +117,20 @@ final class AIChatSession {
     @ObservationIgnored private var remoteRequestWasWritten = false
 
     init(provider: AIProvider, model: String, directory: String,
-         transport: any AIChatTransport = AIChatProcess(), restoring snapshot: AIChatSnapshot? = nil) {
+         transport: any AIChatTransport = AIChatProcess(), restoring snapshot: AIChatSnapshot? = nil,
+         imageStore: AIChatImageStore = .shared) {
         self.provider = provider
         self.model = model
         self.appliedClaudeModel = model
         self.directory = directory
         self.transport = transport
+        self.imageStore = imageStore
         if let snapshot, snapshot.provider == provider {
             self.directory = snapshot.directory
             self.model = snapshot.model
             self.appliedClaudeModel = snapshot.model
             self.input = snapshot.input
+            self.draftImages = snapshot.draftImages
             self.messages = snapshot.messages
             self.conversationID = snapshot.conversationID
             self.hasSubmittedFirstMessage = snapshot.messages.contains { $0.role == .user }
@@ -107,7 +140,7 @@ final class AIChatSession {
 
     private var rawSnapshot: AIChatSnapshot {
         AIChatSnapshot(provider: provider, directory: directory, model: model, input: input,
-                       messages: messages, conversationID: conversationID)
+                       messages: messages, conversationID: conversationID, draftImages: draftImages)
     }
 
     var snapshot: AIChatSnapshot { rawSnapshot.redacting(secrets) }
@@ -119,6 +152,12 @@ final class AIChatSession {
     }
 
     func start(_ configuration: AILaunchConfiguration, resuming sessionID: String? = nil) {
+        completeRemoteSubmission(remoteRequestWasWritten ? .uncertain : .rejected)
+        transportGeneration = UUID()
+        clearPendingClaudeWrite()
+        responses.removeAll()
+        clearApprovals()
+        finishTurn()
         var configuration = configuration
         // The pane's selection can differ from the shared connection default.
         if let index = configuration.arguments.firstIndex(of: "--model"), index + 1 < configuration.arguments.count {
@@ -140,8 +179,11 @@ final class AIChatSession {
         transport.onMessage = { [weak self] in self?.receive($0) }
         transport.onExit = { [weak self] status in
             guard let self, !self.stopped else { return }
+            self.transportGeneration = UUID()
+            self.clearPendingClaudeWrite()
             self.isReady = false
             if self.errorMessage == nil, self.isBusy || status != 0 { self.errorMessage = L10n.string("ai.chat.exit", status) }
+            self.completeRemoteSubmission(self.remoteRequestWasWritten ? .uncertain : .rejected)
             self.finishTurn()
             self.clearApprovals()
             let callbacks = Array(self.responses.values)
@@ -233,37 +275,54 @@ final class AIChatSession {
 
     func send() {
         guard remoteSubmission == nil else { return }
-        _ = submit(input, clearsComposer: true)
+        _ = submit(input, images: draftImages, clearsComposer: true)
     }
 
     /// Remote clients own their drafts. Never overwrite or clear the Mac composer.
     @discardableResult
-    func sendRemote(_ prompt: String, model selectedModel: String? = nil,
+    func sendRemote(_ prompt: String, images: [AIChatImage] = [], model selectedModel: String? = nil,
                     stillAuthorized: @escaping () -> Bool = { true },
                     completion: @escaping (RemoteSubmissionResult) -> Void = { _ in }) -> Bool {
         guard stillAuthorized(), remoteSubmission == nil, isReady, !isBusy, approvals.isEmpty,
-              !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { completion(.rejected); return false }
+              (!prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !images.isEmpty)
+        else { completion(.rejected); return false }
         remoteRequestWasWritten = false
         remoteSubmission = completion
         if let selectedModel { model = selectedModel }
-        return submit(prompt, clearsComposer: false, stillAuthorized: stillAuthorized)
+        return submit(prompt, images: images, clearsComposer: false, stillAuthorized: stillAuthorized)
     }
 
     @discardableResult
-    private func submit(_ prompt: String, clearsComposer: Bool, stillAuthorized: @escaping () -> Bool = { true }) -> Bool {
+    private func submit(_ prompt: String, images: [AIChatImage], clearsComposer: Bool,
+                        stillAuthorized: @escaping () -> Bool = { true }) -> Bool {
         guard isReady, !isBusy, approvals.isEmpty,
-              !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+              (!prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !images.isEmpty) else { return false }
         turnModel = model
         thinkingStartIndex = messages.count
         isBusy = true
         errorMessage = nil
         do {
+            guard images.count <= AIChatImageStore.maximumCount else { throw AIChatImageStore.ImageError.tooMany }
+            guard Set(images.map(\.id)).count == images.count else { throw AIChatImageStore.ImageError.invalid }
+            // Validate every attachment before any provider request. A missing
+            // restored file must not silently send a text-only question.
+            var imageInputs: [[String: Any]] = []
+            for image in images {
+                let data = try imageStore.data(for: image)
+                if provider == .claude {
+                    imageInputs.append(["type": "image", "source": ["type": "base64", "media_type": image.mimeType,
+                        "data": data.base64EncodedString()]])
+                } else {
+                    imageInputs.append(["type": "localImage", "path": try imageStore.url(for: image).path])
+                }
+            }
             if provider == .claude {
                 // Wait for model acknowledgement before submitting the prompt.
                 // A selection made during this turn is left for the next send.
                 let selected = turnModel
+                let generation = transportGeneration
                 let submit: (Result<[String: Any], Error>) -> Void = { [weak self] result in
-                    guard let self, !self.stopped else { return }
+                    guard let self, !self.stopped, self.transportGeneration == generation else { return }
                     do {
                         _ = try result.get()
                         self.appliedClaudeModel = selected
@@ -273,11 +332,37 @@ final class AIChatSession {
                             self.completeRemoteSubmission(.rejected)
                             return
                         }
-                        try self.transport.send(["type": "user", "message": ["role": "user", "content": prompt],
-                            "parent_tool_use_id": NSNull(), "session_id": self.conversationID ?? ""])
-                        self.didSubmit(prompt, clearsComposer: clearsComposer)
-                        self.canInterrupt = true
-                        self.completeRemoteSubmission(.accepted)
+                        var content = imageInputs
+                        if !prompt.isEmpty { content.insert(["type": "text", "text": prompt], at: 0) }
+                        let payload: Any = images.isEmpty ? prompt as Any : content
+                        // The pipe writer is asynchronous for large photos. Do
+                        // not clear the draft or acknowledge a remote send until
+                        // the complete JSON line has actually been written.
+                        if self.remoteSubmission != nil { self.remoteRequestWasWritten = true }
+                        self.pendingClaudeWrite = true
+                        do {
+                            try self.transport.send(["type": "user", "message": ["role": "user", "content": payload],
+                                "parent_tool_use_id": NSNull(), "session_id": self.conversationID ?? ""]) { [weak self] result in
+                                guard let self, !self.stopped, self.transportGeneration == generation else { return }
+                                switch result {
+                                case .success:
+                                    self.didSubmit(prompt, images: images, clearsComposer: clearsComposer)
+                                    self.canInterrupt = true
+                                    self.completeRemoteSubmission(.accepted)
+                                    let queued = self.deferredClaudeMessages
+                                    self.clearPendingClaudeWrite()
+                                    queued.forEach { self.receive($0) }
+                                case .failure(let error):
+                                    self.clearPendingClaudeWrite()
+                                    self.fail(error)
+                                }
+                            }
+                        } catch {
+                            // A synchronous throw means no write was queued.
+                            self.remoteRequestWasWritten = false
+                            self.clearPendingClaudeWrite()
+                            throw error
+                        }
                     } catch { self.fail(error) }
                 }
                 if appliedClaudeModel == selected { submit(.success([:])) }
@@ -289,46 +374,62 @@ final class AIChatSession {
                     return false
                 }
                 guard let conversationID else { throw ChatError.protocolError }
+                var content = imageInputs
+                if !prompt.isEmpty { content.insert(["type": "text", "text": prompt], at: 0) }
                 var params: [String: Any] = ["threadId": conversationID, "cwd": directory,
                     "approvalPolicy": "never", "sandboxPolicy": ["type": "dangerFullAccess"],
-                    "input": [["type": "text", "text": prompt]]]
+                    "input": content]
                 guard let selected = turnModel.isEmpty ? defaultModel : turnModel else { throw ChatError.protocolError }
                 params["model"] = selected
+                var written = false
+                var rejectedSynchronously = false
                 try rpc("turn/start", params: params) { [weak self] result in
                     guard let self else { return }
                     do {
                         let value = try result.get()
                         self.turnID = (value["turn"] as? [String: Any])?["id"] as? String
-                        self.notifyFirstMessage(prompt)
+                        self.notifyFirstMessage(prompt, images: images)
                         self.completeRemoteSubmission(.accepted)
                     } catch {
-                        if clearsComposer, self.input.isEmpty { self.input = prompt }
+                        rejectedSynchronously = !written
+                        if clearsComposer, written {
+                            if self.input.isEmpty { self.input = prompt }
+                            let present = Set(self.draftImages.map(\.id))
+                            self.draftImages = images.filter { !present.contains($0.id) } + self.draftImages
+                        }
                         self.fail(error)
                     }
                 }
+                guard !rejectedSynchronously else { return false }
+                written = true
                 // A written Codex request may execute even if its reply is lost.
                 // A synchronous reply may already have completed the submission.
                 if remoteSubmission != nil { remoteRequestWasWritten = true }
-                didSubmit(prompt, clearsComposer: clearsComposer)
+                didSubmit(prompt, images: images, clearsComposer: clearsComposer)
             }
         } catch { fail(error); return false }
         return true
     }
 
-    private func didSubmit(_ prompt: String, clearsComposer: Bool) {
-        messages.append(AIChatMessage(id: UUID().uuidString, role: .user, text: prompt))
+    private func didSubmit(_ prompt: String, images: [AIChatImage], clearsComposer: Bool) {
+        messages.append(AIChatMessage(id: UUID().uuidString, role: .user, text: prompt, images: images))
         if clearsComposer, input == prompt { input = "" }
+        if clearsComposer {
+            let submitted = Set(images.map(\.id))
+            draftImages.removeAll { submitted.contains($0.id) }
+        }
         // A newer selection made while waiting for the previous model's
         // acknowledgement still applies to the following message.
         if model == turnModel { showsModelChangeHint = false }
         revision += 1
-        if provider == .claude { notifyFirstMessage(prompt) }
+        if provider == .claude { notifyFirstMessage(prompt, images: images) }
     }
 
-    private func notifyFirstMessage(_ prompt: String) {
+    private func notifyFirstMessage(_ prompt: String, images: [AIChatImage] = []) {
         guard !hasSubmittedFirstMessage else { return }
         hasSubmittedFirstMessage = true
-        onFirstMessageSubmitted?(prompt)
+        onFirstMessageSubmitted?(prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !images.isEmpty
+            ? L10n.string("ai.images.defaultName") : prompt)
     }
 
     @discardableResult
@@ -360,6 +461,8 @@ final class AIChatSession {
     }
 
     func stop() {
+        transportGeneration = UUID()
+        clearPendingClaudeWrite()
         completeRemoteSubmission(remoteRequestWasWritten ? .uncertain : .rejected)
         onStateChanged?()
         stopped = true
@@ -373,6 +476,7 @@ final class AIChatSession {
         let saved = snapshot
         messages = saved.messages
         input = saved.input
+        draftImages = saved.draftImages
         secrets.removeAll()
         configuration = nil
     }
@@ -537,7 +641,28 @@ final class AIChatSession {
 
     private func receive(_ message: [String: Any]) {
         guard !stopped else { return }
+        if provider == .claude, pendingClaudeWrite {
+            // stdout can race the main-thread write completion. Preserve user
+            // -> assistant ordering even when the CLI answers immediately.
+            deferredClaudeBytes += (try? JSONSerialization.data(withJSONObject: message).count) ?? 0
+            guard deferredClaudeBytes <= 16 * 1024 * 1024, deferredClaudeMessages.count < 1024 else {
+                transportGeneration = UUID()
+                clearPendingClaudeWrite()
+                transport.stop()
+                isReady = false
+                fail(ChatError.protocolError)
+                return
+            }
+            deferredClaudeMessages.append(message)
+            return
+        }
         if provider == .claude { receiveClaude(message) } else { receiveCodex(message) }
+    }
+
+    private func clearPendingClaudeWrite() {
+        pendingClaudeWrite = false
+        deferredClaudeMessages.removeAll()
+        deferredClaudeBytes = 0
     }
 
     private func receiveClaude(_ message: [String: Any]) {

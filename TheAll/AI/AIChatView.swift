@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct AIModelPicker: View {
     @Bindable var session: AITerminalSession
@@ -42,6 +43,12 @@ struct AIChatView: View {
     @State private var forceScroll = 0
     @State private var expandedIntermediateIDs = Set<String>()
     @State private var collapsedThinkingIDs = Set<String>()
+    @State private var showsPhotoPicker = false
+    @State private var importingPhotos = false
+    @State private var photoError: String?
+    @State private var previewPhoto: AIChatImage?
+    @State private var photoDropTargeted = false
+    @State private var editorPhotoDropTargeted = false
     private var theme: AppTheme { session.theme }
 
     var body: some View {
@@ -75,12 +82,35 @@ struct AIChatView: View {
                 }.frame(maxHeight: 230)
             }
             VStack(alignment: .leading, spacing: 8) {
+                if !chat.draftImages.isEmpty {
+                    AIChatPhotos(images: chat.draftImages, store: chat.imageStore, theme: theme,
+                        onOpen: { previewPhoto = $0 }, onRemove: { image in
+                            chat.draftImages.removeAll { $0.id == image.id }
+                        })
+                }
+                if importingPhotos {
+                    HStack(spacing: 6) {
+                        ProgressView().controlSize(.small)
+                        Text(L10n.string("ai.images.preparing")).font(.caption)
+                    }
+                }
+                if let photoError {
+                    Text(photoError).font(.caption).foregroundStyle(Color(nsColor: theme.danger))
+                }
                 AIChatComposer(text: $chat.input, conversation: ObjectIdentifier(chat),
                     history: { chat.messages.filter { $0.role == .user }.map(\.text) },
-                    theme: theme, onFocus: onFocus, onSend: send)
+                    theme: theme, onFocus: onFocus, onSend: send, onPasteImages: pastePhotos,
+                    acceptsPhotoDrops: !importingPhotos,
+                    onPhotoDragTargeted: { editorPhotoDropTargeted = $0 })
                     .frame(height: 88)
                     .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color(nsColor: theme.border)))
                 HStack(spacing: 8) {
+                    Button { showsPhotoPicker = true } label: { Image(systemName: "photo.badge.plus") }
+                        .buttonStyle(.borderless)
+                        .disabled(importingPhotos || chat.draftImages.count >= AIChatImageStore.maximumCount)
+                        .help(L10n.string("ai.images.add"))
+                        .accessibilityLabel(L10n.string("ai.images.add"))
+                        .accessibilityIdentifier("chat-add-photos")
                     Button(action: onChooseDirectory) {
                         Label(chat.directory, systemImage: "folder")
                             .font(.caption).lineLimit(1).truncationMode(.middle)
@@ -99,7 +129,7 @@ struct AIChatView: View {
                     } else {
                         Button(L10n.string("ai.chat.send"), action: send)
                             .buttonStyle(.borderedProminent)
-                            .disabled(!chat.isReady || chat.input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                            .disabled(!chat.canSend || importingPhotos)
                     }
                 }
                 HStack(alignment: .top) {
@@ -122,7 +152,29 @@ struct AIChatView: View {
         .background(Color(nsColor: theme.canvas))
         .tint(Color(nsColor: theme.accent))
         .environment(\.colorScheme, theme.isDark ? .dark : .light)
+        .onDrop(of: [.fileURL, .image], isTargeted: $photoDropTargeted, perform: dropPhotos)
+        .overlay {
+            if !importingPhotos, photoDropTargeted || editorPhotoDropTargeted {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 10).fill(Color(nsColor: theme.accentMuted).opacity(0.8))
+                    RoundedRectangle(cornerRadius: 10)
+                        .strokeBorder(Color(nsColor: theme.accent), style: StrokeStyle(lineWidth: 2, dash: [8, 5]))
+                    Label(L10n.string("ai.images.drop"), systemImage: "photo.badge.plus")
+                        .font(.headline).padding(16)
+                        .background(Color(nsColor: theme.sidebar), in: RoundedRectangle(cornerRadius: 8))
+                }.padding(6).allowsHitTesting(false)
+            }
+        }
         .onAppear { if session.models.isEmpty { session.refreshModels() } }
+        .fileImporter(isPresented: $showsPhotoPicker, allowedContentTypes: [.image], allowsMultipleSelection: true) { result in
+            switch result {
+            case .success(let urls): attachPhotos(urls.map(AIChatPhotoImport.file))
+            case .failure: photoError = L10n.string("ai.images.unavailable")
+            }
+        }
+        .sheet(item: $previewPhoto) { image in
+            AIChatPhotoPreview(image: image, store: chat.imageStore, theme: theme)
+        }
     }
 
     private var transcript: some View {
@@ -166,10 +218,16 @@ struct AIChatView: View {
                                     Text(message.role == .user ? L10n.string("ai.chat.you") : session.provider?.tool ?? "AI")
                                         .font(.caption.weight(.semibold))
                                         .foregroundStyle(Color(nsColor: message.role == .user ? theme.accent : theme.textSecondary))
+                                    if !message.images.isEmpty {
+                                        AIChatPhotos(images: message.images, store: chat.imageStore, theme: theme,
+                                            onOpen: { previewPhoto = $0 })
+                                    }
+                                    if !message.text.isEmpty {
                                     Text(message.role == .user ? AttributedString(message.text) :
                                         (try? AttributedString(markdown: message.text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(message.text))
                                         .textSelection(.enabled).font(.system(size: 14)).lineSpacing(4)
                                         .frame(maxWidth: .infinity, alignment: .leading)
+                                    }
                                 }
                                 .padding(message.role == .user ? 12 : 0)
                                 .background {
@@ -227,8 +285,60 @@ struct AIChatView: View {
     }
 
     private func send() {
+        guard !importingPhotos else { return }
         chat.send()
         forceScroll += 1
+    }
+
+    private func pastePhotos(_ pasteboard: NSPasteboard) -> Bool {
+        guard AIChatPhotoImport.containsImages(pasteboard) else { return false }
+        guard let photos = AIChatPhotoImport.read(pasteboard), !photos.isEmpty else {
+            photoError = L10n.string("ai.images.invalid")
+            return true
+        }
+        attachPhotos(photos)
+        return true
+    }
+
+    private func dropPhotos(_ providers: [NSItemProvider]) -> Bool {
+        guard !providers.isEmpty, !importingPhotos else { return false }
+        importPhotos(count: providers.count) { store in
+            try await AIChatPhotoImport.importProviders(providers, store: store)
+        }
+        return true
+    }
+
+    private func attachPhotos(_ sources: [AIChatPhotoImport]) {
+        guard !sources.isEmpty else { return }
+        importPhotos(count: sources.count) { store in
+            try await Task.detached(priority: .userInitiated) {
+                try AIChatPhotoImport.importBatch(sources, store: store)
+            }.value
+        }
+    }
+
+    private func importPhotos(count: Int, operation: @escaping (AIChatImageStore) async throws -> [AIChatImage]) {
+        guard !importingPhotos else { return }
+        guard chat.draftImages.count + count <= AIChatImageStore.maximumCount else {
+            photoError = L10n.string("ai.images.tooMany")
+            return
+        }
+        importingPhotos = true
+        photoError = nil
+        let target = chat
+        let imageStore = target.imageStore
+        Task { @MainActor in
+            defer { importingPhotos = false }
+            do {
+                let images = try await operation(imageStore)
+                guard target.draftImages.count + images.count <= AIChatImageStore.maximumCount else {
+                    for image in images { try? target.imageStore.remove(image) }
+                    photoError = L10n.string("ai.images.tooMany")
+                    return
+                }
+                target.draftImages.append(contentsOf: images)
+            } catch { photoError = error.localizedDescription }
+        }
     }
 
     private func expansion(for message: AIChatMessage) -> Binding<Bool> {
@@ -387,10 +497,16 @@ struct AIChatComposer: NSViewRepresentable {
     let theme: AppTheme
     let onFocus: () -> Void
     let onSend: () -> Void
+    var onPasteImages: ((NSPasteboard) -> Bool)? = nil
+    var acceptsPhotoDrops = true
+    var onPhotoDragTargeted: ((Bool) -> Void)? = nil
 
     final class Editor: NSTextView {
         var onFocus: (() -> Void)?
         var onSend: (() -> Void)?
+        var onPasteImages: ((NSPasteboard) -> Bool)?
+        var acceptsPhotoDrops = true
+        var onPhotoDragTargeted: ((Bool) -> Void)?
         var history: (() -> [String])?
         private var conversation: ObjectIdentifier?
         private let editingUndoManager = UndoManager()
@@ -431,6 +547,43 @@ struct AIChatComposer: NSViewRepresentable {
             let accepted = super.becomeFirstResponder()
             if accepted { onFocus?() }
             return accepted
+        }
+        override func paste(_ sender: Any?) {
+            if !hasMarkedText(), onPasteImages?(.general) == true { return }
+            super.paste(sender)
+        }
+        override var acceptableDragTypes: [NSPasteboard.PasteboardType] {
+            super.acceptableDragTypes + AIChatPhotoImport.draggedTypes
+        }
+        override var readablePasteboardTypes: [NSPasteboard.PasteboardType] {
+            super.readablePasteboardTypes + AIChatPhotoImport.draggedTypes
+        }
+        override func readSelection(from pasteboard: NSPasteboard, type: NSPasteboard.PasteboardType) -> Bool {
+            if onPasteImages != nil, AIChatPhotoImport.containsImages(pasteboard) {
+                return onPasteImages?(pasteboard) ?? false
+            }
+            return super.readSelection(from: pasteboard, type: type)
+        }
+        override func dragOperation(for dragInfo: NSDraggingInfo, type: NSPasteboard.PasteboardType) -> NSDragOperation {
+            if onPasteImages != nil, AIChatPhotoImport.containsImages(dragInfo.draggingPasteboard) {
+                let accepts = acceptsPhotoDrops && dragInfo.draggingSourceOperationMask.contains(.copy)
+                onPhotoDragTargeted?(accepts)
+                return accepts ? .copy : []
+            }
+            onPhotoDragTargeted?(false)
+            return super.dragOperation(for: dragInfo, type: type)
+        }
+        override func cleanUpAfterDragOperation() {
+            onPhotoDragTargeted?(false)
+            super.cleanUpAfterDragOperation()
+        }
+        override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+            if onPasteImages != nil, AIChatPhotoImport.containsImages(sender.draggingPasteboard) {
+                defer { cleanUpAfterDragOperation() }
+                guard acceptsPhotoDrops, sender.draggingSourceOperationMask.contains(.copy) else { return false }
+                return onPasteImages?(sender.draggingPasteboard) ?? false
+            }
+            return super.performDragOperation(sender)
         }
         override func keyDown(with event: NSEvent) {
             // Real arrow events also carry function/numericPad flags. Modified
@@ -531,6 +684,7 @@ struct AIChatComposer: NSViewRepresentable {
         editor.textContainerInset = NSSize(width: 8, height: 10)
         editor.font = .systemFont(ofSize: 14)
         editor.delegate = context.coordinator
+        editor.updateDragTypeRegistration()
         editor.setAccessibilityLabel(L10n.string("ai.chat.input"))
         scroll.documentView = editor
         return scroll
@@ -542,6 +696,9 @@ struct AIChatComposer: NSViewRepresentable {
         editor.history = history
         editor.onFocus = onFocus
         editor.onSend = onSend
+        editor.onPasteImages = onPasteImages
+        editor.acceptsPhotoDrops = acceptsPhotoDrops
+        editor.onPhotoDragTargeted = onPhotoDragTargeted
         editor.textColor = theme.textPrimary
         editor.insertionPointColor = theme.accent
         editor.backgroundColor = theme.canvas

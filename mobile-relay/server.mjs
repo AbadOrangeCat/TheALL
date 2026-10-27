@@ -4,11 +4,11 @@ import { pathToFileURL } from 'node:url';
 import { WebSocket, WebSocketServer } from 'ws';
 
 export const LIMITS = Object.freeze({
-  requestBytes: 512 * 1024, responseBytes: 16 * 1024 * 1024, headerBytes: 16 * 1024,
-  webSocketBytes: 24 * 1024 * 1024, pending: 32, unverifiedHosts: 4,
+  requestBytes: 3 * 1024 * 1024, responseBytes: 16 * 1024 * 1024, headerBytes: 16 * 1024,
+  webSocketBytes: 24 * 1024 * 1024, pending: 8, unverifiedHosts: 4,
   bodyTimeout: 15000, responseTimeout: 50000, authenticationTimeout: 10000, heartbeat: 30000,
   eventBytes: 8192, events: 16, eventHandshakeTimeout: 10000, eventRate: 30, bufferedEventBytes: 65536,
-  targetBytes: 4096, bufferedHostBytes: 4 * 1024 * 1024
+  targetBytes: 4096, bufferedHostBytes: 8 * 1024 * 1024
 });
 const HOP_HEADERS = new Set(['connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization',
   'te', 'trailer', 'transfer-encoding', 'upgrade']);
@@ -224,11 +224,12 @@ export function createRelay(config, overrides = {}) {
       const body = await readBody(req, record);
       if (!admitted.has(record) || res.destroyed || res.writableEnded) return;
       if (host !== record.host || host.readyState !== WebSocket.OPEN) { failRecord(record, 503, 'Mac offline'); return; }
-      if (host.bufferedAmount > limits.bufferedHostBytes) { failRecord(record, 503, 'Mac connection busy'); return; }
+      const message = JSON.stringify({ type: 'request', id: record.id, method: req.method, target: req.url,
+        headers: forwardHeaders(req, config.origin, body.length), body: body.toString('base64') });
+      if (host.bufferedAmount + Buffer.byteLength(message) > limits.bufferedHostBytes) { failRecord(record, 503, 'Mac connection busy'); return; }
       pending.set(record.id, record);
       record.timer = setTimeout(() => failRecord(record, 504, 'Mac response timed out'), limits.responseTimeout);
-      host.send(JSON.stringify({ type: 'request', id: record.id, method: req.method, target: req.url,
-        headers: forwardHeaders(req, config.origin, body.length), body: body.toString('base64') }), error => {
+      host.send(message, error => {
         if (error) failRecord(record, 503, 'Mac offline');
       });
     } catch (error) {

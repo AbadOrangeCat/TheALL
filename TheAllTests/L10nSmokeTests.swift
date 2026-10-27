@@ -13,6 +13,18 @@ final class L10nSmokeTests: XCTestCase {
     /// All keys declared in TheAll/Localization/Localizable.xcstrings. Keep sorted.
     /// Maintain when adding or removing catalog entries.
     private let allKeys: [String] = [
+        "ai.images.add",
+        "ai.images.close",
+        "ai.images.defaultName",
+        "ai.images.drop",
+        "ai.images.invalid",
+        "ai.images.preparing",
+        "ai.images.preview",
+        "ai.images.remove",
+        "ai.images.saveFailed",
+        "ai.images.tooLarge",
+        "ai.images.tooMany",
+        "ai.images.unavailable",
         // Remaining shared UI keys
         "settings.appearance.contentShadow",
         "settings.agents.betaBadge",

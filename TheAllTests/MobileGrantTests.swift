@@ -1,4 +1,5 @@
 import XCTest
+import AppKit
 @testable import TheAll
 
 final class MobileGrantTests: XCTestCase {
@@ -251,4 +252,104 @@ final class MobileGrantTests: XCTestCase {
             XCTAssertEqual(chat.input, "Mac draft"); XCTAssertFalse(chat.isBusy)
         }
     }
+    private func photoData() throws -> Data {
+        let bitmap = try XCTUnwrap(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 4, pixelsHigh: 3,
+            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
+        for x in 0..<4 { for y in 0..<3 { bitmap.setColor(.systemBlue, atX: x, y: y) } }
+        return try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+    }
+
+    @MainActor func testPhotosRequireBothWorkspaceAccessAndMessageReferenceWithoutLaunchingCLI() async throws {
+        let f = try fixture(), scoped = device(.init(workspaceID: f.firstWorkspace, writable: false))
+        let image = try f.registry.history.imageStore.importImage(data: photoData(), name: "photo.png")
+        let draftOnly = try f.registry.history.imageStore.importImage(data: photoData(), name: "draft.png")
+        var snapshot = try XCTUnwrap(f.registry.snapshot(for: f.first))
+        var message = AIChatMessage(id: UUID().uuidString, role: .user, text: "")
+        message.images = [image]; snapshot.messages.append(message); snapshot.draftImages = [draftOnly]
+        f.registry.history.save(snapshot, for: f.first) { _ in }; f.registry.history.flush()
+        let photo = try request("/api/chats/\(f.first)/images/\(image.id)")
+        let response = await f.api.handle(photo, device: scoped, stillAuthorized: { true })
+        XCTAssertEqual(response.status, 200)
+        XCTAssertEqual(response.body, try f.registry.history.imageStore.data(for: image))
+        XCTAssertEqual(response.headers["Content-Type"], image.mimeType)
+        XCTAssertEqual(response.securityHeaders["Cache-Control"], "no-store")
+        for (path, status) in [
+            ("/api/chats/\(f.first)/images/\(draftOnly.id)", 404),
+            ("/api/chats/\(f.first)/images/\(UUID())", 404),
+            ("/api/chats/\(f.second)/images/\(image.id)", 403)
+        ] {
+            let denied = await f.api.handle(try request(path), device: scoped, stillAuthorized: { true })
+            XCTAssertEqual(denied.status, status)
+        }
+        let otherChat = await f.api.handle(try request("/api/chats/\(f.second)/images/\(image.id)"), device: device(), stillAuthorized: { true })
+        XCTAssertEqual(otherChat.status, 404, "Knowing a global image UUID does not grant access through another chat")
+        let revoked = await f.api.handle(photo, device: scoped, stillAuthorized: { false })
+        XCTAssertEqual(revoked.status, 401)
+        let history = await f.api.handle(try request("/api/chats/\(f.first)"), device: scoped, stillAuthorized: { true })
+        let messages = try XCTUnwrap(try object(history)["messages"] as? [[String: Any]])
+        let images = try XCTUnwrap(messages.last?["images"] as? [[String: Any]])
+        XCTAssertEqual(images.first?["id"] as? String, image.id.uuidString)
+        XCTAssertNil(images.first?["data"]); XCTAssertNil(images.first?["path"])
+        XCTAssertEqual(f.pipe.starts, 0); XCTAssertEqual(f.credentials.loads, 0); XCTAssertTrue(f.registry.sessions.isEmpty)
+    }
+
+    @MainActor func testPhotoOnlySendIsIdempotentAndPreservesDesktopDraftAndImages() async throws {
+        let f = try fixture(), phone = device()
+        let chat = try XCTUnwrap(f.registry.session(for: f.first)?.chat)
+        defer { f.registry.sessions[f.first]?.back() }
+        let desktopPhoto = try chat.imageStore.importImage(data: photoData(), name: "desktop.png")
+        chat.input = "Mac unsent draft"; chat.draftImages = [desktopPhoto]
+        let action = try request("/api/chats/\(f.first)/send", body: body(f.api,
+            extra: ["text": "", "images": [["name": "phone.png", "data": try photoData().base64EncodedString()]]]))
+        let first = await f.api.handle(action, device: phone, stillAuthorized: { true })
+        let second = await f.api.handle(action, device: phone, stillAuthorized: { true })
+        XCTAssertEqual(first.status, 200); XCTAssertEqual(second.body, first.body)
+        XCTAssertEqual(f.pipe.userWrites, 1)
+        XCTAssertEqual(chat.input, "Mac unsent draft"); XCTAssertEqual(chat.draftImages, [desktopPhoto])
+        let sent = try XCTUnwrap(chat.messages.last)
+        XCTAssertEqual(sent.text, ""); XCTAssertEqual(sent.images.count, 1); XCTAssertTrue(sent.isVisibleInTranscript)
+        XCTAssertNoThrow(try chat.imageStore.data(for: XCTUnwrap(sent.images.first)))
+        let imageResponse = await f.api.handle(try request("/api/chats/\(f.first)/images/\(sent.images[0].id)"), device: phone, stillAuthorized: { true })
+        XCTAssertEqual(imageResponse.status, 200)
+    }
+
+    @MainActor func testInvalidPhotosAndReadOnlyUploadsNeverStartCLI() async throws {
+        let f = try fixture()
+        let valid = ["name": "photo.png", "data": try photoData().base64EncodedString()]
+        let payloads: [Any] = [
+            "not an array", Array(repeating: valid, count: 5),
+            [["name": "image.svg", "data": Data("<svg xmlns='http://www.w3.org/2000/svg'></svg>".utf8).base64EncodedString()]],
+            [["name": "file.png", "data": "not base64"]],
+            [["name": "large.jpg", "data": Data(repeating: 0, count: 512 * 1024 + 1).base64EncodedString()]]
+        ]
+        for payload in payloads {
+            let response = await f.api.handle(try request("/api/chats/\(f.first)/send",
+                body: body(f.api, extra: ["text": "", "images": payload])), device: device(), stillAuthorized: { true })
+            XCTAssertEqual(response.status, 400)
+        }
+        let readOnly = await f.api.handle(try request("/api/chats/\(f.first)/send",
+            body: body(f.api, extra: ["text": "", "images": [valid]])), device: device(.init(writable: false)), stillAuthorized: { true })
+        XCTAssertEqual(readOnly.status, 403)
+        XCTAssertEqual(f.pipe.starts, 0); XCTAssertEqual(f.credentials.loads, 0)
+    }
+
+    @MainActor func testPhotoSendRevocationDuringModelAcknowledgementDoesNotWritePrompt() async throws {
+        let f = try fixture(), phone = device()
+        let chat = try XCTUnwrap(f.registry.session(for: f.first)?.chat)
+        defer { f.registry.sessions[f.first]?.back() }
+        f.pipe.holdModel = true
+        var authorized = true
+        let messageCount = chat.messages.count
+        let action = try request("/api/chats/\(f.first)/send", body: body(f.api,
+            extra: ["text": "", "model": "changed-model", "images": [["name": "photo.png", "data": try photoData().base64EncodedString()]]]))
+        let operation = Task { @MainActor in await f.api.handle(action, device: phone, stillAuthorized: { authorized }) }
+        for _ in 0..<200 where f.pipe.heldModelID == nil { try await Task.sleep(nanoseconds: 1_000_000) }
+        let requestID = try XCTUnwrap(f.pipe.heldModelID)
+        authorized = false; f.pipe.acknowledge(requestID)
+        let response = await operation.value
+        XCTAssertEqual(response.status, 401); XCTAssertEqual(chat.messages.count, messageCount)
+        XCTAssertEqual(f.pipe.userWrites, 0)
+    }
+
 }

@@ -67,10 +67,10 @@ Vendor/
 
 ## TheAll 本地构建
 
-当前版本为 **0.1.3**，产物为 `TheAll.app`（Debug 显示名 `TheAll dev`）。
+当前版本为 **0.1.4**，产物为 `TheAll.app`（Debug 显示名 `TheAll dev`）。
 工程、target 和 module 统一为 `TheAll`，测试宿主为 TheAll.app。
 应用没有配置自动更新：发布前需设置自有 `SUFeedURL` 和 `SUPublicEDKey`，
-不能复用其他项目的更新源或签名。0.1.3 提供手动下载安装包，未启用 Sparkle 自动更新。
+不能复用其他项目的更新源或签名。0.1.4 提供手动下载安装包，未启用 Sparkle 自动更新。
 
 ## TheAll 本地签名与钥匙串
 
@@ -100,11 +100,11 @@ target 也使用同一证书，独立启用 hardened runtime，不注入调试 e
 
 ## Release 流程
 
-### 0.1.3 手动发布
+### 0.1.4 手动发布
 
 当前 GitHub 仓库为 `AbadOrangeCat/TheALL`。当前本地构建目标为 **macOS 14+ / Apple Silicon（arm64）**；不要把当前只含 arm64 的 Ghostty 静态库打包成 universal。
 
-现有本地证书不属于 Apple Developer ID，不能提供 Apple 公证。0.1.3 安装包使用固定本地证书签名，未经过 Apple 公证；源码使用与分发遵循当前 LICENSE、单独授予的书面许可及第三方组件许可证。应用内自动更新尚未配置，因此不生成 Sparkle appcast。
+现有本地证书不属于 Apple Developer ID，不能提供 Apple 公证。0.1.4 安装包使用固定本地证书签名，未经过 Apple 公证；源码使用与分发遵循当前 LICENSE、单独授予的书面许可及第三方组件许可证。应用内自动更新尚未配置，因此不生成 Sparkle appcast。
 
 1. 运行测试、文档漂移检查，并核对 `MARKETING_VERSION` 与发布 tag。
 2. 将 **同一次 Ghostty 构建**的 `libghostty.a` 和 `.zig-cache` 中的 `libintl.a` 分离。`GHOSTTY_ARCHIVE`、`GETTEXT_ARCHIVE` 应为这两个文件的绝对路径，`RUNTIME_DIR` 为新的输出目录：
@@ -132,11 +132,11 @@ target 也使用同一证书，独立启用 hardened runtime，不注入调试 e
 
    ```bash
    python3 scripts/verify-release-bundle.py build/Build/Products/Release/TheAll.app \
-     --sources /absolute/path/TheAll-0.1.3-third-party-sources.tar.gz
+     --sources /absolute/path/TheAll-0.1.4-third-party-sources.tar.gz
    ```
 
-   脚本检查签名、identity、arm64、动态 gettext、许可证和源码包，阻止测试文件或本地配置混入。将 app、LICENSE、ThirdPartyLicenses 和安装说明打包为 `TheAll-0.1.3-macos-arm64.dmg` / `.zip`。与 `TheAll-0.1.3-third-party-sources.tar.gz` 一起生成 `SHA256SUMS.txt`。
-5. 提交代码，给对应提交打 `v0.1.3` annotated tag，用 `gh release create --verify-tag --notes-file <发布说明>` 上传二进制、对应源码和校验文件。发布说明必须明确未公证、Apple Silicon/macOS 14 要求，以及 Claude Code/Codex 需另行安装。
+   脚本检查签名、identity、arm64、动态 gettext、许可证和源码包，阻止测试文件或本地配置混入。将 app、LICENSE、ThirdPartyLicenses 和安装说明打包为 `TheAll-0.1.4-macos-arm64.dmg` / `.zip`。与 `TheAll-0.1.4-third-party-sources.tar.gz` 一起生成 `SHA256SUMS.txt`。
+5. 提交代码，给对应提交打 `v0.1.4` annotated tag，用 `gh release create --verify-tag --notes-file <发布说明>` 上传二进制、对应源码和校验文件。发布说明必须明确未公证、Apple Silicon/macOS 14 要求，以及 Claude Code/Codex 需另行安装。
 6. 核对远端提交、tag、发布页及安装包下载校验和一致。不要在发布验证时重新启动用户正在使用的开发版。
 
 ### 未来的 Developer ID / 公证发布

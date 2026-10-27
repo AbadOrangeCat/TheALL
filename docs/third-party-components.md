@@ -1,6 +1,6 @@
 # Third-party components and corresponding source
 
-TheAll 0.1.3's Apple Silicon release includes Ghostty's native terminal engine,
+TheAll 0.1.4's Apple Silicon release includes Ghostty's native terminal engine,
 Sparkle, and the dependencies and assets documented below. The original license
 texts ship in `TheAll.app/Contents/Resources/ThirdPartyLicenses/` and alongside
 the app in the release archive. These components retain their own licenses;
@@ -12,8 +12,8 @@ License, with its contributed-module notices retained.
 
 ## Source downloads
 
-The [v0.1.3 release](https://github.com/AbadOrangeCat/TheALL/releases/tag/v0.1.3)
-provides **TheAll-0.1.3-third-party-sources.tar.gz** next to the DMG and ZIP,
+The [v0.1.4 release](https://github.com/AbadOrangeCat/TheALL/releases/tag/v0.1.4)
+provides **TheAll-0.1.4-third-party-sources.tar.gz** next to the DMG and ZIP,
 at no charge. It contains complete original source archives for gettext 0.24
 and z2d 0.10.0, license texts, the exact Ghostty libintl build configuration and
 headers, a rebuild recipe, and a copy of the original libintl object archive with debug information
@@ -93,7 +93,7 @@ After extracting the corresponding-source archive on an Apple Silicon Mac with
 Python 3 and Xcode command line tools:
 
 ```sh
-cd TheAll-0.1.3-third-party-sources
+cd TheAll-0.1.4-third-party-sources
 python3 rebuild-libintl.py
 ```
 

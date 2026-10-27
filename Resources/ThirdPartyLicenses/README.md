@@ -1,4 +1,4 @@
-# Third-party software in TheAll 0.1.3
+# Third-party software in TheAll 0.1.4
 
 TheAll includes the Ghostty terminal engine, the Sparkle updater, and third-party
 libraries and assets. The original license texts in this directory apply to
@@ -25,10 +25,10 @@ The z2d **0.10.0** rendering library is used under the Mozilla Public License 2.
 with its included Cairo and Pixman notices. Its license texts are in `z2d/`.
 The corresponding z2d source files are unmodified.
 
-The versioned release provides `TheAll-0.1.3-third-party-sources.tar.gz` alongside
+The versioned release provides `TheAll-0.1.4-third-party-sources.tar.gz` alongside
 the application downloads, at no charge:
 
-https://github.com/AbadOrangeCat/TheALL/releases/tag/v0.1.3
+https://github.com/AbadOrangeCat/TheALL/releases/tag/v0.1.4
 
 The source archive includes the complete original gettext 0.24 source archive,
 the exact z2d package used by Ghostty, license texts, Ghostty's libintl headers

@@ -17,6 +17,10 @@ final class MobileChatAPI {
             guard stillAuthorized() else { throw APIError(401, "mobile.error.authorization") }
             if request.method == "GET", request.path == "/api/workspaces" { return try workspaces(access: device.access) }
             let parts = request.path.split(separator: "/").map(String.init)
+            if request.method == "GET", parts.count == 5, parts[0] == "api", parts[1] == "chats",
+               parts[3] == "images", let id = UUID(uuidString: parts[2]), let imageID = UUID(uuidString: parts[4]) {
+                return try image(id, imageID: imageID, access: device.access)
+            }
             if request.method == "GET", parts.count == 3, parts[0] == "api", parts[1] == "chats",
                let id = UUID(uuidString: parts[2]) { return try conversation(id, request: request, access: device.access) }
             if request.method == "POST", !device.access.writable { throw APIError(403, "mobile.error.readOnly") }
@@ -124,6 +128,35 @@ final class MobileChatAPI {
         return .json(value)
     }
 
+    /// A file UUID is not authorization: it must belong to a visible message
+    /// in a conversation the current device can read. Browsing never starts a CLI.
+    private func image(_ id: UUID, imageID: UUID, access: MobilePairingStore.Access) throws -> MobileHTTPResponse {
+        _ = try authorizeConversation(id, access: access)
+        guard let snapshot = try registry.snapshot(for: id),
+              let image = snapshot.messages.filter(\.isVisibleInTranscript).flatMap(\.images)
+                .first(where: { $0.id == imageID }),
+              let data = try? registry.history.imageStore.data(for: image)
+        else { throw APIError(404, "mobile.error.notFound") }
+        return MobileHTTPResponse(status: 200, headers: ["Content-Type": image.mimeType,
+            "Content-Disposition": "inline"], body: data)
+    }
+
+    private func imagePayloads(_ body: [String: Any]) throws -> [(Data, String)] {
+        guard let value = body["images"] else { return [] }
+        guard let images = value as? [[String: Any]] else { throw APIError(400, "ai.images.invalid") }
+        guard images.count <= AIChatImageStore.maximumCount else { throw APIError(400, "ai.images.tooMany") }
+        let limit = 512 * 1024
+        return try images.map { image in
+            guard let name = image["name"] as? String, !name.isEmpty, name.utf8.count <= 255,
+                  let encoded = image["data"] as? String,
+                  encoded.utf8.count <= 4 * ((limit + 2) / 3),
+                  let data = Data(base64Encoded: encoded), !data.isEmpty, data.count <= limit,
+                  data.base64EncodedString() == encoded
+            else { throw APIError(400, "ai.images.invalid") }
+            return (data, name)
+        }
+    }
+
     private func create(_ body: [String: Any], access: MobilePairingStore.Access) throws -> MobileHTTPResponse {
         let targetWorkspaceID = try createWorkspaceID(body, access: access)
         guard let raw = body["provider"] as? String, let provider = AIProvider(rawValue: raw) else { throw APIError(400, "mobile.error.request") }
@@ -157,9 +190,32 @@ final class MobileChatAPI {
         _ = try authorizeConversation(id, access: access)
         guard ["send", "interrupt", "answer"].contains(action) else { throw APIError(404, "mobile.error.notFound") }
         if action == "send" {
-            guard let text = body["text"] as? String, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                  text.utf8.count <= 128 * 1024 else { throw APIError(400, "mobile.error.request") }
+            guard let text = body["text"] as? String, text.utf8.count <= 128 * 1024
+            else { throw APIError(400, "mobile.error.request") }
+            let payloads = try imagePayloads(body)
+            guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !payloads.isEmpty
+            else { throw APIError(400, "mobile.error.request") }
             let model = try selectedModel(body)
+            let imageStore = registry.history.imageStore
+            let imported: [AIChatImage]
+            do {
+                imported = try await Task.detached(priority: .userInitiated) {
+                    var images: [AIChatImage] = []
+                    do {
+                        for (data, name) in payloads { images.append(try imageStore.importImage(data: data, name: name)) }
+                        return images
+                    } catch {
+                        for image in images { try? imageStore.remove(image) }
+                        throw error
+                    }
+                }.value
+            } catch { throw APIError(400, "ai.images.invalid") }
+            var keepImages = false
+            defer {
+                if !keepImages { for image in imported { try? imageStore.remove(image) } }
+            }
+            guard stillAuthorized() else { throw APIError(401, "mobile.error.authorization") }
+            _ = try authorizeConversation(id, access: access)
             guard let session = registry.session(for: id), let chat = session.chat else { throw APIError(409, "mobile.error.connection") }
             // A newly restored backend needs its protocol handshake. No prompt
             // is queued while disconnected; authorization is checked again after await.
@@ -176,11 +232,16 @@ final class MobileChatAPI {
             guard chat.isReady else { throw APIError(409, "mobile.error.notReady") }
             guard !chat.isBusy, chat.approvals.isEmpty else { throw APIError(409, "mobile.error.busy") }
             let submitted = await withCheckedContinuation { continuation in
-                chat.sendRemote(text, model: model, stillAuthorized: { [weak self, weak chat] in
+                chat.sendRemote(text, images: imported, model: model, stillAuthorized: { [weak self, weak chat] in
                     guard let self, let chat else { return false }
                     return stillAuthorized() && (try? self.authorizeConversation(id, access: access)) != nil
                         && self.registry.sessions[id]?.chat === chat
                 }) { continuation.resume(returning: $0) }
+            }
+            // Once written, keep the files even if acknowledgement or access is
+            // lost; the CLI and saved transcript may already reference them.
+            keepImages = submitted != .rejected || imported.contains { image in
+                chat.messages.contains { $0.images.contains(where: { $0.id == image.id }) }
             }
             guard stillAuthorized() else { throw APIError(401, "mobile.error.authorization") }
             _ = try authorizeConversation(id, access: access)
