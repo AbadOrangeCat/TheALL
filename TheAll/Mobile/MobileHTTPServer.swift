@@ -45,7 +45,7 @@ struct MobileHTTPResponse {
 /// One bounded request per connection; no chunked requests or HTTP pipelining.
 /// Plain HTTP is loopback-only; LAN uses a separately bound TLS listener.
 final class MobileHTTPServer {
-    static let maximumBody = 512 * 1024
+    static let maximumBody = 3 * 1024 * 1024
     private let queue = DispatchQueue.main
     private var listener: NWListener?
     private var clients: [UUID: NWConnection] = [:]
@@ -104,7 +104,7 @@ final class MobileHTTPServer {
     }
 
     private func accept(_ connection: NWConnection, generation current: UUID) {
-        guard generation == current, clients.count < 32 else { connection.cancel(); return }
+        guard generation == current, clients.count < 24, clients.count - eventPeers.count < 8 else { connection.cancel(); return }
         if localNetworkOnly {
             guard case .hostPort(let host, _) = connection.endpoint,
                   MobileLANAddress.isPrivate(String(describing: host)) || MobileLANAddress.isLoopback(String(describing: host))

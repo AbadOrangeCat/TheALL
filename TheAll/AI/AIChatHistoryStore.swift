@@ -10,6 +10,30 @@ struct AIChatSnapshot: Codable {
     var input: String
     var messages: [AIChatMessage]
     var conversationID: String?
+    var draftImages: [AIChatImage] = []
+
+    private enum CodingKeys: String, CodingKey {
+        case version, provider, directory, model, input, messages, conversationID, draftImages
+    }
+
+    init(version: Int = 1, provider: AIProvider, directory: String, model: String, input: String,
+         messages: [AIChatMessage], conversationID: String?, draftImages: [AIChatImage] = []) {
+        self.version = version == 1 && (!draftImages.isEmpty || messages.contains { !$0.images.isEmpty }) ? 2 : version
+        self.provider = provider; self.directory = directory; self.model = model
+        self.input = input; self.messages = messages; self.conversationID = conversationID; self.draftImages = draftImages
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        version = try values.decode(Int.self, forKey: .version)
+        provider = try values.decode(AIProvider.self, forKey: .provider)
+        directory = try values.decode(String.self, forKey: .directory)
+        model = try values.decode(String.self, forKey: .model)
+        input = try values.decode(String.self, forKey: .input)
+        messages = try values.decode([AIChatMessage].self, forKey: .messages)
+        conversationID = try values.decodeIfPresent(String.self, forKey: .conversationID)
+        draftImages = try values.decodeIfPresent([AIChatImage].self, forKey: .draftImages) ?? []
+    }
 
     func redacting(_ secrets: [String]) -> Self {
         guard !secrets.isEmpty else { return self }
@@ -32,6 +56,7 @@ struct AIChatSnapshot: Codable {
 final class AIChatHistoryStore {
     static let shared = AIChatHistoryStore()
     let directory: URL
+    let imageStore: AIChatImageStore
     private let queue = DispatchQueue(label: "com.theall.chat-history", qos: .utility)
     private let queueKey = DispatchSpecificKey<Bool>()
     private var pending: [UUID: (AIChatSnapshot, [String], (Bool) -> Void)] = [:]
@@ -43,6 +68,7 @@ final class AIChatHistoryStore {
         .appendingPathComponent(Bundle.main.bundleIdentifier ?? "com.theall.app.dev")
         .appendingPathComponent("ChatHistory"), notifications: NotificationCenter = .default) {
         self.directory = directory
+        self.imageStore = AIChatImageStore(directory: directory.appendingPathComponent("Attachments"))
         self.notifications = notifications
         queue.setSpecific(key: queueKey, value: true)
         terminationObserver = notifications.addObserver(
@@ -56,7 +82,7 @@ final class AIChatHistoryStore {
             let url = file(for: terminalID)
             guard FileManager.default.fileExists(atPath: url.path) else { return nil }
             let snapshot = try JSONDecoder().decode(AIChatSnapshot.self, from: Data(contentsOf: url))
-            guard snapshot.version == 1 else { throw HistoryError.unsupportedVersion }
+            guard snapshot.version == 1 || snapshot.version == 2 else { throw HistoryError.unsupportedVersion }
             return snapshot
         }
     }
@@ -93,7 +119,13 @@ final class AIChatHistoryStore {
                 try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
                                                         attributes: [.posixPermissions: 0o700])
                 try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
-                let data = try JSONEncoder().encode(snapshot.redacting(secrets))
+                var saved = snapshot.redacting(secrets)
+                // Older app builds reject v2 rather than dropping unknown image
+                // references and overwriting the conversation as text-only.
+                if saved.version == 1, !saved.draftImages.isEmpty || saved.messages.contains(where: { !$0.images.isEmpty }) {
+                    saved.version = 2
+                }
+                let data = try JSONEncoder().encode(saved)
                 try data.write(to: file(for: id), options: .atomic)
                 try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file(for: id).path)
                 succeeded = true

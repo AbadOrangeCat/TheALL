@@ -101,7 +101,8 @@ final class AITerminalSession {
         guard let provider, let activeConnection else { return }
         let snapshot = savedChat?.provider == provider ? savedChat : nil
         let chat = self.chat ?? AIChatSession(provider: provider, model: activeConnection.model,
-            directory: directory, transport: transport, restoring: snapshot)
+            directory: directory, transport: transport, restoring: snapshot,
+            imageStore: historyStore?.imageStore ?? .shared)
         self.chat = chat
         self.directory = chat.directory
         chat.onFirstMessageSubmitted = { [weak self] in self?.onFirstMessageSubmitted?($0) }
@@ -130,7 +131,8 @@ final class AITerminalSession {
         savedChat = snapshot
         directory = snapshot.directory
         chat = AIChatSession(provider: snapshot.provider, model: snapshot.model,
-                             directory: snapshot.directory, transport: transport, restoring: snapshot)
+                             directory: snapshot.directory, transport: transport, restoring: snapshot,
+                             imageStore: historyStore?.imageStore ?? .shared)
         chat?.onStateChanged = { [weak self] in self?.saveHistory() }
         choose(snapshot.provider)
         if !isRunning {
@@ -147,6 +149,7 @@ final class AITerminalSession {
             return false
         }
         let input = chat?.input ?? savedChat?.input ?? ""
+        let images = chat?.draftImages ?? savedChat?.draftImages ?? []
         let selectedModel: String?
         if provider == .claude {
             selectedModel = chat?.model ?? (savedChat?.provider == .claude ? savedChat?.model : nil)
@@ -158,7 +161,7 @@ final class AITerminalSession {
         // that process before choose(), whose running guard otherwise skips resume.
         back()
         restore(AIChatSnapshot(provider: .claude, directory: conversation.directory,
-            model: model, input: input, messages: conversation.messages, conversationID: conversation.id),
+            model: model, input: input, messages: conversation.messages, conversationID: conversation.id, draftImages: images),
             transport: transport)
         flushHistory()
         return true

@@ -1,5 +1,7 @@
 """Offline protocol fixture for real installed CLIs. Never forwards requests."""
 import http.server
+import base64
+import hashlib
 import json
 import pathlib
 import sys
@@ -8,6 +10,25 @@ import uuid
 from urllib.parse import urlsplit
 
 root = pathlib.Path(sys.argv[1])
+
+def image_summaries(value):
+    """Record only hashes of synthetic fixture images, never the image bytes."""
+    images = []
+    if isinstance(value, dict):
+        encoded = None
+        if value.get('type') == 'image' and value.get('source', {}).get('type') == 'base64':
+            encoded = value['source'].get('data')
+        elif value.get('type') == 'input_image' and isinstance(value.get('image_url'), str):
+            url = value['image_url']
+            if url.startswith('data:image/') and ';base64,' in url:
+                encoded = url.split(';base64,', 1)[1]
+        if encoded:
+            data = base64.b64decode(encoded, validate=True)
+            images.append({'sha256': hashlib.sha256(data).hexdigest(), 'size': len(data)})
+        for child in value.values(): images.extend(image_summaries(child))
+    elif isinstance(value, list):
+        for child in value: images.extend(image_summaries(child))
+    return images
 
 class Gateway(http.server.BaseHTTPRequestHandler):
     def log_message(self, *args):
@@ -33,7 +54,7 @@ class Gateway(http.server.BaseHTTPRequestHandler):
             self.wfile.write(b'{}')
             return
         with (root / 'requests.jsonl').open('a') as output:
-            output.write(json.dumps({'model': body.get('model'), 'count': len(body.get('messages', body.get('input', [])))}) + '\n')
+            output.write(json.dumps({'model': body.get('model'), 'count': len(body.get('messages', body.get('input', []))), 'images': image_summaries(body)}) + '\n')
         if path.endswith('/messages') and not body.get('stream'):
             result = {'id': 'probe', 'type': 'message', 'role': 'assistant', 'model': body['model'], 'content': [{'type': 'text', 'text': 'OK'}], 'stop_reason': 'end_turn', 'stop_sequence': None, 'usage': {'input_tokens': 1, 'output_tokens': 1}}
             self.send_response(200)

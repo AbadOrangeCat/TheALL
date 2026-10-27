@@ -1,5 +1,7 @@
 import { APIError, request, chatPath, mergePage, turns, operation, readPairToken, safeLink } from './core.js';
 
+import { PHOTO_LIMITS, PhotoError, validatePhotoSelection, preparePhoto, imagePath, freezePhotoSubmission, removeSubmittedPhotos } from './photos.js';
+
 const $ = id => document.getElementById(id);
 import { LiveUpdates } from './live.js';
 import { t, language, setLanguage, supportedLanguages } from './i18n.js';
@@ -9,7 +11,7 @@ function translatePage() {
   document.querySelectorAll('[data-i18n-placeholder]').forEach(node => { node.placeholder = t(node.dataset.i18nPlaceholder); });
   for (const [id, key] of Object.entries({ 'open-sidebar': 'openWorkspaces', 'close-sidebar': 'close',
     'drawer-shade': 'close', 'new-chat': 'newChat', 'jump-bottom': 'jumpBottom',
-    'close-new': 'close', 'close-install': 'close', transcript: 'history', sidebar: 'workspaces' })) $(id).ariaLabel = t(key);
+    'close-new': 'close', 'close-install': 'close', 'close-photo': 'close', 'add-photos': 'photosAdd', transcript: 'history', sidebar: 'workspaces' })) $(id).ariaLabel = t(key);
   $('directory').title = $('directory').textContent || t('directory');
   document.querySelectorAll('.language-select').forEach(select => { select.value = language(); });
 }
@@ -18,7 +20,7 @@ $('device-name').value = /iPad/.test(navigator.userAgent) ? 'iPad' : /iPhone/.te
 
 const state = {
   suspended: false, authenticated: false, connected: false, sessionGeneration: 0, access: { workspaceId: null, writable: true }, live: false, refreshQueued: false, bootID: null, workspaces: [], selected: null, selection: 0,
-  chats: new Map(), drafts: new Map(), models: new Map(), modelNotices: new Set(), scroll: new Map(),
+  chats: new Map(), drafts: new Map(), imageDrafts: new Map(), imageLoading: new Set(), models: new Map(), modelNotices: new Set(), scroll: new Map(),
   progress: new Map(), errors: new Map(), answerDrafts: new Map(), pending: new Map(), rendering: '', questionRendering: '',
   recoveryTimer: null, sessionProbe: null, pollTimer: null, polling: false, loadingOlder: false, newOperation: null, installPrompt: null
 };
@@ -55,7 +57,7 @@ function applyAccess(value) {
   const scopeChanged = next.workspaceId !== state.access.workspaceId;
   if (scopeChanged) {
     const allowed = new Set(state.workspaces.filter(w => !next.workspaceId || w.id === next.workspaceId).flatMap(w => w.conversations.map(c => c.id)));
-    for (const key of ['chats', 'drafts', 'models', 'scroll', 'errors', 'pending']) {
+    for (const key of ['chats', 'drafts', 'imageDrafts', 'models', 'scroll', 'errors', 'pending']) {
       for (const id of state[key].keys()) if (!allowed.has(id)) state[key].delete(id);
     }
     for (const key of ['answerDrafts', 'progress']) {
@@ -71,6 +73,7 @@ function applyAccess(value) {
   }
   if (!next.writable || scopeChanged) {
     state.pending.clear(); state.newOperation = null;
+    closePhoto();
     if ($('new-dialog').open) $('new-dialog').close();
   }
   state.access = next; renderAccess(); updateComposer();
@@ -115,7 +118,8 @@ function pairScreen(error = '') {
   state.authenticated = false; state.connected = false;
   clearTimeout(state.pollTimer);
   state.selection++; state.selected = null; state.workspaces = [];
-  for (const key of ['chats', 'drafts', 'models', 'scroll', 'progress', 'errors', 'answerDrafts', 'pending']) state[key].clear();
+  for (const key of ['chats', 'drafts', 'imageDrafts', 'models', 'scroll', 'progress', 'errors', 'answerDrafts', 'pending']) state[key].clear();
+  state.imageLoading.clear(); closePhoto(); $('photo-previews').replaceChildren(); $('photo-files').value = '';
   state.modelNotices.clear(); state.rendering = ''; state.questionRendering = ''; state.newOperation = null;
   $('messages').replaceChildren(); $('questions').replaceChildren(); $('workspace-list').replaceChildren(); $('draft').value = '';
   if ($('new-dialog').open) $('new-dialog').close();
@@ -127,6 +131,7 @@ function updateBootID(bootID) {
   if (state.bootID && state.bootID !== bootID) {
     // Keep local drafts and immutable pending request IDs, but refetch history.
     state.chats.clear(); state.rendering = ''; state.questionRendering = '';
+    $('messages').replaceChildren(); closePhoto();
   }
   state.bootID = bootID;
 }
@@ -160,7 +165,7 @@ async function recoverSession() {
 }
 async function startSession(data) {
   cancelSessionRecovery();
-  state.sessionGeneration++; state.authenticated = true; updateBootID(data.bootID); applyAccess(data.access);
+  state.sessionGeneration++; state.imageLoading.clear(); state.authenticated = true; updateBootID(data.bootID); applyAccess(data.access);
   $('pair-token').value = '';
   $('pair-screen').hidden = true; $('application').hidden = false;
   $('device-label').textContent = data.deviceName || '';
@@ -220,10 +225,10 @@ function rememberDraft() {
   state.scroll.set(state.selected, { top: $('transcript').scrollTop, bottom: atBottom() });
 }
 async function selectChat(id) {
-  rememberDraft(); state.selected = id; const selection = ++state.selection; const hadCached = state.chats.has(id);
+  rememberDraft(); closePhoto(); state.selected = id; const selection = ++state.selection; const hadCached = state.chats.has(id);
   state.rendering = ''; state.questionRendering = ''; state.loadingOlder = false;
   $('welcome').hidden = true; $('chat-area').hidden = false;
-  $('messages').replaceChildren(); $('questions').replaceChildren(); showError('chat-error', '');
+  $('messages').replaceChildren(); $('questions').replaceChildren(); showError('chat-error', ''); showError('photo-error', '');
   $('draft').value = state.drafts.get(id) || ''; resizeDraft(); drawer(false); renderWorkspaces();
   renderChat(true); updateComposer();
   try {
@@ -250,7 +255,7 @@ async function poll() {
     updateBootID(result.bootID); applyAccess(result.access);
     state.workspaces = result.workspaces.filter(w => !state.access.workspaceId || state.access.workspaceId === w.id);
     if (state.selected && !chatSummary()) {
-      state.chats.delete(state.selected); state.drafts.delete(state.selected); state.selected = null; state.selection++;
+      state.chats.delete(state.selected); state.drafts.delete(state.selected); state.imageDrafts.delete(state.selected); closePhoto(); state.selected = null; state.selection++;
       $('messages').replaceChildren(); $('questions').replaceChildren(); $('draft').value = '';
       $('chat-area').hidden = true; $('welcome').hidden = false;
     }
@@ -280,7 +285,7 @@ window.addEventListener('offline', () => { live.suspend(); connected(false); sho
 function reconnect() { state.suspended = false; if (state.authenticated) { live.resume(); poll(); } else recoverSession(); }
 window.addEventListener('online', reconnect);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) reconnect(); });
-window.addEventListener('pagehide', () => { state.suspended = true; live.stop(); cancelSessionRecovery(); clearTimeout(state.pollTimer); state.sessionGeneration++; });
+window.addEventListener('pagehide', () => { state.suspended = true; live.stop(); cancelSessionRecovery(); clearTimeout(state.pollTimer); state.sessionGeneration++; state.imageLoading.clear(); });
 window.addEventListener('pageshow', event => { if (event.persisted) { state.suspended = false; if (state.authenticated && !state.suspended) live.start(); reconnect(); } });
 
 function atBottom() { const node = $('transcript'); return node.scrollHeight - node.scrollTop - node.clientHeight < 70; }
@@ -328,11 +333,24 @@ function appendText(parent, text) {
     }
   }
 }
-function messageNode(message, provider) {
+function messageNode(message, provider, chatID, previousNodes) {
+  const signature = JSON.stringify([message, provider, chatID, language()]);
+  const previous = previousNodes.get(message.id);
+  if (previous?.dataset.renderSignature === signature) return previous;
   const node = el('article', `message ${message.role === 'user' ? 'user' : ''} ${message.isError ? 'error' : ''}`);
   node.dataset.messageId = message.id;
+  node.dataset.renderSignature = signature;
   node.append(el('div', 'author', message.role === 'user' ? t('you') : provider === 'openai' ? 'Codex' : 'Claude Code'));
   const body = el('div', 'message-body'); appendText(body, message.text); node.append(body);
+  if (message.images?.length) {
+    const images = el('div', 'message-photos');
+    for (const photo of message.images) {
+      const source = imagePath(chatID, photo.id); if (!source) continue;
+      const button = photoButton(source, photo.name || t('photosPreview'));
+      images.append(button);
+    }
+    node.append(images);
+  }
   return node;
 }
 function renderChat(initial = false) {
@@ -342,11 +360,14 @@ function renderChat(initial = false) {
   const nearBottom = atBottom(); const anchor = readingAnchor(); const oldTop = $('transcript').scrollTop;
   if (signature !== state.rendering) {
     state.rendering = signature;
+    // Reuse unchanged message nodes so streaming text does not download every
+    // authenticated photo again. Only the currently authorized DOM is reused.
+    const previousNodes = new Map([...$('messages').querySelectorAll('[data-message-id]')].map(node => [node.dataset.messageId, node]));
     const fragment = document.createDocumentFragment();
     if (!data.messages.length) fragment.append(el('p', 'muted small', t(state.access.writable ? 'noMessages' : 'readOnlyMessages')));
     for (const turn of turns(data.messages)) {
       const section = el('section', 'turn');
-      if (turn.user) section.append(messageNode(turn.user, data.provider));
+      if (turn.user) section.append(messageNode(turn.user, data.provider, data.id, previousNodes));
       if (turn.progress.length) {
         const key = `${data.id}:${turn.id}`; const hasAnswer = turn.answers.some(m => m.role === 'assistant' && m.text?.trim());
         const saved = state.progress.get(key);
@@ -354,11 +375,11 @@ function renderChat(initial = false) {
         const details = el('details', 'progress'); details.open = open;
         state.progress.set(key, { open, finished: hasAnswer });
         details.append(el('summary', '', `${t('thinking')} · ${turn.progress.length} ${t('updates')}`));
-        for (const message of turn.progress) details.append(messageNode(message, data.provider));
+        for (const message of turn.progress) details.append(messageNode(message, data.provider, data.id, previousNodes));
         details.addEventListener('toggle', () => { if (details.isConnected) state.progress.set(key, { open: details.open, finished: hasAnswer }); updateJump(); });
         section.append(details);
       }
-      for (const message of turn.answers) section.append(messageNode(message, data.provider));
+      for (const message of turn.answers) section.append(messageNode(message, data.provider, data.id, previousNodes));
       fragment.append(section);
     }
     $('messages').replaceChildren(fragment);
@@ -437,7 +458,10 @@ function updateComposer() {
   const data = state.chats.get(state.selected); const pending = state.pending.get(state.selected);
   const available = state.connected && navigator.onLine && state.authenticated;
   const writable = state.access.writable && available && (data?.isReady || data?.canResume) && !pending;
-  $('send').disabled = !writable || data?.isBusy || !$('draft').value.trim();
+  $('send').disabled = !writable || data?.isBusy || state.imageLoading.has(state.selected) || (! $('draft').value.trim() && !(state.imageDrafts.get(state.selected)?.length));
+  $('add-photos').disabled = !data || !state.access.writable || !!pending || state.imageLoading.has(state.selected) || (state.imageDrafts.get(state.selected)?.length || 0) >= PHOTO_LIMITS.count;
+  $('photo-loading').hidden = !state.imageLoading.has(state.selected);
+  renderPhotoDrafts();
   $('composer').hidden = !state.access.writable; $('questions').hidden = !state.access.writable;
   $('send').hidden = !state.access.writable || !!data?.isBusy;
   $('stop').hidden = !state.access.writable || !data?.isBusy; $('stop').disabled = !available || !data?.canInterrupt || !!pending;
@@ -462,6 +486,54 @@ function updateComposer() {
   $('retry-operation').disabled = !available || pending?.running;
   $('questions').querySelectorAll('button, input').forEach(node => { node.disabled = !available || !!pending; });
 }
+function closePhoto() {
+  if ($('photo-dialog').open) $('photo-dialog').close();
+  $('photo-full').removeAttribute('src');
+}
+$('close-photo').onclick = closePhoto;
+$('photo-dialog').addEventListener('close', () => $('photo-full').removeAttribute('src'));
+function photoButton(source, name) {
+  const button = el('button', 'photo-open'); button.type = 'button'; button.ariaLabel = `${t('photosPreview')}: ${name}`;
+  const image = el('img'); image.src = source; image.alt = name; image.loading = 'lazy'; image.decoding = 'async';
+  image.onerror = () => { image.hidden = true; button.classList.add('photo-unavailable'); button.textContent = t('photosUnavailable'); button.disabled = true; };
+  button.append(image); button.onclick = () => { $('photo-full').src = source; $('photo-full').alt = name; $('photo-dialog').showModal(); };
+  return button;
+}
+function renderPhotoDrafts() {
+  const id = state.selected, photos = state.imageDrafts.get(id) || [], pending = state.pending.has(id);
+  const signature = JSON.stringify([id, photos.map(photo => photo.id), pending, language()]);
+  if ($('photo-previews').dataset.signature === signature) return;
+  $('photo-previews').dataset.signature = signature;
+  $('photo-previews').replaceChildren();
+  for (const photo of photos) {
+    const item = el('div', 'photo-draft');
+    item.append(photoButton(photo.preview, photo.name));
+    const remove = el('button', 'photo-remove', '×'); remove.type = 'button'; remove.ariaLabel = `${t('photosRemove')}: ${photo.name}`; remove.disabled = pending;
+    remove.onclick = () => { if (!state.pending.has(id)) { state.imageDrafts.set(id, (state.imageDrafts.get(id) || []).filter(value => value.id !== photo.id)); updateComposer(); } };
+    item.append(remove); $('photo-previews').append(item);
+  }
+  $('photo-previews').hidden = photos.length === 0;
+}
+$('add-photos').onclick = () => $('photo-files').click();
+$('photo-files').onchange = async () => {
+  const files = Array.from($('photo-files').files || []); $('photo-files').value = '';
+  const id = state.selected, generation = state.sessionGeneration;
+  if (!files.length || !id || !state.authenticated || !state.access.writable || state.pending.has(id) || state.imageLoading.has(id)) return;
+  const stillAllowed = () => state.sessionGeneration === generation && state.authenticated && state.access.writable && !!chatSummary(id);
+  try {
+    validatePhotoSelection(files, (state.imageDrafts.get(id) || []).length);
+    state.imageLoading.add(id); updateComposer(); showError('photo-error', '');
+    const prepared = [];
+    for (const file of files) { prepared.push(await preparePhoto(file)); if (!stillAllowed()) return; }
+    const current = state.imageDrafts.get(id) || [];
+    validatePhotoSelection([], current.length + prepared.length);
+    state.imageDrafts.set(id, [...current, ...prepared]);
+  } catch (error) {
+    if (stillAllowed() && state.selected === id) showError('photo-error', t(error instanceof PhotoError ? error.key : 'photosInvalid'));
+  } finally {
+    if (generation === state.sessionGeneration) { state.imageLoading.delete(id); updateComposer(); }
+  }
+};
 function resizeDraft() { $('draft').style.height = 'auto'; $('draft').style.height = `${Math.min(180, $('draft').scrollHeight)}px`; }
 $('draft').oninput = () => { state.drafts.set(state.selected, $('draft').value); resizeDraft(); updateComposer(); };
 $('model').onchange = () => { if (!state.access.writable) return; state.models.set(state.selected, $('model').value); state.modelNotices.add(state.selected); updateComposer(); };
@@ -475,9 +547,10 @@ function canMutate(id) {
 }
 $('composer').onsubmit = async event => {
   event.preventDefault(); const id = state.selected; const data = state.chats.get(id); const text = $('draft').value;
-  if (!text.trim() || !(data?.isReady || data?.canResume) || data.isBusy || !canMutate(id)) return;
+  const photos = state.imageDrafts.get(id) || [];
+  if ((!text.trim() && !photos.length) || state.imageLoading.has(id) || !(data?.isReady || data?.canResume) || data.isBusy || !canMutate(id)) return;
   const model = state.models.has(id) ? state.models.get(id) : data.model;
-  await runOperation(id, { kind: 'send', text, request: operation(chatPath(id, '/send'), { bootID: state.bootID, text, model: model || '' }) });
+  await runOperation(id, { kind: 'send', text, imageIDs: photos.map(photo => photo.id), request: operation(chatPath(id, '/send'), { bootID: state.bootID, text, images: freezePhotoSubmission(photos), model: model || '' }) });
 };
 $('stop').onclick = async () => {
   const id = state.selected;
@@ -499,6 +572,7 @@ async function runOperation(id, pending) {
     state.pending.delete(id);
     if (pending.kind === 'send') {
       if (state.drafts.get(id) === pending.text) state.drafts.set(id, '');
+      state.imageDrafts.set(id, removeSubmittedPhotos(state.imageDrafts.get(id) || [], pending.imageIDs || []));
       state.modelNotices.delete(id);
       if (state.selected === id && $('draft').value === pending.text) { $('draft').value = ''; resizeDraft(); }
     }

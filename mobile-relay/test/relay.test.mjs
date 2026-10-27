@@ -54,8 +54,8 @@ test('configuration requires a root HTTPS origin or loopback development and a c
   for (const value of ['http://localhost:8080', 'http://127.0.0.1:8080', 'http://[::1]:8080']) assert.equal(parseConfig({ ...env, PUBLIC_ORIGIN: value }).origin, value);
   assert.throws(() => parseConfig({ ...env, THEALL_MAC_PUBLIC_KEY: 'short' }));
   assert.throws(() => decodeBase64('YQ', 16)); assert.throws(() => decodeBase64('YQ==\n', 16));
-  assert.equal(LIMITS.requestBytes, 524288); assert.equal(LIMITS.responseBytes, 16777216);
-  assert.equal(LIMITS.pending, 32); assert.equal(LIMITS.unverifiedHosts, 4);
+  assert.equal(LIMITS.requestBytes, 3145728); assert.equal(LIMITS.responseBytes, 16777216);
+  assert.equal(LIMITS.pending, 8); assert.equal(LIMITS.unverifiedHosts, 4);
 });
 test('offline returns explicit uncached 503 and never retries requests', async t => {
   const { port } = await fixture(t);
@@ -257,4 +257,23 @@ test('binary, oversized and excessive phone event messages close only that chann
     assert.deepEqual(await host.next(), { type: 'event_close', id: request.id });
     assert.equal(host.readyState, WebSocket.OPEN);
   }
+});
+
+test('forwards a four-photo JSON body and a stored 2 MiB photo without truncation or caching', async t => {
+  const { port } = await fixture(t); const ws = await authenticate(port);
+  const body = JSON.stringify({ text: '', images: Array.from({ length: 4 }, () => ({ name: 'photo.jpg', data: Buffer.alloc(512 * 1024, 17).toString('base64') })) });
+  assert.ok(Buffer.byteLength(body) < LIMITS.requestBytes);
+  const result = httpCall(port, { method: 'POST', target: '/api/chats/c/send', headers: postHeaders, body });
+  const forwarded = await ws.next(); assert.equal(Buffer.from(forwarded.body, 'base64').toString('utf8'), body);
+  respond(ws, forwarded, '{}', { 'Content-Type': 'application/json' }); assert.equal((await result).status, 200);
+  const photo = Buffer.alloc(2 * 1024 * 1024, 91);
+  const read = httpCall(port, { target: '/api/chats/c/images/12345678-1234-1234-1234-123456789012' });
+  respond(ws, await ws.next(), photo, { 'Content-Type': 'image/jpeg' });
+  const response = await read; assert.deepEqual(response.bytes, photo); assert.equal(response.headers['cache-control'], 'no-store');
+});
+
+test('buffer admission includes the entire new frame instead of only previous queued bytes', async t => {
+  const { port } = await fixture(t, { bufferedHostBytes: 1024 }); await authenticate(port);
+  const response = await httpCall(port, { method: 'POST', target: '/api/chats/c/send', headers: postHeaders, body: JSON.stringify({ image: 'x'.repeat(2048) }) });
+  assert.equal(response.status, 503); assert.match(response.body, /busy/);
 });

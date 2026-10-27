@@ -1,6 +1,6 @@
 # AI chats
 
-The app product is **TheAll.app**, version **0.1.3**. Debug windows and menus use **TheAll dev**; Release uses **TheAll**. Every new tab, split pane,
+The app product is **TheAll.app**, version **0.1.4**. Debug windows and menus use **TheAll dev**; Release uses **TheAll**. Every new tab, split pane,
 and workspace starts at a Claude / OpenAI selector. Restored leaves reopen their saved chat. Existing panes
 retain their connection form, process, conversation, and draft across navigation.
 
@@ -81,13 +81,25 @@ Local builds require a persistent signing certificate configured by
 rebuilds and do not override it with `CODE_SIGN_IDENTITY=-`.
 See [local signing](build.md#theall-本地签名与钥匙串).
 
+## Photos
+
+Drag image files into the desktop conversation or input box, use the photo button beside the working folder, or paste a screenshot/image with **⌘V**. The drop area highlights while hovering. Up to four photos can be attached; dropping only adds a draft attachment and never sends a message or inserts a file path into the text. Thumbnails appear above the input; click to preview or remove one before sending. Photos can be sent with a question or without text. The selected provider/model must support image input.
+
+The desktop accepts system-decodable images, including JPEG, PNG and HEIC, up to 20 MB per source. It corrects orientation, reduces the longest side to 2048 pixels, and creates a metadata-free JPEG/PNG copy of at most 2 MB. Originals are not changed. Prepared photos are saved privately in `ChatHistory/Attachments`; history and unsent desktop drafts retain references across restarts. The app sends the prepared copy to the AI endpoint through Claude Code or Codex when you press Send. Missing/unreadable attachments report an error and are not silently omitted.
+
+Photo selection/import does not send a message. A failed send or rejected model switch preserves attachments. Recalling older text with ↑ / ↓ does not automatically reattach historical photos. Remote messages keep the desktop text and photo draft intact.
+
+The phone Web App offers the same selection, removal and history previews. It compresses each upload to at most 512 KiB before sending; an unsupported browser photo format shows a conversion error. Phone drafts remain in memory per conversation. History photos require the same device/workspace authorization as their messages and are never cached by the Service Worker.
+
 ## Conversation persistence
 
 Native chats are saved per terminal UUID in `Application Support/<bundleID>/ChatHistory/`.
-Atomic JSON snapshots include provider, model, folder, draft, messages and the backend
+Atomic JSON snapshots include provider, model, folder, text/photo draft, messages with photo references and the backend
 session ID. A serial background writer checkpoints continuous changes every 300ms;
 application termination and pane detachment flush pending changes. The directory is
 0700 and files are 0600. API connections/credentials remain in Keychain, not snapshots.
+
+Photo messages or drafts use snapshot v2; this build reads both v1 and v2. Older builds reject v2 rather than overwrite a conversation while dropping its photos. Keep this build or a newer one to reopen chats that contain photos.
 
 Relaunch immediately restores the visible history, including completed progress
 collapse flags, then reconnects to the original Claude session or Codex thread. Missing

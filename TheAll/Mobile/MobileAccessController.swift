@@ -365,7 +365,7 @@ final class MobileAccessController {
         let types = ["html": "text/html; charset=utf-8", "js": "application/javascript; charset=utf-8", "css": "text/css; charset=utf-8",
                      "webmanifest": "application/manifest+json", "png": "image/png", "svg": "image/svg+xml"]
         // Exact allowlist rather than exposing the bundle's arbitrary filesystem.
-        let allowed: Set<String> = ["index.html", "app.js", "core.js", "live.js", "i18n.js", "styles.css", "manifest.webmanifest", "sw.js",
+        let allowed: Set<String> = ["index.html", "app.js", "core.js", "live.js", "photos.js", "i18n.js", "styles.css", "manifest.webmanifest", "sw.js",
                                    "icons/icon-192.png", "icons/icon-512.png", "icons/apple-touch-icon.png"]
         guard allowed.contains(path), let root = Bundle.main.url(forResource: "MobileWeb", withExtension: "bundle"),
               let type = types[URL(fileURLWithPath: path).pathExtension],

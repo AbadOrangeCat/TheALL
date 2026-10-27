@@ -156,6 +156,19 @@ export const catalog = Object.fromEntries(Object.keys(supportedLanguages).map((c
   index < 2 ? Object.fromEntries(Object.entries(strings).map(([key, values]) => [key, values[index]]))
     : ({ fr: french, ja: japanese, ko: korean })[code]
 ]));
+const photoStrings = {
+  photosAdd: ['Add photos', '添加照片', 'Ajouter des photos', '写真を追加', '사진 추가'],
+  photosRemove: ['Remove photo', '移除照片', 'Retirer la photo', '写真を削除', '사진 제거'],
+  photosPreview: ['View photo', '查看照片', 'Voir la photo', '写真を見る', '사진 보기'],
+  photosPreparing: ['Preparing photos…', '正在准备照片…', 'Préparation des photos…', '写真を準備中…', '사진 준비 중…'],
+  photosTooMany: ['Attach up to 4 photos per message.', '每条消息最多添加 4 张照片。', 'Joignez jusqu’à 4 photos par message.', '1 件のメッセージに添付できる写真は 4 枚までです。', '메시지당 사진을 최대 4장 첨부할 수 있습니다.'],
+  photosTooLarge: ['Choose photos under 20 MB and 100 megapixels each.', '请选择每张小于 20 MB、1 亿像素以内的照片。', 'Choisissez des photos de moins de 20 Mo et 100 mégapixels chacune.', '各写真は 20 MB 未満、1 億画素以内で選んでください。', '각 사진은 20 MB 미만, 1억 화소 이내로 선택하세요.'],
+  photosInvalid: ['This photo cannot be read. For HEIC photos, export as JPEG or PNG and try again.', '无法读取这张照片。HEIC 照片可先导出为 JPEG 或 PNG 再试。', 'Cette photo est illisible. Pour une photo HEIC, exportez-la en JPEG ou PNG, puis réessayez.', 'この写真を読み込めません。HEIC の写真は JPEG または PNG に書き出して再試行してください。', '이 사진을 읽을 수 없습니다. HEIC 사진은 JPEG 또는 PNG로 내보낸 후 다시 시도하세요.'],
+  photosUnavailable: ['Photo unavailable', '照片暂不可用', 'Photo indisponible', '写真を表示できません', '사진을 사용할 수 없습니다']
+};
+for (const [key, values] of Object.entries(photoStrings)) {
+  Object.keys(supportedLanguages).forEach((code, index) => { catalog[code][key] = values[index]; });
+}
 export function resolveLanguage(value) {
   const lower = String(value || '').toLowerCase();
   return lower.startsWith('zh') ? 'zh-Hans' : Object.keys(supportedLanguages).find(key => lower.split('-')[0] === key) || 'en';
