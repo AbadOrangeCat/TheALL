@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 const bundle = new URL('../TheAll/Mobile/MobileWeb.bundle/', import.meta.url);
-const source = await readFile(new URL('photos.js', bundle), 'utf8');
+const coreSource = await readFile(new URL('core.js', bundle), 'utf8');
+const coreURL = `data:text/javascript;base64,${Buffer.from(coreSource).toString('base64')}`;
+const source = (await readFile(new URL('photos.js', bundle), 'utf8')).replace("'./core.js'", JSON.stringify(coreURL));
 const { PHOTO_LIMITS, PhotoError, validatePhotoSelection, imagePath, freezePhotoSubmission, removeSubmittedPhotos, preparePhoto } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
 const jpeg = { size: 100, type: 'image/jpeg' };
 

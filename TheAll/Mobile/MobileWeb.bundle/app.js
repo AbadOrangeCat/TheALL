@@ -1,8 +1,13 @@
-import { APIError, request, chatPath, mergePage, turns, operation, readPairToken, safeLink } from './core.js';
+import { APIError, request, chatPath, mergePage, turns, operation, readPairToken, safeLink, isPrivateLANHTTP } from './core.js';
 
 import { PHOTO_LIMITS, PhotoError, validatePhotoSelection, preparePhoto, imagePath, freezePhotoSubmission, removeSubmittedPhotos } from './photos.js';
 
 const $ = id => document.getElementById(id);
+const secure = window.isSecureContext;
+const quickLAN = isPrivateLANHTTP(location);
+const connectionAllowed = secure || quickLAN;
+// A scanned invitation stays in memory only, never in browser history or storage.
+let scannedToken = readPairToken(location, history);
 import { LiveUpdates } from './live.js';
 import { t, language, setLanguage, supportedLanguages } from './i18n.js';
 function translatePage() {
@@ -14,6 +19,10 @@ function translatePage() {
     'close-new': 'close', 'close-install': 'close', 'close-photo': 'close', 'add-photos': 'photosAdd', transcript: 'history', sidebar: 'workspaces' })) $(id).ariaLabel = t(key);
   $('directory').title = $('directory').textContent || t('directory');
   document.querySelectorAll('.language-select').forEach(select => { select.value = language(); });
+  $('connection-note').textContent = quickLAN ? t('quickLANNote') : '';
+  $('connection-note').hidden = !quickLAN;
+  $('install-android').textContent = t(quickLAN ? 'installAndroidLAN' : 'installAndroid');
+  $('install-network').textContent = t(quickLAN ? 'installNetworkLAN' : 'installNetwork');
 }
 translatePage();
 $('device-name').value = /iPad/.test(navigator.userAgent) ? 'iPad' : /iPhone/.test(navigator.userAgent) ? 'iPhone' : /Android/.test(navigator.userAgent) ? 'Android' : t('deviceMobile');
@@ -22,7 +31,7 @@ const state = {
   suspended: false, authenticated: false, connected: false, sessionGeneration: 0, access: { workspaceId: null, writable: true }, live: false, refreshQueued: false, bootID: null, workspaces: [], selected: null, selection: 0,
   chats: new Map(), drafts: new Map(), imageDrafts: new Map(), imageLoading: new Set(), models: new Map(), modelNotices: new Set(), scroll: new Map(),
   progress: new Map(), errors: new Map(), answerDrafts: new Map(), pending: new Map(), rendering: '', questionRendering: '',
-  recoveryTimer: null, sessionProbe: null, pollTimer: null, polling: false, loadingOlder: false, newOperation: null, installPrompt: null
+  recoveryTimer: null, sessionProbe: null, pairingAttempt: null, pollTimer: null, polling: false, loadingOlder: false, newOperation: null, installPrompt: null
 };
 const liveURL = new URL('/api/events', location.href); liveURL.protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
 const live = new LiveUpdates({ url: liveURL.href,
@@ -85,10 +94,7 @@ function renderAccess() {
   $('new-chat').hidden = $('welcome-new').hidden = !state.access.writable;
   $('welcome').querySelector('p').textContent = t(state.access.writable ? 'welcomeDetail' : 'readOnlyWelcome');
 }
-let pairingToken = readPairToken(location, history); // Remove the secret from URL immediately.
-if (pairingToken) $('pair-token').value = pairingToken;
-pairingToken = '';
-const secure = window.isSecureContext;
+if (scannedToken) $('pair-token').value = scannedToken;
 
 function el(tag, className, text) {
   const node = document.createElement(tag);
@@ -114,7 +120,7 @@ $('drawer-shade').onclick = () => drawer(false);
 document.addEventListener('keydown', event => { if (event.key === 'Escape') drawer(false); });
 
 function pairScreen(error = '') {
-  cancelSessionRecovery(); live.stop(); state.sessionGeneration++; state.refreshQueued = false;
+  cancelSessionRecovery(); cancelPairing(); live.stop(); state.sessionGeneration++; state.refreshQueued = false;
   state.authenticated = false; state.connected = false;
   clearTimeout(state.pollTimer);
   state.selection++; state.selected = null; state.workspaces = [];
@@ -140,7 +146,7 @@ function cancelSessionRecovery() {
 }
 async function recoverSession() {
   clearTimeout(state.recoveryTimer);
-  if (!secure || state.suspended || state.authenticated || state.sessionProbe) return;
+  if (!connectionAllowed || state.suspended || state.authenticated || state.sessionProbe || state.pairingAttempt) return;
   const probe = Symbol(); state.sessionProbe = probe;
   let retry = false;
   try {
@@ -171,18 +177,43 @@ async function startSession(data) {
   $('device-label').textContent = data.deviceName || '';
   connected(true); await poll(); if (state.authenticated && !state.suspended) live.start();
 }
-$('pair-form').onsubmit = async event => {
-  event.preventDefault();
-  if (!secure) { showError('pair-error', t('secureRequired')); return; }
-  if (!navigator.onLine) { showError('pair-error', t('networkError')); return; }
+function pairingUI(active) {
+  $('pair-form').hidden = active;
+  $('pair-status').hidden = !active;
+  $('pair-submit').disabled = active || !connectionAllowed;
+}
+function cancelPairing() {
+  const attempt = state.pairingAttempt; state.pairingAttempt = null;
+  attempt?.controller.abort(); pairingUI(false);
+}
+async function pair() {
+  if (state.pairingAttempt || state.suspended) return;
+  if (!connectionAllowed) { pairingUI(false); showError('pair-error', t('secureRequired')); return; }
+  if (!navigator.onLine) { pairingUI(false); showError('pair-error', t('networkError')); return; }
+  const token = $('pair-token').value.trim();
+  if (!token) { pairingUI(false); return; }
   cancelSessionRecovery();
-  $('pair-submit').disabled = true; showError('pair-error', '');
+  const attempt = { token, controller: new AbortController() }; state.pairingAttempt = attempt;
+  pairingUI(true); showError('pair-error', '');
   try {
-    const data = await request('/api/pair', { body: { token: $('pair-token').value.trim(), deviceName: $('device-name').value.trim() || t('deviceMobile') } });
+    const data = await request('/api/pair', { signal: attempt.controller.signal,
+      body: { token, deviceName: $('device-name').value.trim() || t('deviceMobile') } });
+    if (state.pairingAttempt !== attempt || state.suspended) return;
     await startSession(data);
-  } catch (error) { showError('pair-error', describe(error)); }
-  finally { $('pair-submit').disabled = false; }
-};
+  } catch (error) {
+    if (state.pairingAttempt === attempt && !state.suspended) showError('pair-error', describe(error));
+  } finally {
+    if (state.pairingAttempt === attempt) { state.pairingAttempt = null; pairingUI(false); }
+  }
+}
+$('pair-form').onsubmit = event => { event.preventDefault(); pair(); };
+window.addEventListener('hashchange', () => {
+  const token = readPairToken(location, history);
+  if (!token || state.pairingAttempt?.token === token) return;
+  // Scanning into an existing tab is a same-document navigation. A fresh grant
+  // must not leave content from the previous grant visible while it connects.
+  pairScreen(); $('pair-token').value = token; pair();
+});
 $('logout').onclick = async () => {
   $('logout').disabled = true;
   try { await request('/api/logout', { body: {} }); pairScreen(); }
@@ -285,7 +316,7 @@ window.addEventListener('offline', () => { live.suspend(); connected(false); sho
 function reconnect() { state.suspended = false; if (state.authenticated) { live.resume(); poll(); } else recoverSession(); }
 window.addEventListener('online', reconnect);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) reconnect(); });
-window.addEventListener('pagehide', () => { state.suspended = true; live.stop(); cancelSessionRecovery(); clearTimeout(state.pollTimer); state.sessionGeneration++; state.imageLoading.clear(); });
+window.addEventListener('pagehide', () => { state.suspended = true; live.stop(); cancelSessionRecovery(); cancelPairing(); clearTimeout(state.pollTimer); state.sessionGeneration++; state.imageLoading.clear(); });
 window.addEventListener('pageshow', event => { if (event.persisted) { state.suspended = false; if (state.authenticated && !state.suspended) live.start(); reconnect(); } });
 
 function atBottom() { const node = $('transcript'); return node.scrollHeight - node.scrollTop - node.clientHeight < 70; }
@@ -655,5 +686,7 @@ $('install-prompt').onclick = async () => {
   await state.installPrompt.prompt(); state.installPrompt = null; $('install-prompt').hidden = true;
 };
 if (secure && 'serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
-if (!secure) { showError('pair-error', t('secureRequired')); $('pair-submit').disabled = true; }
-else recoverSession();
+if (!connectionAllowed) { pairingUI(false); showError('pair-error', t('secureRequired')); }
+else if (scannedToken) { pair(); } // Consume a scanned invitation once; errors require an explicit retry.
+else { pairingUI(false); recoverSession(); }
+scannedToken = '';

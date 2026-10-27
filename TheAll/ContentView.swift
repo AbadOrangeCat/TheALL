@@ -10,6 +10,7 @@ struct ContentView: View {
     @State private var quickActionsStore: QuickActionsStore
     @State private var sidebarCollapsed: Bool = false
     @State private var showSettings: Bool = false
+    @State private var showMobileConnection = false
     /// 当前 ContentView 宿主窗口。用于过滤 NSWindow 全屏通知——
     /// `NotificationCenter.publisher(for:)` 不带 `object:` 时会收到所有窗口的
     /// 通知，多窗口下窗口 A 进全屏会误伤窗口 B 的透明度。
@@ -93,7 +94,11 @@ struct ContentView: View {
                         theme: themeManager.theme,
                         backgroundOpacity: bgOpacity,
                         showStatusIndicators: showStatusIndicators,
-                        updateStore: updateStore
+                        updateStore: updateStore,
+                        onConnectPhone: {
+                            showMobileConnection = true
+                            TheAllRuntime.shared.mobile.connectPhone()
+                        }
                     )
                     .padding(.top, trafficLightInset)
                     .transition(.move(edge: .leading).combined(with: .opacity))
@@ -196,6 +201,26 @@ struct ContentView: View {
         // 浓度一致、无缝；卡片区自己叠一层 canvas alpha，相对根层更浓一点，
         // 圆角因此依然可见。
         .background(Color(themeManager.theme.sidebar).opacity(bgOpacity))
+        .sheet(isPresented: $showMobileConnection) {
+            MobileAccessSectionView(theme: themeManager.theme)
+                .overlay(alignment: .topTrailing) {
+                    Button {
+                        showMobileConnection = false
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(Color(themeManager.theme.textSecondary))
+                            .padding(DT.Space.sm)
+                    }
+                    .buttonStyle(.plain)
+                    .keyboardShortcut(.cancelAction)
+                    .accessibilityLabel(L10n.string("mobile.close"))
+                    .help(L10n.string("mobile.close"))
+                    .padding(DT.Space.sm)
+                }
+                .frame(width: 640, height: 580)
+                .tint(Color(themeManager.theme.accent))
+        }
         .ignoresSafeArea()
         .theAllFullSizeContent(
             backgroundOpacity: contentBg,

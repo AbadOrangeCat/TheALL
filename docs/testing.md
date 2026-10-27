@@ -13,12 +13,18 @@
 
 ```bash
 # 所有测试
-xcodebuild test -project TheAll.xcodeproj -scheme TheAllTests
+./scripts/test-local.sh
 
 # 单个测试文件
-xcodebuild test -project TheAll.xcodeproj -scheme TheAllTests \
+./scripts/test-local.sh \
   -only-testing:TheAllTests/WorkspaceStoreTests
 ```
+
+## 测试应用与真实数据隔离
+
+`test-local.sh` 固定使用 `../work/TestDerivedData` 和 `com.theall.tests.local`；开发版继续使用 `../work/DerivedData` 和 `Local.xcconfig` 中的身份。测试脚本仅接受 `-only-testing:...` / `-skip-testing:...` 选择器，不透传构建覆盖参数，并清除进程环境中的 `XCODE_XCCONFIG_FILE`。Xcode 在测试编译失败前也可能写入测试 Info.plist，因此不能只在测试后重建开发版补救，两者必须始终使用不同目录。测试不会替换用户会打开的 TheAll.app。
+
+若误开测试宿主，界面会读取测试工作区，真实历史仍在原身份的数据目录中。恢复正常构建、完全退出测试宿主再打开开发版即可；不要为了空白界面清除 UserDefaults、聊天文件或 API 连接。
 
 ## Test Files
 

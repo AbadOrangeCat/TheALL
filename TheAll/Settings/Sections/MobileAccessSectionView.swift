@@ -5,7 +5,7 @@ import UniformTypeIdentifiers
 struct MobileAccessSectionView: View {
     let theme: AppTheme
     @State private var controller: MobileAccessController
-    @State private var showsCertificateSetup = true
+    @State private var showsCertificateSetup = false
     @State private var exportError: String?
     @State private var sharedWorkspace = ""
     @State private var writable = true
@@ -23,12 +23,90 @@ struct MobileAccessSectionView: View {
             VStack(alignment: .leading, spacing: 20) {
                 Text(text("title")).font(.title2.bold())
                 Text(text("detail")).foregroundStyle(Color(theme.textSecondary))
+                VStack(alignment: .leading, spacing: 12) {
+                    Button {
+                        controller.connectPhone(access: selectedAccess)
+                    } label: {
+                        Label(text(controller.isPreparingLANInvitation ? "starting" : "lan.quickPair"), systemImage: "qrcode")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(controller.isPreparingLANInvitation)
+                    Text(text("lan.quickHelp")).foregroundStyle(Color(theme.textSecondary))
+                    Text(text("lan.quickPrivacy")).font(.caption).foregroundStyle(Color(theme.textSecondary))
+                    if let error = controller.lanError { Text(error).foregroundStyle(Color(theme.accent)) }
+                    if let error = controller.error { Text(error).foregroundStyle(Color(theme.accent)) }
+                }
+                if let link = controller.pairingURL, let entry = controller.pairingEntry {
+                    Divider()
+                    Text(text("pair." + entry.rawValue)).font(.headline)
+                    HStack(alignment: .top, spacing: 20) {
+                        if let image = qrCode(link) {
+                            Image(nsImage: image).interpolation(.none).resizable().frame(width: 180, height: 180)
+                                .accessibilityLabel(text("qr"))
+                        }
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text(text("pairHelp"))
+                            Text(accessTitle(controller.invitationAccess)).font(.callout.bold())
+                            if entry == .lan && controller.lanMode == .encrypted { Text(text("lan.pairHelp")).foregroundStyle(Color(theme.textSecondary)) }
+                            if entry == .preview { Text(text("localOnly")).foregroundStyle(Color(theme.accent)) }
+                            HStack {
+                                Button(text("copy")) { copy(link) }
+                                Button(text("lan.newCode")) { invite(entry) }
+                            }
+                            if let expiry = controller.pairingExpires {
+                                Text(expiry, style: .relative).font(.caption).foregroundStyle(Color(theme.textSecondary))
+                            }
+                        }
+                    }
+                }
+                if let device = controller.pairedDevice {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Label(text("share.paired"), systemImage: "checkmark.circle.fill").font(.headline)
+                        Text(device.name + " · " + accessTitle(device.access))
+                        Text(text(controller.onlineDeviceIDs.contains(device.id) ? "share.online" : "share.offline"))
+                            .font(.callout)
+                    }.foregroundStyle(Color(theme.accent))
+                    .padding(16).frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color(theme.accentMuted), in: RoundedRectangle(cornerRadius: 12))
+                }
+                Divider()
+                advancedSection
+                Divider()
+                Text(text("devices")).font(.headline)
+                if controller.devices.isEmpty { Text(text("noDevices")).foregroundStyle(Color(theme.textSecondary)) }
+                ForEach(controller.devices) { device in
+                    HStack {
+                        Image(systemName: "iphone")
+                        VStack(alignment: .leading) {
+                            Text(device.name)
+                            Text(accessTitle(device.access)).font(.caption).foregroundStyle(Color(theme.textSecondary))
+                            Text(text(device.expiresAt <= Date() ? "share.expired" : controller.onlineDeviceIDs.contains(device.id) ? "share.online" : "share.offline"))
+                                .font(.caption).foregroundStyle(Color(theme.textSecondary))
+                            if let origin = device.origin { Text(origin).font(.caption).foregroundStyle(Color(theme.textSecondary)) }
+                            Text(device.expiresAt, style: .date).font(.caption).foregroundStyle(Color(theme.textSecondary))
+                        }
+                        Spacer()
+                        Button(text("revoke")) { controller.revoke(device.id) }
+                    }
+                }
+                Text(text("availability")).font(.callout).foregroundStyle(Color(theme.textSecondary))
+            }
+            .foregroundStyle(Color(theme.textPrimary))
+            .padding(24)
+            .frame(maxWidth: 760, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .background(Color(theme.canvas))
+        .onAppear { controller.prepareIdentity(); controller.refreshLANAddresses() }
+    }
+
+    private var advancedSection: some View {
+        DisclosureGroup(text("advanced")) {
+            VStack(alignment: .leading, spacing: 20) {
                 Toggle(text("enable"), isOn: Binding(get: { controller.isEnabled }, set: {
                     if $0 { controller.enable() } else { controller.disable() }
                 }))
                 Text(text("modesHelp")).font(.callout).foregroundStyle(Color(theme.textSecondary))
-                if let error = controller.error { Text(error).foregroundStyle(Color(theme.accent)) }
-                Divider()
                 Text(text("share.title")).font(.headline)
                 Picker(text("share.scope"), selection: $sharedWorkspace) {
                     Text(text("share.all")).tag("")
@@ -48,54 +126,6 @@ struct MobileAccessSectionView: View {
                 lanSection
                 Divider()
                 relaySection
-                if let link = controller.pairingURL, let entry = controller.pairingEntry {
-                    Divider()
-                    Text(text("pair." + entry.rawValue)).font(.headline)
-                    HStack(alignment: .top, spacing: 20) {
-                        if let image = qrCode(link) {
-                            Image(nsImage: image).interpolation(.none).resizable().frame(width: 180, height: 180)
-                                .accessibilityLabel(text("qr"))
-                        }
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text(text("pairHelp"))
-                            Text(accessTitle(controller.invitationAccess)).font(.callout.bold())
-                            if entry == .lan { Text(text("lan.pairHelp")).foregroundStyle(Color(theme.textSecondary)) }
-                            if entry == .preview { Text(text("localOnly")).foregroundStyle(Color(theme.accent)) }
-                            Button(text("copy")) { copy(link) }
-                            if let expiry = controller.pairingExpires {
-                                Text(expiry, style: .relative).font(.caption).foregroundStyle(Color(theme.textSecondary))
-                            }
-                        }
-                    }
-                }
-                if let device = controller.pairedDevice {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Label(text("share.paired"), systemImage: "checkmark.circle.fill").font(.headline)
-                        Text(device.name + " · " + accessTitle(device.access))
-                        Text(text(controller.onlineDeviceIDs.contains(device.id) ? "share.online" : "share.offline"))
-                            .font(.callout)
-                    }.foregroundStyle(Color(theme.accent))
-                    .padding(16).frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color(theme.accentMuted), in: RoundedRectangle(cornerRadius: 12))
-                }
-                Divider()
-                Text(text("devices")).font(.headline)
-                if controller.devices.isEmpty { Text(text("noDevices")).foregroundStyle(Color(theme.textSecondary)) }
-                ForEach(controller.devices) { device in
-                    HStack {
-                        Image(systemName: "iphone")
-                        VStack(alignment: .leading) {
-                            Text(device.name)
-                            Text(accessTitle(device.access)).font(.caption).foregroundStyle(Color(theme.textSecondary))
-                            Text(text(device.expiresAt <= Date() ? "share.expired" : controller.onlineDeviceIDs.contains(device.id) ? "share.online" : "share.offline"))
-                                .font(.caption).foregroundStyle(Color(theme.textSecondary))
-                            if let origin = device.origin { Text(origin).font(.caption).foregroundStyle(Color(theme.textSecondary)) }
-                            Text(device.expiresAt, style: .date).font(.caption).foregroundStyle(Color(theme.textSecondary))
-                        }
-                        Spacer()
-                        Button(text("revoke")) { controller.revoke(device.id) }
-                    }
-                }
                 Divider()
                 DisclosureGroup(text("preview")) {
                     VStack(alignment: .leading, spacing: 10) {
@@ -107,15 +137,8 @@ struct MobileAccessSectionView: View {
                         }.disabled(!controller.isListening)
                     }.padding(.top, 10)
                 }
-                Text(text("availability")).font(.callout).foregroundStyle(Color(theme.textSecondary))
-            }
-            .foregroundStyle(Color(theme.textPrimary))
-            .padding(24)
-            .frame(maxWidth: 760, alignment: .leading)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            }.padding(.top, 12)
         }
-        .background(Color(theme.canvas))
-        .onAppear { controller.prepareIdentity(); controller.refreshLANAddresses() }
     }
 
     private var lanSection: some View {
@@ -124,6 +147,10 @@ struct MobileAccessSectionView: View {
                 .font(.headline)
             Text(text("lan.help")).foregroundStyle(Color(theme.textSecondary))
             if controller.useLAN {
+                Picker(text("lan.mode"), selection: Binding(get: { controller.lanMode }, set: controller.setLANMode)) {
+                    Text(text("lan.mode.quick")).tag(MobileAccessController.LANMode.quick)
+                    Text(text("lan.mode.encrypted")).tag(MobileAccessController.LANMode.encrypted)
+                }
                 HStack {
                     Picker(text("lan.address"), selection: Binding(get: { controller.lanAddress }, set: controller.selectLANAddress)) {
                         if !controller.lanAddresses.contains(where: { $0.address == controller.lanAddress }) {
@@ -135,28 +162,30 @@ struct MobileAccessSectionView: View {
                     Button(text("lan.refresh")) { controller.refreshLANAddresses() }
                 }
                 if controller.isEnabled {
-                    Label(text(controller.isLANListening ? "lan.online" : "lan.offline"), systemImage: controller.isLANListening ? "checkmark.circle.fill" : "wifi.slash")
+                    Label(text(controller.isLANListening ? (controller.lanMode == .quick ? "lan.quickOnline" : "lan.online") : "lan.offline"), systemImage: controller.isLANListening ? "checkmark.circle.fill" : "wifi.slash")
                         .foregroundStyle(Color(theme.accent))
                 }
                 if let error = controller.lanError { Text(error).foregroundStyle(Color(theme.accent)) }
                 if let url = controller.lanURL { Text(url).font(.system(.callout, design: .monospaced)).textSelection(.enabled) }
-                DisclosureGroup(text("lan.setup"), isExpanded: $showsCertificateSetup) {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text(text("lan.certificateHelp"))
-                        HStack {
-                            Button(text("lan.exportIOS")) { exportCertificate(iOS: true) }
-                            Button(text("lan.exportAndroid")) { exportCertificate(iOS: false) }
-                        }.disabled(!controller.canExportLANCertificate)
-                        Text(text("lan.iosSteps")).font(.callout)
-                        Text(text("lan.androidSteps")).font(.callout)
-                        Text(text("lan.certificateScope")).font(.callout).foregroundStyle(Color(theme.textSecondary))
-                        if !controller.lanCertificateName.isEmpty {
-                            Text(controller.lanCertificateName).font(.callout.bold()).textSelection(.enabled)
-                            Text("SHA-256: " + controller.lanCertificateFingerprint)
-                                .font(.system(.caption, design: .monospaced)).textSelection(.enabled)
-                        }
-                        if let exportError { Text(exportError).foregroundStyle(Color(theme.accent)) }
-                    }.padding(.top, 10)
+                if controller.lanMode == .encrypted {
+                    DisclosureGroup(text("lan.setup"), isExpanded: $showsCertificateSetup) {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text(text("lan.certificateHelp"))
+                            HStack {
+                                Button(text("lan.exportIOS")) { exportCertificate(iOS: true) }
+                                Button(text("lan.exportAndroid")) { exportCertificate(iOS: false) }
+                            }.disabled(!controller.canExportLANCertificate)
+                            Text(text("lan.iosSteps")).font(.callout)
+                            Text(text("lan.androidSteps")).font(.callout)
+                            Text(text("lan.certificateScope")).font(.callout).foregroundStyle(Color(theme.textSecondary))
+                            if !controller.lanCertificateName.isEmpty {
+                                Text(controller.lanCertificateName).font(.callout.bold()).textSelection(.enabled)
+                                Text("SHA-256: " + controller.lanCertificateFingerprint)
+                                    .font(.system(.caption, design: .monospaced)).textSelection(.enabled)
+                            }
+                            if let exportError { Text(exportError).foregroundStyle(Color(theme.accent)) }
+                        }.padding(.top, 10)
+                    }
                 }
                 Button(text("pair.lan")) { invite(.lan) }
                     .buttonStyle(.borderedProminent).disabled(!controller.canPair(via: .lan))
@@ -196,8 +225,11 @@ struct MobileAccessSectionView: View {
     private func copy(_ value: String) {
         NSPasteboard.general.clearContents(); NSPasteboard.general.setString(value, forType: .string)
     }
+    private var selectedAccess: MobilePairingStore.Access {
+        .init(workspaceID: UUID(uuidString: sharedWorkspace), writable: writable)
+    }
     private func invite(_ entry: MobileAccessController.Entry) {
-        controller.createInvitation(via: entry, access: .init(workspaceID: UUID(uuidString: sharedWorkspace), writable: writable))
+        controller.createInvitation(via: entry, access: selectedAccess)
     }
     private func accessTitle(_ access: MobilePairingStore.Access) -> String {
         let scope = access.workspaceID.map { id in controller.shareWorkspaces.first(where: { $0.id == id })?.name ?? text("share.unavailable") } ?? text("share.all")

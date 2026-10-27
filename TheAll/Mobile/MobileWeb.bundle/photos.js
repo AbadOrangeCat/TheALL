@@ -1,3 +1,5 @@
+import { randomUUID } from './core.js';
+
 // Photos remain in memory until the user sends them. The Mac validates and
 // stores a separate copy; these browser limits also bound relay request size.
 export const PHOTO_LIMITS = Object.freeze({ count: 4, inputBytes: 20 * 1024 * 1024,
@@ -66,7 +68,7 @@ export async function preparePhoto(file) {
         const bytes = data.length * 3 / 4 - (data.endsWith('==') ? 2 : data.endsWith('=') ? 1 : 0);
         if (bytes <= PHOTO_LIMITS.bytes) {
           const stem = String(file.name || 'photo').split(/[\\/]/).pop().replace(/\.[^.]*$/, '').replace(/[\x00-\x1f\x7f]/g, '');
-          return Object.freeze({ id: crypto.randomUUID(), name: `${Array.from(stem || 'photo').slice(0, 50).join('')}.jpg`, data, preview });
+          return Object.freeze({ id: randomUUID(), name: `${Array.from(stem || 'photo').slice(0, 50).join('')}.jpg`, data, preview });
         }
       }
       width = Math.max(1, Math.round(width * 0.75)); height = Math.max(1, Math.round(height * 0.75));

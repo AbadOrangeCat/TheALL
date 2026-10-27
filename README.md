@@ -6,14 +6,14 @@
 <p align="center"><strong>Claude Code and Codex. One native macOS workspace.</strong><br />Keep your projects, AI conversations, and models together. Continue from your phone.</p>
 
 <p align="center">
-  <a href="https://github.com/AbadOrangeCat/TheALL/releases/tag/v0.1.4"><img alt="Release v0.1.4" src="https://img.shields.io/badge/release-v0.1.4-176B68?style=flat-square" /></a>
+  <a href="https://github.com/AbadOrangeCat/TheALL/releases/tag/v0.1.5"><img alt="Release v0.1.5" src="https://img.shields.io/badge/release-v0.1.5-176B68?style=flat-square" /></a>
   <img alt="macOS 14 or later" src="https://img.shields.io/badge/macOS-14%2B-263C3B?style=flat-square" />
   <img alt="Apple Silicon" src="https://img.shields.io/badge/Apple_Silicon-arm64-263C3B?style=flat-square" />
   <img alt="Mobile web app for iOS and Android" src="https://img.shields.io/badge/mobile-iOS_%26_Android-263C3B?style=flat-square" />
 </p>
 
 <p align="center">
-  <a href="https://github.com/AbadOrangeCat/TheALL/releases/tag/v0.1.4"><strong>Download for Mac</strong></a> ·
+  <a href="https://github.com/AbadOrangeCat/TheALL/releases/tag/v0.1.5"><strong>Download for Mac</strong></a> ·
   <a href="https://abadorangecat.github.io/TheALL/">Website</a> ·
   <a href="docs/mobile-access.md">Mobile setup</a> ·
   <a href="README.zh-CN.md">简体中文</a>
@@ -42,16 +42,24 @@ API connections are saved through macOS Keychain. Chat history stays on your Mac
 
 **Requirements:** macOS 14 or later, an Apple Silicon Mac, an API connection, and the [Claude Code CLI](https://code.claude.com/docs/en/setup) or [Codex CLI](https://developers.openai.com/codex/cli) for your chosen provider. The CLIs are installed separately.
 
-1. Download the [v0.1.4 DMG](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.4/TheAll-0.1.4-macos-arm64.dmg) or [ZIP](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.4/TheAll-0.1.4-macos-arm64.zip), then move **TheAll.app** to Applications.
+1. Download the [v0.1.5 DMG](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.5/TheAll-0.1.5-macos-arm64.dmg) or [ZIP](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.5/TheAll-0.1.5-macos-arm64.zip), then move **TheAll.app** to Applications.
 2. Open TheAll, create a workspace, and select a working folder and **Claude / OpenAI**.
 3. Enter your API key and, if needed, a custom Base URL. Later conversations can reuse the saved connection.
 4. Choose a model and send your first question. The folder control and model dropdown stay beside the composer.
 
-**About this release:** v0.1.4 is signed with a local development certificate and is **not notarized by Apple**. macOS may block the first launch. After verifying the download and choosing to trust it, follow [Apple’s guidance](https://support.apple.com/en-us/102445) and use **System Settings → Privacy & Security → Open Anyway** if macOS offers it. Keep system security protections enabled. [SHA-256 checksums](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.4/SHA256SUMS.txt) are included. This release is arm64 only, and automatic updates are not configured.
+**About this release:** v0.1.5 is signed with a local development certificate and is **not notarized by Apple**. macOS may block the first launch. After verifying the download and choosing to trust it, follow [Apple’s guidance](https://support.apple.com/en-us/102445) and use **System Settings → Privacy & Security → Open Anyway** if macOS offers it. Keep system security protections enabled. [SHA-256 checksums](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.5/SHA256SUMS.txt) are included. This release is arm64 only, and automatic updates are not configured.
 
 **Execution behavior:** coding-agent tools run automatically, including file changes, deletion, dependency installation, and Git pushes. Use a project and API connection you intend the agent to operate. Questions that require your answer still pause for input.
 
-## Photos in v0.1.4
+## New in v0.1.5: scan and connect
+
+On the same Wi-Fi, click **Connect phone** at the bottom of the Mac sidebar and scan the QR code with your phone camera. Opening the link pairs automatically: no certificate installation, address entry, device-name form, or second Connect button. The shortcut opens the QR code directly; it is also available in Settings.
+
+Quick connect uses **unencrypted local HTTP** on a trusted private network. Optional HTTPS, relay access, and sharing permissions remain under Advanced connection settings. HTTPS enables the full PWA installation flow; quick connect works as an online browser page.
+
+Local development tests now build into a separate directory with a separate application identity, preventing test builds from replacing the app you open and showing an empty test workspace.
+
+## Photos
 
 Use the photo button, drag images into the desktop chat, or paste with **⌘V**. Send photos with text or on their own. Desktop imports accept up to 20 MiB per source and create smaller copies with orientation corrected and original metadata removed; the originals stay unchanged. Mobile uploads are compressed before sending. Failed sends preserve draft attachments.
 
@@ -59,11 +67,11 @@ Chats containing photos use a newer history format: keep v0.1.4 or later to reop
 
 ## Your Mac, reachable from your phone
 
-TheAll Mobile is a Web App you can add to the home screen on **iPhone, iPad, and Android**. Your Mac runs the agents; the phone controls the same conversations.
+Use TheAll Mobile in a browser on **iPhone, iPad, and Android**. HTTPS connections also support home-screen Web App installation. Your Mac runs the agents; the phone controls the same conversations.
 
 | Connection | Setup |
 | --- | --- |
-| **Same Wi-Fi / LAN** | The Mac serves the app over HTTPS. Install the Mac's exported public CA certificate on the phone, then scan a pairing QR code. No server or domain required. |
+| **Same Wi-Fi / LAN** | Click **Connect phone** in the Mac sidebar, then scan and open the QR link. Quick connect needs no certificate, server, or domain. Use trusted Wi-Fi; optional HTTPS is in Advanced settings. |
 | **Away from home** | Deploy the included relay on your own server and domain. The Mac connects out over WSS; the phone uses HTTPS. No extra VPN app or router port forwarding required. |
 
 Pair a phone with access to all workspaces or just one, and choose **read-only** or **control** access. Revoke devices from the Mac. API keys are not sent to the phone. The Mac must stay running and awake; a self-hosted relay can read the traffic it forwards, so deploy it on infrastructure you trust. No hosted relay service is included.

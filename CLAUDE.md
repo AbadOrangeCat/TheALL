@@ -15,7 +15,7 @@ xcodegen generate
 xcodebuild -project TheAll.xcodeproj -scheme TheAll -configuration Debug build
 
 # 4. 运行测试
-xcodebuild test -project TheAll.xcodeproj -scheme TheAllTests
+./scripts/test-local.sh
 
 # 5. 检查文档/目录是否漂移
 ./scripts/check-doc-drift.sh
@@ -24,6 +24,8 @@ xcodebuild test -project TheAll.xcodeproj -scheme TheAllTests
 ## Architecture Overview
 
 本地 Debug 已配置固定签名时，应保留 gitignored `Local.xcconfig` 和对应证书，构建不要强制 `CODE_SIGN_IDENTITY=-`，否则会破坏钥匙串的跨版本身份。初始化流程见 `scripts/setup-local-signing.sh` 和 `docs/build.md`。
+
+**测试产物必须与用户开发版隔离。** 本地测试统一使用 `./scripts/test-local.sh`，固定输出到 `../work/TestDerivedData` 并使用 `com.theall.tests.local` 身份。禁止在用户会打开的 `../work/DerivedData` 中运行测试；即使编译失败，Xcode 也可能已覆盖应用身份，导致重新打开后显示空的测试工作区。正常 Debug build 保留 `Local.xcconfig` 身份。
 
 SwiftUI 侧边栏 + AppKit 标签页/分割窗格混合架构。每个 Workspace 持有一组 TerminalTab，每个 Tab 存一棵 `SplitNode` 树（二叉 split + terminal 叶子）。WorkspaceStore (@Observable) 是唯一状态来源，通过 environment 注入到所有视图。libghostty C API 封装在 GhosttyBridge 单例中，不直接调用 `ghostty_*` 函数在其他文件。
 
@@ -67,11 +69,11 @@ TheAll/
 │   ├── AIChatProcess.swift       — 常驻 CLI 的逐行 JSON 进程通信
 │   └── AIChatView.swift          — 聊天记录、原生输入框、模型下拉框和用户提问
 ├── Mobile/
-│   ├── MobileAccessController.swift — 手机连接设置、配对入口、请求鉴权和静态资源
-│   ├── MobileHTTPServer.swift — loopback HTTP / 独立 LAN HTTPS 的有界服务与安全响应头
+│   ├── MobileAccessController.swift — 一键 LAN 扫码、连接模式、配对鉴权和静态资源
+│   ├── MobileHTTPServer.swift — loopback HTTP / LAN HTTP 快捷连接或 HTTPS 的有界服务与安全响应头
 │   ├── MobileEventChannel.swift — 同源 WebSocket 帧、事件通道与中继适配
 │   ├── MobileEventHub.swift — 按授权范围观察变化、合并推送与在线设备状态
-│   ├── MobileLANAddress.swift — 枚举可选的局域网 IPv4 地址
+│   ├── MobileLANAddress.swift — 枚举私网 IPv4、优先物理网络与地址恢复
 │   ├── MobileLANIdentity.swift — 本机 CA、内存 TLS 身份与手机公开证书导出
 │   ├── MobilePairingStore.swift — 一次性配对、设备 token 哈希、撤销与过期
 │   ├── MobileChatAPI.swift — workspace/历史分页与幂等的回复/新建/停止/回答
@@ -176,7 +178,7 @@ TheAll/
 | 新增设置项 | `Settings/Sections/<对应>.swift`, `Settings/SettingsConfigStore.swift`（默认值/校验）, `docs/settings-reference.md` |
 | 新增终端状态来源 | `Models/HookMessage.swift` → `Models/HookSocketListener.swift` → `Models/TerminalStatusStore.swift`，展示在 `Theme/TerminalStatusIconView.swift` |
 | 侧边栏 / Tab 的 rename / delete / reorder 交互 | `Sidebar/SidebarView.swift`, `Sidebar/WorkspaceListView.swift`, `Bridge/SidebarListBridge.swift`, `TabContent/TabBarView.swift`, `TabContent/TabContentView.swift`, `Models/WorkspaceStore.swift` |
-| 跑测试 | `xcodebuild test -project TheAll.xcodeproj -scheme TheAllTests` |
+| 跑测试 | `./scripts/test-local.sh` |
 | 重新生成 Xcode 工程 | `xcodegen generate`（修改 `project.yml` 后执行）|
 | 检查文档漂移 | `./scripts/check-doc-drift.sh`（对比 Directory Structure 与真实 `TheAll/` 目录；同时校验 landing 版本号与 `project.yml` 一致） |
 | 新增文案 / 支持新语言 | `TheAll/Localization/Localizable.xcstrings`, `TheAll/Localization/L10n.swift`, `TheAllTests/L10nSmokeTests.swift`, `docs/i18n.md` |

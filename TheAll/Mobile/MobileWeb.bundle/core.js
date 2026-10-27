@@ -69,8 +69,29 @@ export function turns(messages) {
   return result;
 }
 
+// LAN HTTP is not a secure context. getRandomValues remains available there;
+// never replace request identity with a non-cryptographic random source.
+export function randomUUID(crypto = globalThis.crypto) {
+  if (typeof crypto?.randomUUID === 'function') return crypto.randomUUID();
+  if (typeof crypto?.getRandomValues !== 'function') throw new Error('Secure random values are unavailable');
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  bytes[6] = (bytes[6] & 0x0f) | 0x40; bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+export function isPrivateLANHTTP(location) {
+  if (location.protocol !== 'http:') return false;
+  const host = location.hostname;
+  if (typeof host !== 'string' || !/^(?:0|[1-9][0-9]{0,2})(?:\.(?:0|[1-9][0-9]{0,2})){3}$/.test(host)) return false;
+  const parts = host.split('.').map(Number);
+  if (parts.some(part => part > 255)) return false;
+  return parts[0] === 10 || (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) ||
+    (parts[0] === 192 && parts[1] === 168);
+}
+
 // The caller explicitly retries uncertain requests using the SAME object/requestId.
-export function operation(path, body, requestId = globalThis.crypto.randomUUID()) {
+export function operation(path, body, requestId = randomUUID()) {
   return Object.freeze({ path, body: Object.freeze({ ...body, requestId }) });
 }
 

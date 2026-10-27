@@ -6,14 +6,14 @@
 <p align="center"><strong>把 Claude Code 和 Codex，放进同一个 macOS 工作台。</strong><br />项目、AI 对话和模型集中管理。离开电脑，也能在手机上继续。</p>
 
 <p align="center">
-  <a href="https://github.com/AbadOrangeCat/TheALL/releases/tag/v0.1.4"><img alt="版本 v0.1.4" src="https://img.shields.io/badge/release-v0.1.4-176B68?style=flat-square" /></a>
+  <a href="https://github.com/AbadOrangeCat/TheALL/releases/tag/v0.1.5"><img alt="版本 v0.1.5" src="https://img.shields.io/badge/release-v0.1.5-176B68?style=flat-square" /></a>
   <img alt="macOS 14 及以上" src="https://img.shields.io/badge/macOS-14%2B-263C3B?style=flat-square" />
   <img alt="Apple Silicon arm64" src="https://img.shields.io/badge/Apple_Silicon-arm64-263C3B?style=flat-square" />
   <img alt="支持 iOS 和 Android 手机 Web App" src="https://img.shields.io/badge/mobile-iOS_%26_Android-263C3B?style=flat-square" />
 </p>
 
 <p align="center">
-  <a href="https://github.com/AbadOrangeCat/TheALL/releases/tag/v0.1.4"><strong>下载 Mac 版</strong></a> ·
+  <a href="https://github.com/AbadOrangeCat/TheALL/releases/tag/v0.1.5"><strong>下载 Mac 版</strong></a> ·
   <a href="https://abadorangecat.github.io/TheALL/">项目主页</a> ·
   <a href="docs/mobile-access.md">手机连接</a> ·
   <a href="README.md">English</a>
@@ -42,16 +42,24 @@ API 连接通过 macOS Keychain 保存。聊天记录保存在 Mac 上，对话�
 
 **运行要求：** macOS 14 及以上、Apple Silicon 芯片的 Mac、可用的 API 连接，以及对应提供商的 [Claude Code CLI](https://code.claude.com/docs/en/setup) 或 [Codex CLI](https://developers.openai.com/codex/cli)。CLI 需要单独安装。
 
-1. 下载 [v0.1.4 DMG](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.4/TheAll-0.1.4-macos-arm64.dmg) 或 [ZIP](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.4/TheAll-0.1.4-macos-arm64.zip)，将 **TheAll.app** 移到「应用程序」。
+1. 下载 [v0.1.5 DMG](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.5/TheAll-0.1.5-macos-arm64.dmg) 或 [ZIP](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.5/TheAll-0.1.5-macos-arm64.zip)，将 **TheAll.app** 移到「应用程序」。
 2. 打开 TheAll，创建工作区，选择工作文件夹和 **Claude / OpenAI**。
 3. 输入 API Key，需要时填写自定义 Base URL；之后的对话可复用已保存的连接。
 4. 选择模型，发送第一个问题。工作目录与模型下拉框始终位于输入框旁。
 
-**本版安装说明：** v0.1.4 使用本地开发证书签名，**尚未经过 Apple 公证**。macOS 可能阻止首次打开；核对下载并确认信任后，可按 [Apple 官方说明](https://support.apple.com/en-us/102445)，使用系统提供的「系统设置 → 隐私与安全性 → 仍要打开」。请保留系统安全保护。本版提供 [SHA-256 校验文件](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.4/SHA256SUMS.txt)，仅包含 arm64 构建，暂未配置自动更新。
+**本版安装说明：** v0.1.5 使用本地开发证书签名，**尚未经过 Apple 公证**。macOS 可能阻止首次打开；核对下载并确认信任后，可按 [Apple 官方说明](https://support.apple.com/en-us/102445)，使用系统提供的「系统设置 → 隐私与安全性 → 仍要打开」。请保留系统安全保护。本版提供 [SHA-256 校验文件](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.5/SHA256SUMS.txt)，仅包含 arm64 构建，暂未配置自动更新。
 
 **执行方式：** 编程 Agent 的工具操作会自动执行，包括修改和删除文件、安装依赖及 Git 推送。请选用你准备让 Agent 操作的项目与 API 连接；需要用户回答的问题仍会暂停等待输入。
 
-## v0.1.4：让对话支持照片
+## v0.1.5：扫码就能连接手机
+
+手机与 Mac 连接同一 Wi-Fi，点击 Mac 侧边栏底部的 **连接手机**，再用手机相机扫码。打开链接后自动配对，无需安装证书、填写地址或设备名，也不需要再次点击连接。主界面按钮直接弹出二维码，设置里的入口仍然保留。
+
+快捷连接使用**未加密的局域网 HTTP**，适合可信的私人网络。HTTPS 加密模式、外网中继和共享权限保留在高级连接设置中；完整 PWA 安装使用 HTTPS，快捷模式作为在线网页使用。
+
+本地开发测试改用独立输出目录和应用身份，避免测试构建覆盖日常打开的开发版、显示空的测试工作区。
+
+## 让对话支持照片
 
 点击照片按钮、将图片拖入桌面聊天区，或用 **⌘V** 粘贴截图，即可发送图文或仅图片消息。桌面原图每张最多 20 MiB，导入时会校正方向、缩小尺寸并去除原始元数据，不修改原文件；手机上传前会压缩。发送失败时保留草稿附件。
 
@@ -59,11 +67,11 @@ API 连接通过 macOS Keychain 保存。聊天记录保存在 Mac 上，对话�
 
 ## 手机连上你的 Mac
 
-TheAll Mobile 是可添加到主屏幕的 Web App，适用于 **iPhone、iPad 和 Android**。Agent 继续在 Mac 上运行，手机控制同一份对话。
+TheAll Mobile 可在 **iPhone、iPad 和 Android** 的浏览器中使用；HTTPS 连接还支持安装到主屏幕。Agent 继续在 Mac 上运行，手机控制同一份对话。
 
 | 连接方式 | 如何设置 |
 | --- | --- |
-| **同一 Wi-Fi / 局域网** | Mac 提供 HTTPS 服务。在手机安装 Mac 导出的公开 CA 证书，再扫描配对二维码；无需服务器或域名。 |
+| **同一 Wi-Fi / 局域网** | 点击 Mac 侧边栏的 **连接手机**，扫码并打开链接即可；快捷连接无需证书、服务器或域名。请使用可信 Wi-Fi，也可在高级设置选择 HTTPS。 |
 | **外出使用** | 在自己的服务器和域名部署仓库提供的中继。Mac 主动通过 WSS 连接，手机使用 HTTPS；无需额外 VPN App 或路由器端口转发。 |
 
 配对时可选择全部或指定工作区，以及**仅查看**或**查看与操作**权限；可随时在 Mac 撤销设备。API Key 不会发送给手机。Mac 必须保持运行且未休眠；自建中继能够读取转发的流量，应部署在自己信任的服务器上。项目不提供已托管的公网中继。

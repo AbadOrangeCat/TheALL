@@ -8827,31 +8827,31 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "If the Mac address changes, select the new address and pair again. Your certificate stays the same. Guest Wi-Fi may block connections between devices."
+            "value": "If the Mac address changes, scan a new code. Quick connect chooses an available address automatically; encrypted mode keeps your selected address. Guest Wi-Fi may block connections."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac 地址变化后，请选择新地址并重新配对，已安装的证书保持不变。访客 Wi-Fi 可能阻止设备互相连接。"
+            "value": "Mac 地址变化后，请重新扫码。快捷连接会自动选择可用地址，加密模式保留所选地址。访客 Wi-Fi 可能阻止设备互相连接。"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Si l’adresse du Mac change, sélectionnez la nouvelle adresse et associez à nouveau le téléphone. Le certificat reste identique. Les réseaux Wi-Fi invités peuvent bloquer les connexions entre appareils."
+            "value": "Si l’adresse du Mac change, scannez un nouveau code. Le mode rapide choisit automatiquement une adresse disponible ; le mode chiffré conserve votre choix. Le Wi-Fi invité peut bloquer les connexions."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac のアドレスが変わった場合は、新しいアドレスを選択して再度ペアリングしてください。証明書はそのまま使用できます。ゲスト Wi-Fi では、デバイス間の接続がブロックされる場合があります。"
+            "value": "Mac のアドレスが変わったら、新しいコードを読み取ってください。クイック接続は利用可能なアドレスを自動選択し、暗号化モードは選択済みのアドレスを保持します。ゲスト Wi-Fi では接続できない場合があります。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac 주소가 변경되면 새 주소를 선택하고 다시 페어링하세요. 인증서는 그대로 유지됩니다. 게스트 Wi-Fi에서는 기기 간 연결이 차단될 수 있습니다."
+            "value": "Mac 주소가 변경되면 새 코드를 스캔하세요. 빠른 연결은 사용 가능한 주소를 자동 선택하며, 암호화 모드는 선택한 주소를 유지합니다. 게스트 Wi-Fi에서는 연결이 차단될 수 있습니다."
           }
         }
       }
@@ -9737,31 +9737,31 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Scan this code with your phone, then connect. The permissions shown here apply to this device."
+            "value": "Scan with your phone camera and open the link. Pairing is automatic; this device receives the permissions shown below."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "用手机扫描此二维码并连接。此设备将使用这里显示的权限。"
+            "value": "用手机相机扫码并打开链接，即可自动配对。此设备将获得下方显示的权限。"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Scannez ce code avec votre téléphone, puis connectez-vous. Les autorisations affichées ici s’appliquent à cet appareil."
+            "value": "Scannez avec l’appareil photo du téléphone et ouvrez le lien. L’association est automatique ; cet appareil reçoit les autorisations ci-dessous."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "スマートフォンでこのコードを読み取って接続してください。ここに表示されている権限が、このデバイスに適用されます。"
+            "value": "スマートフォンのカメラで読み取り、リンクを開いてください。自動的にペアリングされ、以下の権限が付与されます。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "휴대폰으로 이 코드를 스캔한 후 연결하세요. 여기에 표시된 권한이 이 기기에 적용됩니다."
+            "value": "휴대폰 카메라로 스캔하고 링크를 여세요. 자동으로 페어링되며 아래에 표시된 권한이 부여됩니다."
           }
         }
       }
@@ -11089,6 +11089,391 @@
           "stringUnit": {
             "state": "translated",
             "value": "놓아서 사진 추가"
+          }
+        }
+      }
+    },
+    "mobile.advanced": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Advanced connection settings"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "高级连接设置"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Réglages de connexion avancés"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続の詳細設定"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "고급 연결 설정"
+          }
+        }
+      }
+    },
+    "mobile.lan.mode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local connection mode"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "局域网连接方式"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mode de connexion locale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ローカル接続方式"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬 연결 방식"
+          }
+        }
+      }
+    },
+    "mobile.lan.mode.encrypted": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Encrypted HTTPS · certificate required"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "加密 HTTPS · 需要证书"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTTPS chiffré · certificat requis"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暗号化 HTTPS · 証明書が必要"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTTPS 암호화 · 인증서 필요"
+          }
+        }
+      }
+    },
+    "mobile.lan.mode.quick": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quick connect · no certificate"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "快捷连接 · 无需证书"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connexion rapide · sans certificat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クイック接続 · 証明書不要"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "빠른 연결 · 인증서 불필요"
+          }
+        }
+      }
+    },
+    "mobile.lan.newCode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New QR code"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新生成二维码"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nouveau code QR"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "QR コードを再生成"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 QR 코드"
+          }
+        }
+      }
+    },
+    "mobile.lan.quickHelp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use the same Wi-Fi as this Mac. Scan the code with your phone camera and open the link to connect automatically."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手机与 Mac 连接同一 Wi-Fi，用手机相机扫码并打开链接，即可自动连接。"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisez le même Wi-Fi que ce Mac. Scannez le code avec l’appareil photo du téléphone et ouvrez le lien pour vous connecter automatiquement."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac と同じ Wi-Fi に接続し、スマートフォンのカメラでコードを読み取ってリンクを開くと、自動的に接続します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac과 같은 Wi-Fi에 연결한 뒤 휴대폰 카메라로 코드를 스캔하고 링크를 열면 자동으로 연결됩니다."
+          }
+        }
+      }
+    },
+    "mobile.lan.quickOnline": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local quick connect is ready"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "局域网快捷连接已就绪"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La connexion locale rapide est prête"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ローカルのクイック接続が利用できます"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬 빠른 연결 준비됨"
+          }
+        }
+      }
+    },
+    "mobile.lan.quickPair": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect phone by QR code"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手机扫码连接"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connecter le téléphone par QR code"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "QR コードでスマートフォンを接続"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "QR 코드로 휴대폰 연결"
+          }
+        }
+      }
+    },
+    "mobile.lan.quickPrivacy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quick connect uses unencrypted local HTTP. Use a trusted Wi-Fi network; encrypted HTTPS is available in advanced settings."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "快捷连接使用未加密的局域网 HTTP，请在可信的 Wi-Fi 下使用；高级设置中可选择 HTTPS 加密连接。"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La connexion rapide utilise HTTP local sans chiffrement. Utilisez un Wi-Fi de confiance ; HTTPS chiffré est disponible dans les réglages avancés."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クイック接続は暗号化されていないローカル HTTP を使用します。信頼できる Wi-Fi で利用してください。詳細設定で HTTPS 接続を選べます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "빠른 연결은 암호화되지 않은 로컬 HTTP를 사용합니다. 신뢰할 수 있는 Wi-Fi에서 사용하세요. 고급 설정에서 HTTPS 암호화 연결을 선택할 수 있습니다."
+          }
+        }
+      }
+    },
+    "mobile.shortcut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect phone"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连接手机"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connecter un téléphone"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スマートフォンを接続"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "휴대폰 연결"
+          }
+        }
+      }
+    },
+    "mobile.close": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fermer"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "閉じる"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "닫기"
           }
         }
       }
