@@ -2,9 +2,17 @@ param([Parameter(Mandatory=$true)][string]$Plan, [switch]$Prepare)
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $p = Get-Content -LiteralPath $Plan -Raw -Encoding UTF8 | ConvertFrom-Json
+function Get-SHA256([string]$File) {
+  # Windows PowerShell launched from a newer shell can inherit a module path
+  # without Get-FileHash. Use the built-in .NET primitive on both runtimes.
+  $stream = [IO.File]::OpenRead($File)
+  $algorithm = [Security.Cryptography.SHA256]::Create()
+  try { return [BitConverter]::ToString($algorithm.ComputeHash($stream)).Replace('-', '').ToLowerInvariant() }
+  finally { $algorithm.Dispose(); $stream.Dispose() }
+}
 function Assert-Package {
   $f = Get-Item -LiteralPath $p.file
-  if (($f.Attributes -band [IO.FileAttributes]::ReparsePoint) -or $f.Length -ne $p.size -or (Get-FileHash -LiteralPath $p.file -Algorithm SHA256).Hash.ToLowerInvariant() -ne $p.sha256) { throw 'Update package verification failed' }
+  if (($f.Attributes -band [IO.FileAttributes]::ReparsePoint) -or $f.Length -ne $p.size -or (Get-SHA256 $p.file) -ne $p.sha256) { throw 'Update package verification failed' }
 }
 function Assert-PlainTree([string]$Root) {
   $items = @(Get-Item -LiteralPath $Root) + @(Get-ChildItem -LiteralPath $Root -Recurse -Force)
@@ -20,7 +28,7 @@ function Assert-ApplicationFolder([string]$Root) {
   }
 }
 function Assert-Staged {
-  if ((Get-FileHash -LiteralPath $p.manifest -Algorithm SHA256).Hash.ToLowerInvariant() -ne $p.manifestHash) { throw 'Prepared update manifest changed' }
+  if ((Get-SHA256 $p.manifest) -ne $p.manifestHash) { throw 'Prepared update manifest changed' }
   Assert-ApplicationFolder $p.stage
   $files = @(Get-ChildItem -LiteralPath $p.stage -File -Recurse -Force)
   $manifest = @(Get-Content -LiteralPath $p.manifest -Raw -Encoding UTF8 | ConvertFrom-Json)
@@ -28,7 +36,7 @@ function Assert-Staged {
   foreach ($record in $manifest) {
     $file = Join-Path $p.stage $record.name
     $item = Get-Item -LiteralPath $file
-    if ($item.Length -ne $record.size -or (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant() -ne $record.sha256) { throw 'Prepared update files changed' }
+    if ($item.Length -ne $record.size -or (Get-SHA256 $file) -ne $record.sha256) { throw 'Prepared update files changed' }
   }
 }
 Assert-Package
@@ -57,7 +65,7 @@ if ($Prepare) {
     } finally { $archive.Dispose() }
     Assert-ApplicationFolder $p.stage
     $manifest = @(Get-ChildItem -LiteralPath $p.stage -File -Recurse -Force | ForEach-Object {
-      @{ name=$_.FullName.Substring($p.stage.Length+1); size=$_.Length; sha256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant() }
+      @{ name=$_.FullName.Substring($p.stage.Length+1); size=$_.Length; sha256=(Get-SHA256 $_.FullName) }
     })
     ConvertTo-Json -InputObject $manifest -Depth 3 -Compress | Set-Content -LiteralPath $p.manifest -Encoding UTF8
   }
@@ -84,7 +92,7 @@ try {
     if ($p.kind -eq 'zip') { Assert-Staged; Assert-ApplicationFolder $p.target }
     else {
       Copy-Item -LiteralPath $p.file -Destination $p.stage
-      if ((Get-FileHash -LiteralPath $p.stage -Algorithm SHA256).Hash.ToLowerInvariant() -ne $p.sha256) { throw 'Prepared executable changed' }
+      if ((Get-SHA256 $p.stage) -ne $p.sha256) { throw 'Prepared executable changed' }
     }
     # Rename on the same volume, keeping the original until replacement works.
     # Portable launchers can briefly hold their outer executable after Electron exits.
