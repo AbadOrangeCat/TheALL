@@ -755,7 +755,7 @@ final class AIChatTests: XCTestCase {
         }
         // The first completed Progress disclosure sits directly below the question.
         let collapsedHeight = document.bounds.height
-        let progressPoint = NSPoint(x: viewport.minX + 24, y: viewport.maxY - 112)
+        let progressPoint = NSPoint(x: viewport.minX + 32, y: viewport.maxY - 125)
         try click(progressPoint)
         XCTAssertGreaterThan(document.bounds.height, collapsedHeight + 20)
         let expandedHeight = document.bounds.height
@@ -785,5 +785,16 @@ final class AIChatTests: XCTestCase {
         window.setContentSize(NSSize(width: 420, height: 640))
         RunLoop.current.run(until: Date().addingTimeInterval(0.2))
         capture("TheAll narrow composer")
+        for (width, dark) in [(320.0, true), (420.0, false), (1152.0, true)] {
+            session.theme = .systemFallback(isDark: dark)
+            window.setContentSize(NSSize(width: width, height: 640))
+            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+            hosting.layoutSubtreeIfNeeded()
+            let input = try XCTUnwrap(editors(hosting).first(where: \.isEditable))
+            let rect = input.convert(input.bounds, to: hosting)
+            XCTAssertGreaterThanOrEqual(rect.minX, 0)
+            XCTAssertLessThanOrEqual(rect.maxX, hosting.bounds.maxX)
+            capture("TheAll aligned composer \(Int(width)) \(dark ? "dark" : "light")")
+        }
     }
 }

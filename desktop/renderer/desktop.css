@@ -11,3 +11,67 @@ body { background:color-mix(in srgb,var(--sidebar) calc(var(--background-opacity
 .theme-field { margin-bottom:20px; } .theme-field input { width:100%; } .theme-preview { display:flex; gap:4px; padding:8px 0; } .theme-preview span { height:18px; width:18px; border-radius:3px; }
 .reset-row { display:flex; justify-content:flex-end; padding-top:20px; } .reset-row button { color:var(--muted); border:1px solid var(--border); border-radius:6px; padding:7px 12px; }
 body { backdrop-filter:blur(calc(var(--background-blur,0)*1px)); } .setting-range output { width:70px; font-size:10px; }
+
+/* Shared geometry: retain every theme color, align controls to a 4px grid. */
+:root { --control-height:32px; --control-radius:8px; --panel-radius:12px; }
+button,input,select,textarea { line-height:1.4; }
+button,input,select,textarea,summary { transition:border-color .15s ease,box-shadow .15s ease; }
+input,select,textarea { border-radius:var(--control-radius); }
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,summary:focus-visible { outline-width:2px; }
+.icon-button { width:32px; height:32px; min-width:32px; border-radius:var(--control-radius); }
+.app-shell { padding:8px 8px 8px 0; }
+.sidebar-tools { height:40px; min-height:40px; align-items:center; padding:0 12px; margin-bottom:12px; }
+#desktop-workspaces { padding:0 8px; scrollbar-width:thin; scrollbar-color:var(--border) transparent; }
+.workspace-row { min-height:48px; padding:8px 12px; margin-bottom:4px; gap:8px; border-radius:8px; }
+.workspace-title { font-size:12px; font-weight:600; line-height:18px; }
+.workspace-detail { line-height:16px; margin-top:2px; font-variant-numeric:tabular-nums; }
+.workspace-more { height:28px; min-width:20px; border-radius:6px; }
+.phone-shortcut { min-height:48px; margin:12px 8px 4px; padding:12px; gap:12px; border:1px solid var(--border); border-radius:10px; }
+.brand-footer { height:44px; flex-shrink:0; padding:0 12px 0 20px; }
+#version-button { min-height:32px; text-align:left; }
+.content-card { border-radius:16px; }
+.desktop-tabbar { height:40px; min-height:40px; margin:8px 8px 0; padding:0; gap:8px; align-items:center; }
+.desktop-tabbar nav { height:40px; gap:4px; padding:4px; border:1px solid var(--border); border-radius:10px; }
+.tab-pill { height:30px; min-height:30px; border:1px solid transparent; border-radius:6px; padding:0 10px; gap:8px; }
+.tab-pill.selected { border-color:var(--border); font-weight:600; }
+.tab-pill .tab-close { width:18px; height:20px; flex-shrink:0; border-radius:4px; }
+.pane { border-radius:10px; }
+.pane-tools { height:32px; min-height:32px; padding:0 8px; gap:8px; border-bottom:1px solid var(--border); }
+.pane-tools .pane-label { letter-spacing:.2px; line-height:16px; }
+.pane-tools button { width:26px; height:26px; border-radius:6px; }
+#empty-workspace { padding:32px; gap:16px; text-align:center; }
+#empty-workspace img { border-radius:16px; }
+#empty-new,.primary,.dialog-buttons button { min-height:32px; border-radius:8px; }
+#settings-content { padding:32px; scrollbar-width:thin; }
+.settings-section h2 { line-height:1.4; letter-spacing:-.2px; margin-bottom:24px; }
+.setting-row { padding:16px 0; gap:24px; min-width:0; }
+.setting-row>div { min-width:0; }
+.setting-row>div:first-child { line-height:1.5; }
+.setting-row input:not([type=checkbox]),.setting-row select { min-height:32px; }
+.setting-group { padding:20px; border-radius:12px; margin:16px 0; }
+.field { gap:8px; margin:16px 0; }
+.field-row { gap:16px; }
+.field label { line-height:16px; }
+.row-actions { gap:8px; margin-top:16px; flex-wrap:wrap; }
+.row-actions button { min-height:32px; }
+.setting-range { min-width:0; flex-shrink:1; }
+.setting-range input { min-width:80px; }
+.setting-range output { flex-shrink:0; }
+dialog { border-radius:16px; }
+.dialog-heading { gap:16px; align-items:center; }
+.dialog-heading h2 { margin-bottom:0; }
+.dialog-buttons { gap:8px; flex-wrap:wrap; }
+#context-menu { padding:6px; border-radius:10px; }
+#context-menu button { min-height:32px; border-radius:6px; }
+.collapsed-sidebar .desktop-sidebar { width:48px; min-width:48px; }
+@media(max-width:850px) {
+  #settings-content { padding:24px; }
+  .setting-row { flex-wrap:wrap; gap:12px; }
+  .setting-row>div:first-child { flex-basis:100%; }
+  .setting-row input:not([type=checkbox]),.setting-row select { max-width:100%; }
+  .field-row { flex-wrap:wrap; }
+  .field-row>.field { flex-basis:200px; }
+}
+@media(prefers-reduced-motion:reduce) {
+  *,*::before,*::after { animation:none!important; transition:none!important; scroll-behavior:auto!important; }
+}

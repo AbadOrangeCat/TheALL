@@ -41,6 +41,14 @@ enum DT {
         static let mono:   NSFont = .monospacedSystemFont(ofSize: 10, weight: .regular)
     }
 
+    // MARK: - Chat layout (shared visual rhythm across desktop and mobile)
+    enum Chat {
+        static let contentWidth: CGFloat = 880
+        static let controlHeight: CGFloat = 32
+        static let editorHeight: CGFloat = 96
+        static let messageRadius: CGFloat = 12
+    }
+
     // MARK: - Motion (默认零；这里只声明允许的极少数过渡)
     enum Motion {
         /// 焦点 / 选中态颜色过渡。线性，80ms。

@@ -153,12 +153,12 @@ private struct AIConnectionForm: View {
         let _ = session.locale
         GeometryReader { geometry in
             ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
+                VStack(alignment: .leading, spacing: DT.Space.xl) {
                     Label {
                         Text(Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? "TheAll")
                     } icon: {
                         Image("TheAllLogo").resizable().renderingMode(.original)
-                            .scaledToFit().frame(width: 16, height: 16)
+                            .scaledToFit().frame(width: 24, height: 24)
                     }
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(Color(nsColor: theme.accent))
@@ -169,7 +169,7 @@ private struct AIConnectionForm: View {
                     if let provider = session.provider {
                         connectionFields(provider)
                     } else {
-                        Text(text("choose.title")).font(.system(size: 26, weight: .semibold))
+                        Text(text("choose.title")).font(.system(size: 24, weight: .semibold))
                         Text(text("choose.detail"))
                             .foregroundStyle(Color(nsColor: theme.textSecondary))
                             .fixedSize(horizontal: false, vertical: true)
@@ -187,7 +187,7 @@ private struct AIConnectionForm: View {
                                             }
                                             Spacer(minLength: 8)
                                             Image(systemName: "arrow.right")
-                                        }.padding(18).contentShape(Rectangle())
+                                        }.padding(DT.Space.lg).contentShape(Rectangle())
                                     }.buttonStyle(.plain)
                                     Button { session.choose(provider, edit: true) } label: {
                                         Image(systemName: "slider.horizontal.3").padding(16)
@@ -217,7 +217,7 @@ private struct AIConnectionForm: View {
                     }
                 }
                 .frame(maxWidth: 460)
-                .padding(28)
+                .padding(DT.Space.xl)
                 .frame(maxWidth: .infinity, minHeight: geometry.size.height)
             }
         }
@@ -230,11 +230,11 @@ private struct AIConnectionForm: View {
     @ViewBuilder private func connectionFields(_ provider: AIProvider) -> some View {
         Button { session.back() } label: { Label(text("back"), systemImage: "chevron.left") }
             .buttonStyle(.plain).foregroundStyle(Color(nsColor: theme.textSecondary))
-        Text(provider.tool).font(.system(size: 26, weight: .semibold))
+        Text(provider.tool).font(.system(size: 24, weight: .semibold))
         Text(text(session.hasSavedConnection ? "saved" : "configure"))
             .foregroundStyle(Color(nsColor: theme.textSecondary))
             .fixedSize(horizontal: false, vertical: true)
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: DT.Space.lg) {
             VStack(alignment: .leading, spacing: 6) {
                 Text("API Key").font(.callout.weight(.medium))
                 SecureField("API Key", text: $session.draft.apiKey).textFieldStyle(.roundedBorder)

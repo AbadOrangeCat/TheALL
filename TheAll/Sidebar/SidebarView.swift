@@ -132,7 +132,8 @@ struct SidebarView: View {
             .padding(.horizontal, DT.Space.md)
             .padding(.vertical, DT.Space.md)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color(theme.accentMuted), in: RoundedRectangle(cornerRadius: DT.Radius.window))
+            .background(Color(theme.accentMuted), in: RoundedRectangle(cornerRadius: DT.Radius.card, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: DT.Radius.card, style: .continuous).strokeBorder(Color(theme.border), lineWidth: DT.Stroke.hairline))
             .contentShape(RoundedRectangle(cornerRadius: DT.Radius.window))
         }
         .buttonStyle(.plain)
@@ -188,7 +189,7 @@ struct SidebarView: View {
                     .font(Font(DT.Font.smallB))
                     .foregroundColor(Color(theme.textPrimary))
                 Text("v\(updateStore.currentVersion)")
-                    .font(Font(DT.Font.small))
+                    .font(Font(DT.Font.mono))
                     .foregroundColor(Color(theme.textSecondary))
             }
             .contentShape(Rectangle())

@@ -6,3 +6,50 @@ body.hide-mouse,body.hide-mouse * { cursor:none!important; }
 .native-caret { position:fixed; pointer-events:none; z-index:25; background:var(--text); mix-blend-mode:difference; }
 .native-caret.blink { animation:caret-blink 1s steps(1,end) infinite; }
 @keyframes caret-blink { 50% { opacity:0; } }
+
+/* Desktop chat uses the same geometry as the native composer. */
+.transcript { padding:24px 16px; }
+.messages { max-width:880px; margin:0 auto; }
+.turn { padding-bottom:24px; margin-bottom:24px; border-bottom-width:1px; }
+.message { margin-bottom:24px; }
+.message.user { border:1px solid var(--border); border-left:3px solid var(--accent); border-radius:12px; padding:16px; }
+.message .author { font-size:11px; line-height:16px; letter-spacing:.3px; margin-bottom:8px; }
+.message-body { line-height:1.75; }
+.progress { border:1px solid var(--border); border-radius:8px; padding:0 12px; margin:16px 0 24px; }
+.progress>summary { min-height:36px; padding:8px 0; margin:0; line-height:20px; }
+.progress .message { margin:8px 0 16px; }
+.message-timing { font-size:11px; line-height:18px; }
+.composer { border-top:1px solid var(--border); padding:16px max(16px,calc((100% - 880px)/2)); }
+.composer textarea { min-height:96px; border-radius:12px; padding:12px; line-height:1.6; }
+.composer-actions { gap:8px; padding-top:12px; }
+.composer .directory { line-height:32px; min-height:32px; max-width:220px; }
+.composer .send-actions { gap:8px; min-width:0; flex-shrink:1; }
+.composer #model,.composer #effort { height:32px; min-height:32px; font-size:12px; border:1px solid var(--border); border-radius:8px; padding:5px 22px 5px 10px; }
+.composer #model { max-width:200px; }
+.composer #effort { max-width:112px; }
+.composer #send,.composer #stop { height:32px; min-height:32px; font-size:12px; padding:5px 14px; border-radius:8px; flex-shrink:0; }
+.composer .photo-add { width:32px; min-width:32px; height:32px; min-height:32px; padding:0; display:grid; place-items:center; border-radius:8px; }
+#model-notice,.composer-hint { line-height:16px; margin-top:8px; }
+.jump-bottom { width:36px; height:36px; min-width:36px; right:16px; border-radius:10px; }
+.native-setup { padding:24px; }
+.setup-inner { max-width:420px; }
+.setup-inner h2 { font-size:22px; line-height:1.4; letter-spacing:-.4px; margin-bottom:12px; }
+.provider-options { gap:12px; margin:24px 0; }
+.provider-options button { min-height:64px; padding:16px; border-radius:12px; }
+.setup-directory { min-height:36px; gap:12px; }
+.setup-directory button { min-height:32px; border:1px solid var(--border); padding:6px 12px; border-radius:8px; flex-shrink:0; }
+.setup-directory span { line-height:18px; }
+.native-setup .field input { min-height:36px; }
+@media(max-width:600px) {
+  .transcript { padding:20px 16px; }
+  .composer { padding:12px 16px; }
+  .composer .directory { max-width:none; }
+  .composer .send-actions { grid-column:1/-1; }
+  .composer #model { max-width:none; width:0; flex:1 1 0; }
+  .composer #effort { max-width:112px; width:112px; flex:0 1 112px; }
+}
+@media(max-width:360px) {
+  .transcript,.composer { padding-left:12px; padding-right:12px; }
+  .composer #effort { max-width:96px; width:96px; flex-basis:96px; }
+  .native-setup { padding:16px; }
+}

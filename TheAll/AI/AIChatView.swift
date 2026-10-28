@@ -18,7 +18,8 @@ struct AIModelPicker: View {
             }
             .pickerStyle(.menu)
             .labelsHidden()
-            .frame(maxWidth: 300, alignment: showsRefresh ? .leading : .trailing)
+            .controlSize(.large)
+            .frame(minWidth: 96, maxWidth: 300, alignment: showsRefresh ? .leading : .trailing)
             if showsRefresh {
                 if session.isLoadingModels { ProgressView().controlSize(.small) }
                 Button { session.refreshModels() } label: { Image(systemName: "arrow.clockwise") }
@@ -89,12 +90,18 @@ struct AIChatView: View {
         let _ = session.locale
         VStack(spacing: 0) {
             HStack {
-                Label(session.provider?.tool ?? "AI", systemImage: "sparkles").font(.callout.weight(.semibold))
+                Label(session.provider?.tool ?? "AI", systemImage: "sparkles")
+                    .font(Font(DT.Font.title))
                 Spacer(minLength: 8)
-                Button(L10n.string("ai.settings"), action: onEdit).buttonStyle(.borderless).font(.caption)
+                Button(action: onEdit) {
+                    Label(L10n.string("ai.settings"), systemImage: "slider.horizontal.3")
+                        .font(Font(DT.Font.smallB)).frame(minHeight: DT.Chat.controlHeight)
+                }.buttonStyle(.borderless)
             }
-            .padding(12)
+            .padding(.horizontal, DT.Space.lg)
+            .padding(.vertical, DT.Space.xs)
             .background(Color(nsColor: theme.sidebar))
+            .overlay(alignment: .bottom) { Rectangle().fill(Color(nsColor: theme.border)).frame(height: DT.Stroke.hairline) }
             transcript
             if let error = chat.errorMessage {
                 Text(error).font(.caption).foregroundStyle(Color(nsColor: theme.danger))
@@ -136,50 +143,22 @@ struct AIChatView: View {
                     theme: theme, onFocus: onFocus, onSend: send, onPasteImages: pastePhotos,
                     acceptsPhotoDrops: !importingPhotos,
                     onPhotoDragTargeted: { editorPhotoDropTargeted = $0 })
-                    .frame(height: 88)
-                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color(nsColor: theme.border)))
-                HStack(spacing: 8) {
-                    Button { showsPhotoPicker = true } label: { Image(systemName: "photo.badge.plus") }
-                        .buttonStyle(.borderless)
-                        .disabled(importingPhotos || chat.draftImages.count >= AIChatImageStore.maximumCount)
-                        .help(L10n.string("ai.images.add"))
-                        .accessibilityLabel(L10n.string("ai.images.add"))
-                        .accessibilityIdentifier("chat-add-photos")
-                    Button(action: onChooseDirectory) {
-                        Label(chat.directory, systemImage: "folder")
-                            .font(.caption).lineLimit(1).truncationMode(.middle)
-                            .frame(maxWidth: 220, alignment: .leading).contentShape(Rectangle())
+                    .frame(height: DT.Chat.editorHeight)
+                    .clipShape(RoundedRectangle(cornerRadius: DT.Radius.card, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: DT.Radius.card, style: .continuous)
+                        .strokeBorder(Color(nsColor: theme.border), lineWidth: DT.Stroke.hairline))
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: DT.Space.sm) {
+                        directoryControls
+                        Spacer(minLength: DT.Space.md)
+                        modelControls
                     }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(Color(nsColor: theme.textSecondary))
-                    .disabled(!chat.canChangeDirectory)
-                    .help(chat.directory + "\n" + L10n.string(chat.canChangeDirectory ? "ai.directory.choose" : "ai.directory.busy"))
-                    .accessibilityLabel(L10n.string("ai.directory.choose") + ": " + chat.directory)
-                    Spacer(minLength: 0)
-                    AIModelPicker(session: session, selection: Binding(get: { chat.model }, set: { session.selectModel($0) }), showsRefresh: false)
-                    Group {
-                        Picker(L10n.string("ai.effort.title"), selection: $chat.reasoningEffort) {
-                            Text(L10n.string("ai.effort.default")).tag("")
-                            if !chat.reasoningEffort.isEmpty, !chat.supportedReasoningEfforts.contains(chat.reasoningEffort) {
-                                Text(chat.reasoningEffort).tag(chat.reasoningEffort).disabled(true)
-                            }
-                            ForEach(chat.supportedReasoningEfforts, id: \.self) { effort in
-                                Text(effort).tag(effort)
-                            }
+                    VStack(alignment: .leading, spacing: DT.Space.sm) {
+                        directoryControls
+                        HStack(spacing: DT.Space.sm) {
+                            Spacer(minLength: 0)
+                            modelControls
                         }
-                        .pickerStyle(.menu).labelsHidden().fixedSize()
-                        .disabled(chat.supportedReasoningEfforts.isEmpty)
-                        .help(L10n.string(chat.supportedReasoningEfforts.isEmpty ? "ai.effort.unavailable" : "ai.effort.title"))
-                        .accessibilityLabel(L10n.string("ai.effort.title"))
-                        .accessibilityIdentifier("chat-reasoning-effort")
-                    }
-                    if chat.isBusy {
-                        Button(L10n.string("ai.chat.stop")) { chat.interrupt() }
-                            .disabled(!chat.canInterrupt)
-                    } else {
-                        Button(L10n.string("ai.chat.send"), action: send)
-                            .buttonStyle(.borderedProminent)
-                            .disabled(!chat.canSend || importingPhotos)
                     }
                 }
                 HStack(alignment: .top) {
@@ -195,8 +174,11 @@ struct AIChatView: View {
                     Text(error).font(.caption).foregroundStyle(Color(nsColor: theme.danger))
                 }
             }
-            .padding(12)
+            .frame(maxWidth: DT.Chat.contentWidth)
+            .padding(DT.Space.lg)
+            .frame(maxWidth: .infinity)
             .background(Color(nsColor: theme.sidebar))
+            .overlay(alignment: .top) { Rectangle().fill(Color(nsColor: theme.border)).frame(height: DT.Stroke.hairline) }
         }
         .foregroundStyle(Color(nsColor: theme.textPrimary))
         .background(Color(nsColor: theme.canvas))
@@ -227,11 +209,67 @@ struct AIChatView: View {
         }
     }
 
+    private var directoryControls: some View {
+        HStack(spacing: DT.Space.sm) {
+            Button { showsPhotoPicker = true } label: {
+                Image(systemName: "photo.badge.plus")
+                    .frame(width: DT.Chat.controlHeight, height: DT.Chat.controlHeight)
+            }
+            .buttonStyle(.borderless)
+            .disabled(importingPhotos || chat.draftImages.count >= AIChatImageStore.maximumCount)
+            .help(L10n.string("ai.images.add"))
+            .accessibilityLabel(L10n.string("ai.images.add"))
+            .accessibilityIdentifier("chat-add-photos")
+            Button(action: onChooseDirectory) {
+                Label(chat.directory, systemImage: "folder")
+                    .font(Font(DT.Font.smallB)).lineLimit(1).truncationMode(.middle)
+                    .frame(minWidth: 72, maxWidth: 220, minHeight: DT.Chat.controlHeight, alignment: .leading)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(Color(nsColor: theme.textSecondary))
+            .disabled(!chat.canChangeDirectory)
+            .help(chat.directory + "\n" + L10n.string(chat.canChangeDirectory ? "ai.directory.choose" : "ai.directory.busy"))
+            .accessibilityLabel(L10n.string("ai.directory.choose") + ": " + chat.directory)
+        }
+    }
+
+    private var modelControls: some View {
+        HStack(spacing: DT.Space.sm) {
+            AIModelPicker(session: session, selection: Binding(get: { chat.model }, set: { session.selectModel($0) }), showsRefresh: false)
+            Picker(L10n.string("ai.effort.title"), selection: $chat.reasoningEffort) {
+                Text(L10n.string("ai.effort.default")).tag("")
+                if !chat.reasoningEffort.isEmpty, !chat.supportedReasoningEfforts.contains(chat.reasoningEffort) {
+                    Text(chat.reasoningEffort).tag(chat.reasoningEffort).disabled(true)
+                }
+                ForEach(chat.supportedReasoningEfforts, id: \.self) { effort in Text(effort).tag(effort) }
+            }
+            .pickerStyle(.menu).labelsHidden().controlSize(.large)
+            .frame(minWidth: 64, maxWidth: 130)
+            .disabled(chat.supportedReasoningEfforts.isEmpty)
+            .help(L10n.string(chat.supportedReasoningEfforts.isEmpty ? "ai.effort.unavailable" : "ai.effort.title"))
+            .accessibilityLabel(L10n.string("ai.effort.title"))
+            .accessibilityIdentifier("chat-reasoning-effort")
+            Group {
+                if chat.isBusy {
+                    Button(L10n.string("ai.chat.stop")) { chat.interrupt() }
+                        .disabled(!chat.canInterrupt)
+                } else {
+                    Button(L10n.string("ai.chat.send"), action: send)
+                        .buttonStyle(.borderedProminent)
+                        .disabled(!chat.canSend || importingPhotos)
+                }
+            }
+            .controlSize(.large).fixedSize()
+        }
+        .frame(minHeight: DT.Chat.controlHeight)
+    }
+
     private var transcript: some View {
         GeometryReader { _ in
             ScrollViewReader { proxy in
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 20) {
+                    LazyVStack(alignment: .leading, spacing: DT.Space.lg) {
                         if chat.visibleMessages.isEmpty {
                             VStack(alignment: .leading, spacing: 8) {
                                 Text(L10n.string("ai.chat.welcome")).font(.title2.weight(.semibold))
@@ -264,7 +302,7 @@ struct AIChatView: View {
                                 AIThinkingMessage(text: message.text, theme: theme, isActive: chat.activeThinkingID == message.id,
                                     title: L10n.string("ai.chat.thinking"), expanded: expansion(for: message))
                             } else {
-                                VStack(alignment: .leading, spacing: 7) {
+                                VStack(alignment: .leading, spacing: DT.Space.sm) {
                                     Text(message.role == .user ? L10n.string("ai.chat.you") : session.provider?.tool ?? "AI")
                                         .font(.caption.weight(.semibold))
                                         .foregroundStyle(Color(nsColor: message.role == .user ? theme.accent : theme.textSecondary))
@@ -279,16 +317,17 @@ struct AIChatView: View {
                                         .frame(maxWidth: .infinity, alignment: .leading)
                                     }
                                     if let timing = AIChatCompletionLabel.text(for: message, locale: session.locale) {
-                                        Text(timing).font(.caption2)
+                                        Text(timing).font(.system(size: 11, design: .monospaced)).monospacedDigit()
+                                            .padding(.top, DT.Space.xs).lineSpacing(3)
                                             .foregroundStyle(Color(nsColor: theme.textSecondary))
                                             .textSelection(.enabled)
                                             .accessibilityIdentifier("chat-completion-time")
                                     }
                                 }
-                                .padding(message.role == .user ? 12 : 0)
+                                .padding(DT.Space.lg)
                                 .background {
                                     if message.role == .user {
-                                        RoundedRectangle(cornerRadius: 8).fill(Color(nsColor: theme.accentMuted))
+                                        RoundedRectangle(cornerRadius: DT.Chat.messageRadius, style: .continuous).fill(Color(nsColor: theme.accentMuted))
                                     }
                                 }
                                 .overlay(alignment: .leading) {
@@ -307,7 +346,9 @@ struct AIChatView: View {
                         }
                         // Keep the bottom anchor at the actual end of the content.
                         Color.clear.frame(height: 44).id("bottom")
-                    }.padding(.horizontal, 20).padding(.top, 20)
+                    }.frame(maxWidth: DT.Chat.contentWidth)
+                        .padding(.horizontal, DT.Space.lg).padding(.top, DT.Space.lg)
+                        .frame(maxWidth: .infinity)
                         .background(AIChatScrollPosition { atBottom, nearBottom in
                             isAtBottom = atBottom
                             followOutput = nearBottom
@@ -497,6 +538,9 @@ private struct AIThinkingMessage: View {
                 Text(title)
             }.font(.caption.weight(.medium))
         }.foregroundStyle(Color(nsColor: theme.textSecondary))
+            .padding(DT.Space.md)
+            .overlay(RoundedRectangle(cornerRadius: DT.Radius.window, style: .continuous)
+                .strokeBorder(Color(nsColor: theme.border), lineWidth: DT.Stroke.hairline))
     }
 }
 
@@ -737,7 +781,7 @@ struct AIChatComposer: NSViewRepresentable {
         editor.isHorizontallyResizable = false
         editor.autoresizingMask = [.width]
         editor.textContainer?.widthTracksTextView = true
-        editor.textContainerInset = NSSize(width: 8, height: 10)
+        editor.textContainerInset = NSSize(width: DT.Space.md, height: DT.Space.md)
         editor.font = .systemFont(ofSize: 14)
         editor.delegate = context.coordinator
         editor.updateDragTypeRegistration()
