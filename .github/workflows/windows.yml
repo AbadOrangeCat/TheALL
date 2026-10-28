@@ -1,0 +1,112 @@
+name: Windows desktop
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'desktop/**'
+      - 'TheAll/Mobile/MobileWeb.bundle/**'
+      - 'TheAll/Assets.xcassets/**'
+      - 'TheAll/Localization/**'
+      - 'mobile-relay/**'
+      - 'mobile-tests/**'
+      - 'TheAllTests/Fixtures/ai_gateway.py'
+      - 'project.yml'
+      - 'LICENSE'
+      - '.github/workflows/windows.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Native Windows x64 validation
+    runs-on: windows-2025
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: |
+            desktop/package-lock.json
+            mobile-relay/package-lock.json
+      - name: Install desktop dependencies
+        run: npm ci --prefix desktop
+      - name: Install relay dependencies
+        run: npm ci --prefix mobile-relay
+      - name: Test Windows runtime and CLI protocol fixtures
+        run: npm test --prefix desktop
+      - name: Test the shared mobile web client
+        run: node --test mobile-tests/*.test.mjs
+      - name: Test the relay
+        run: npm test --prefix mobile-relay
+      - name: Prepare packaged assets
+        run: npm run prepare:assets --prefix desktop
+      - name: Exercise Electron, Windows encryption and restored history
+        run: npm run test:desktop --prefix desktop
+
+  package:
+    name: Package Windows ${{ matrix.arch }}
+    needs: validate
+    runs-on: windows-2025
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            script: dist:win
+          - arch: arm64
+            script: dist:win:arm64
+    # These are unsigned CI artifacts. No signing secret, publishing token or
+    # release upload is required; arm64 is cross-built on this x64 runner.
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - name: Install desktop dependencies
+        run: npm ci --prefix desktop
+      - name: Build NSIS installer, portable executable and ZIP
+        run: npm run ${{ matrix.script }} --prefix desktop -- --publish never
+      - name: Verify package outputs and write download checksums
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = (Get-Content -Raw -LiteralPath desktop/package.json | ConvertFrom-Json).version
+          $names = @(
+            "TheAll-$version-windows-${{ matrix.arch }}-nsis.exe",
+            "TheAll-$version-windows-${{ matrix.arch }}-portable.exe",
+            "TheAll-$version-windows-${{ matrix.arch }}-zip.zip"
+          )
+          $packages = @($names | ForEach-Object {
+            $file = Join-Path desktop/dist $_
+            if (-not (Test-Path -LiteralPath $file -PathType Leaf)) { throw "Missing package: $_" }
+            Get-Item -LiteralPath $file
+          })
+          $checksums = @($packages | ForEach-Object {
+            $hash = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $($_.Name)"
+          })
+          $checksums | Set-Content -LiteralPath "desktop/dist/SHA256SUMS-${{ matrix.arch }}.txt" -Encoding utf8NoBOM
+      - name: Upload Windows build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: TheAll-windows-${{ matrix.arch }}-${{ github.run_number }}
+          path: |
+            desktop/dist/TheAll-*-windows-${{ matrix.arch }}-nsis.exe
+            desktop/dist/TheAll-*-windows-${{ matrix.arch }}-portable.exe
+            desktop/dist/TheAll-*-windows-${{ matrix.arch }}-zip.zip
+            desktop/dist/SHA256SUMS-${{ matrix.arch }}.txt
+          if-no-files-found: error
+          retention-days: 14

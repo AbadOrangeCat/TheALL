@@ -25,6 +25,7 @@ final class MobileAccessTests: XCTestCase {
             if message["type"] as? String == "user", failUser { throw URLError(.networkConnectionLost) }
             if message["type"] as? String == "control_response", failAnswer { throw URLError(.networkConnectionLost) }
             sent.append(message)
+            if ready, respondToClaudeEffortControl(message, sent: sent, reply: { onMessage?($0) }) { return }
             if let method = message["method"] as? String, let id = message["id"] as? String {
                 switch method {
                 case "initialize": onMessage?(["id": id, "result": [:]])

@@ -114,11 +114,11 @@ final class MobileChatAPI {
         let encoded = try JSONEncoder().encode(Array(messages[start..<end]))
         var value: [String: Any] = ["id": id.uuidString, "workspaceId": workspaceID.uuidString, "access": access.json,
             "provider": (snapshot?.provider ?? session?.provider)?.rawValue ?? "",
-            "model": snapshot?.model ?? "", "directory": snapshot?.directory ?? registry.directories.pwd(for: id) ?? NSHomeDirectory(),
+            "model": snapshot?.model ?? "", "defaultModel": chat?.defaultModel ?? "", "reasoningEffort": snapshot?.reasoningEffort ?? "", "directory": snapshot?.directory ?? registry.directories.pwd(for: id) ?? NSHomeDirectory(),
             "messages": try JSONSerialization.jsonObject(with: encoded), "start": start, "total": messages.count,
             "isReady": chat?.isReady ?? false, "isBusy": chat?.isBusy ?? false, "canInterrupt": access.writable && (chat?.canInterrupt ?? false),
             "canResume": access.writable && snapshot != nil && chat == nil,
-            "models": session?.models.map { ["id": $0.id, "title": $0.title] } ?? [],
+            "models": session?.models.map { ["id": $0.id, "title": $0.title, "reasoningEfforts": $0.reasoningEfforts, "defaultReasoningEffort": $0.defaultReasoningEffort as Any? ?? NSNull()] as [String: Any] } ?? [],
             "questions": chat?.approvals.map { approval -> [String: Any] in
                 ["id": approval.id, "title": approval.title, "questions": approval.questions.map {
                     ["id": $0.id, "prompt": $0.prompt, "options": $0.options, "multiple": $0.multiple, "secret": $0.secret] as [String: Any]
@@ -196,6 +196,11 @@ final class MobileChatAPI {
             guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !payloads.isEmpty
             else { throw APIError(400, "mobile.error.request") }
             let model = try selectedModel(body)
+            let effort: String?
+            if let raw = body["reasoningEffort"] {
+                guard let value = raw as? String, value.utf8.count <= 32 else { throw APIError(400, "mobile.error.request") }
+                effort = value
+            } else { effort = nil }
             let imageStore = registry.history.imageStore
             let imported: [AIChatImage]
             do {
@@ -232,7 +237,7 @@ final class MobileChatAPI {
             guard chat.isReady else { throw APIError(409, "mobile.error.notReady") }
             guard !chat.isBusy, chat.approvals.isEmpty else { throw APIError(409, "mobile.error.busy") }
             let submitted = await withCheckedContinuation { continuation in
-                chat.sendRemote(text, images: imported, model: model, stillAuthorized: { [weak self, weak chat] in
+                chat.sendRemote(text, images: imported, model: model, reasoningEffort: effort, stillAuthorized: { [weak self, weak chat] in
                     guard let self, let chat else { return false }
                     return stillAuthorized() && (try? self.authorizeConversation(id, access: access)) != nil
                         && self.registry.sessions[id]?.chat === chat

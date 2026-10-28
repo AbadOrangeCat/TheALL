@@ -14,7 +14,7 @@ struct AIModelPicker: View {
                 if !selection.isEmpty, !session.models.contains(where: { $0.id == selection }) {
                     Text(selection).tag(selection)
                 }
-                ForEach(session.models) { model in Text(model.title).tag(model.id) }
+                ForEach(session.models.filter { !$0.id.isEmpty }) { model in Text(model.title).tag(model.id) }
             }
             .pickerStyle(.menu)
             .labelsHidden()
@@ -28,6 +28,40 @@ struct AIModelPicker: View {
                     .accessibilityLabel(L10n.string("ai.models.refresh"))
             }
         }
+    }
+}
+
+enum AIChatCompletionLabel {
+    static func text(for message: AIChatMessage, locale: Locale) -> String? {
+        guard message.role == .assistant, let raw = message.completedAt,
+              let duration = message.durationMs, duration.isFinite, duration >= 0 else { return nil }
+        let parser = ISO8601DateFormatter()
+        parser.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        var completed = parser.date(from: raw)
+        if completed == nil {
+            parser.formatOptions = [.withInternetDateTime]
+            completed = parser.date(from: raw)
+        }
+        guard let completed else { return nil }
+        let date = DateFormatter()
+        date.locale = locale
+        date.dateStyle = .short
+        date.timeStyle = .medium
+        let elapsed = DateComponentsFormatter()
+        var calendar = Calendar.current
+        calendar.locale = locale
+        elapsed.calendar = calendar
+        elapsed.allowedUnits = duration >= 3_600_000 ? [.hour, .minute, .second] :
+            duration >= 60_000 ? [.minute, .second] : [.second]
+        elapsed.unitsStyle = .abbreviated
+        elapsed.zeroFormattingBehavior = .dropAll
+        let seconds = min(duration / 1_000, 315_576_000)
+        let durationText = elapsed.string(from: max(1, seconds.rounded(.up))) ?? "1s"
+        let statusKey = message.completionStatus == "failed" ? "ai.chat.failedAt" :
+            message.completionStatus == "interrupted" ? "ai.chat.stoppedAt" : "ai.chat.completedAt"
+        let timing = L10n.string(statusKey, date.string(from: completed)) + " · " + L10n.string("ai.chat.duration", durationText)
+        guard let effort = message.reasoningEffort, !effort.isEmpty else { return timing }
+        return timing + " · " + L10n.string(message.reasoningEffortVerified ? "ai.effort.confirmed" : "ai.effort.requested", effort)
     }
 }
 
@@ -123,6 +157,22 @@ struct AIChatView: View {
                     .accessibilityLabel(L10n.string("ai.directory.choose") + ": " + chat.directory)
                     Spacer(minLength: 0)
                     AIModelPicker(session: session, selection: Binding(get: { chat.model }, set: { session.selectModel($0) }), showsRefresh: false)
+                    Group {
+                        Picker(L10n.string("ai.effort.title"), selection: $chat.reasoningEffort) {
+                            Text(L10n.string("ai.effort.default")).tag("")
+                            if !chat.reasoningEffort.isEmpty, !chat.supportedReasoningEfforts.contains(chat.reasoningEffort) {
+                                Text(chat.reasoningEffort).tag(chat.reasoningEffort).disabled(true)
+                            }
+                            ForEach(chat.supportedReasoningEfforts, id: \.self) { effort in
+                                Text(effort).tag(effort)
+                            }
+                        }
+                        .pickerStyle(.menu).labelsHidden().fixedSize()
+                        .disabled(chat.supportedReasoningEfforts.isEmpty)
+                        .help(L10n.string(chat.supportedReasoningEfforts.isEmpty ? "ai.effort.unavailable" : "ai.effort.title"))
+                        .accessibilityLabel(L10n.string("ai.effort.title"))
+                        .accessibilityIdentifier("chat-reasoning-effort")
+                    }
                     if chat.isBusy {
                         Button(L10n.string("ai.chat.stop")) { chat.interrupt() }
                             .disabled(!chat.canInterrupt)
@@ -165,7 +215,7 @@ struct AIChatView: View {
                 }.padding(6).allowsHitTesting(false)
             }
         }
-        .onAppear { if session.models.isEmpty { session.refreshModels() } }
+        .onAppear { if chat.catalogModels.isEmpty, !session.isLoadingModels { session.refreshModels() } }
         .fileImporter(isPresented: $showsPhotoPicker, allowedContentTypes: [.image], allowsMultipleSelection: true) { result in
             switch result {
             case .success(let urls): attachPhotos(urls.map(AIChatPhotoImport.file))
@@ -227,6 +277,12 @@ struct AIChatView: View {
                                         (try? AttributedString(markdown: message.text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(message.text))
                                         .textSelection(.enabled).font(.system(size: 14)).lineSpacing(4)
                                         .frame(maxWidth: .infinity, alignment: .leading)
+                                    }
+                                    if let timing = AIChatCompletionLabel.text(for: message, locale: session.locale) {
+                                        Text(timing).font(.caption2)
+                                            .foregroundStyle(Color(nsColor: theme.textSecondary))
+                                            .textSelection(.enabled)
+                                            .accessibilityIdentifier("chat-completion-time")
                                     }
                                 }
                                 .padding(message.role == .user ? 12 : 0)

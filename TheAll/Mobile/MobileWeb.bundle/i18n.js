@@ -178,6 +178,44 @@ const connectionStrings = {
 for (const [key, values] of Object.entries(connectionStrings)) {
   Object.keys(supportedLanguages).forEach((code, index) => { catalog[code][key] = values[index]; });
 }
+const notificationStrings = {
+  effortConfirmed: ['CLI confirmed effort', 'CLI 已确认强度', 'Effort confirmé par le CLI', 'CLI 確認済みの強度', 'CLI가 확인한 강도'],
+  effortRequested: ['Requested effort', '请求强度', 'Effort demandé', '要求した強度', '요청한 강도'],
+  reasoningEffort: ['Reasoning effort', '思考强度', 'Effort de raisonnement', '思考の強度', '추론 강도'],
+  defaultEffort: ['Default effort', '默认强度', 'Effort par défaut', '既定の強度', '기본 강도'],
+  effortUnavailable: ['This model has not provided selectable effort levels yet.', '当前模型尚未提供可选的思考强度，暂时无法更改。', 'Ce modèle ne fournit pas encore de niveaux d’effort sélectionnables.', 'このモデルは選択可能な思考の強度をまだ提供していません。', '이 모델은 아직 선택 가능한 추론 강도를 제공하지 않습니다.'],
+  effort_none: ['None', '无', 'Aucun', 'なし', '없음'],
+  effort_minimal: ['Minimal', '极低', 'Minimal', '最小', '최소'],
+  effort_low: ['Low', '低', 'Faible', '低', '낮음'],
+  effort_medium: ['Medium', '中', 'Moyen', '中', '중간'],
+  effort_high: ['High', '高', 'Élevé', '高', '높음'],
+  effort_xhigh: ['Very high', '极高', 'Très élevé', '非常に高い', '매우 높음'],
+  effort_max: ['Maximum', '最高', 'Maximum', '最大', '최대'],
+  turnFailedAt: ['Failed', '失败于', 'Échec à', '失敗', '실패'],
+  turnInterruptedAt: ['Stopped', '停止于', 'Arrêté à', '停止', '중지'],
+  notificationsTitle: ['Task completion alerts', '任务完成提醒', 'Alertes de fin de tâche', 'タスク完了通知', '작업 완료 알림'],
+  notificationsHelp: ['Receive completion alerts on your phone and paired watch. Watch delivery follows your device’s notification and Focus settings.', '在手机及配对手表上接收任务完成提醒。手表提醒遵循系统通知和专注模式设置。', 'Recevez les alertes de fin de tâche sur votre téléphone et votre montre jumelée. Leur affichage dépend des réglages de notification et de concentration.', 'スマートフォンとペアリングした時計で完了通知を受け取れます。時計への通知は端末の通知・集中モード設定に従います。', '휴대전화와 페어링된 시계에서 완료 알림을 받을 수 있습니다. 시계 알림은 기기의 알림 및 집중 모드 설정을 따릅니다.'],
+  notificationsHTTPS: ['Background alerts require HTTPS. Use encrypted HTTPS or an HTTPS relay in the desktop phone-connection settings, then reopen that address.', '后台提醒需要 HTTPS。请在桌面端手机连接设置中启用加密 HTTPS，或使用 HTTPS 中继，再打开对应地址。', 'Les alertes en arrière-plan nécessitent HTTPS. Activez HTTPS ou un relais HTTPS dans les réglages de connexion mobile sur l’ordinateur, puis ouvrez cette adresse.', 'バックグラウンド通知には HTTPS が必要です。デスクトップのスマートフォン接続設定で HTTPS または HTTPS 中継を有効にし、そのアドレスを開いてください。', '백그라운드 알림에는 HTTPS가 필요합니다. 데스크톱 휴대전화 연결 설정에서 HTTPS 또는 HTTPS 중계를 활성화한 뒤 해당 주소를 다시 여세요.'],
+  notificationsInstall: ['On iPhone or iPad, add TheAll to your Home Screen and open it there before enabling alerts.', '在 iPhone 或 iPad 上，请先将 TheAll 添加到主屏幕，并从主屏幕打开后启用提醒。', 'Sur iPhone ou iPad, ajoutez TheAll à l’écran d’accueil et ouvrez-le depuis cet écran avant d’activer les alertes.', 'iPhone・iPad では TheAll をホーム画面に追加し、そこから開いて通知を有効にしてください。', 'iPhone 또는 iPad에서는 TheAll을 홈 화면에 추가하고 홈 화면에서 연 다음 알림을 활성화하세요.'],
+  notificationsUnsupported: ['This browser does not support background push alerts. Use a supported mobile browser.', '此浏览器不支持后台推送提醒，请使用支持此功能的手机浏览器。', 'Ce navigateur ne prend pas en charge les notifications push en arrière-plan. Utilisez un navigateur mobile compatible.', 'このブラウザーはバックグラウンドのプッシュ通知に対応していません。対応するモバイルブラウザーをご利用ください。', '이 브라우저는 백그라운드 푸시 알림을 지원하지 않습니다. 지원되는 모바일 브라우저를 사용하세요.'],
+  notificationsBlocked: ['Notifications are blocked. Allow TheAll notifications in your phone’s system or browser settings, then try again.', '通知权限已关闭。请在手机系统或浏览器设置中允许 TheAll 通知，再重试。', 'Les notifications sont bloquées. Autorisez celles de TheAll dans les réglages du téléphone ou du navigateur, puis réessayez.', '通知がブロックされています。端末またはブラウザーの設定で TheAll の通知を許可してから再試行してください。', '알림이 차단되어 있습니다. 휴대전화 또는 브라우저 설정에서 TheAll 알림을 허용한 뒤 다시 시도하세요.'],
+  notificationsUpdate: ['Update the desktop app to use task-completion alerts. Conversations are still available.', '请更新桌面端以使用任务完成提醒，现有聊天仍可正常使用。', 'Mettez l’application de bureau à jour pour utiliser les alertes. Les conversations restent disponibles.', '完了通知を利用するにはデスクトップアプリを更新してください。会話は引き続き利用できます。', '완료 알림을 사용하려면 데스크톱 앱을 업데이트하세요. 대화는 계속 사용할 수 있습니다.'],
+  notificationsUnavailable: ['Alerts are unavailable right now. Check the connection and try again.', '提醒暂时不可用，请检查连接后重试。', 'Les alertes sont momentanément indisponibles. Vérifiez la connexion et réessayez.', '現在通知を利用できません。接続を確認して再試行してください。', '현재 알림을 사용할 수 없습니다. 연결을 확인한 뒤 다시 시도하세요.'],
+  notificationsEnabled: ['Task completion alerts are on for this device.', '此设备的任务完成提醒已开启。', 'Les alertes de fin de tâche sont activées sur cet appareil.', 'この端末のタスク完了通知は有効です。', '이 기기의 작업 완료 알림이 켜져 있습니다.'],
+  notificationsDisabled: ['Task completion alerts are off for this device.', '此设备的任务完成提醒已关闭。', 'Les alertes de fin de tâche sont désactivées sur cet appareil.', 'この端末のタスク完了通知は無効です。', '이 기기의 작업 완료 알림이 꺼져 있습니다.'],
+  notificationsEnable: ['Enable alerts', '开启提醒', 'Activer les alertes', '通知を有効にする', '알림 켜기'],
+  notificationsDisable: ['Turn off alerts', '关闭提醒', 'Désactiver les alertes', '通知を無効にする', '알림 끄기'],
+  notificationsTest: ['Send test alert', '发送测试提醒', 'Envoyer une alerte test', 'テスト通知を送信', '테스트 알림 보내기'],
+  notificationsTestSent: ['Test alert sent. Delivery follows your phone and watch notification settings.', '测试提醒已发送，显示方式由手机和手表的通知设置决定。', 'Alerte test envoyée. Sa réception dépend des réglages du téléphone et de la montre.', 'テスト通知を送信しました。表示方法はスマートフォンと時計の通知設定に従います。', '테스트 알림을 보냈습니다. 표시 방식은 휴대전화와 시계의 알림 설정을 따릅니다.'],
+  notificationsWorking: ['Updating alerts…', '正在更新提醒…', 'Mise à jour des alertes…', '通知を更新中…', '알림 업데이트 중…'],
+  notificationsUnsubscribeFailed: ['Server alerts are off, but the browser subscription could not be removed. Try turning alerts off again.', '服务端提醒已关闭，但浏览器订阅未能移除，请再次关闭提醒。', 'Les alertes du serveur sont désactivées, mais l’abonnement du navigateur n’a pas pu être supprimé. Réessayez.', 'サーバーの通知は無効ですが、ブラウザーの購読を解除できませんでした。もう一度無効にしてください。', '서버 알림은 꺼졌지만 브라우저 구독을 제거하지 못했습니다. 다시 알림을 끄세요.'],
+  notificationChatUnavailable: ['This notification’s conversation is no longer available to this device.', '此提醒对应的对话已不存在，或此设备没有访问权限。', 'La conversation de cette notification n’est plus accessible depuis cet appareil.', 'この通知の会話は削除されたか、この端末ではアクセスできません。', '이 알림의 대화가 더 이상 없거나 이 기기에서 접근할 수 없습니다.'],
+  turnCompletedAt: ['Completed', '完成于', 'Terminé à', '完了', '완료'],
+  turnDuration: ['Took', '耗时', 'Durée', '所要時間', '소요 시간']
+};
+for (const [key, values] of Object.entries(notificationStrings)) {
+  Object.keys(supportedLanguages).forEach((code, index) => { catalog[code][key] = values[index]; });
+}
 export function resolveLanguage(value) {
   const lower = String(value || '').toLowerCase();
   return lower.startsWith('zh') ? 'zh-Hans' : Object.keys(supportedLanguages).find(key => lower.split('-')[0] === key) || 'en';

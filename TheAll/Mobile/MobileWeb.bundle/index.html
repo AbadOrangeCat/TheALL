@@ -43,11 +43,13 @@
       <div class="sidebar-heading"><span data-i18n="workspaces">Workspaces</span><button id="new-chat" class="icon-button" aria-label="New conversation">＋</button></div>
       <div id="workspace-list" class="workspace-list"></div>
       <div class="sidebar-footer"><p id="access-summary" class="small muted"></p><label class="language-control"><span data-i18n="language">Language</span><select class="language-select"></select></label><span id="device-label"></span><button class="text-button install-help" type="button" data-i18n="install">Add to home screen</button>
+        <button id="notification-settings" class="text-button" type="button" data-i18n="notificationsTitle">Task completion alerts</button>
         <button id="logout" class="text-button" type="button" data-i18n="disconnect">Disconnect this device</button></div>
     </aside>
     <main class="chat-panel">
       <header class="chat-header"><button id="open-sidebar" class="icon-button mobile-only" aria-label="Open workspaces">☰</button>
         <div class="chat-heading"><h1 id="chat-title" data-i18n="chooseChat">Choose a conversation</h1><span id="chat-subtitle" class="small muted"></span></div>
+        <button id="open-notifications" class="icon-button notification-button" type="button" aria-label="Task completion alerts" title="Task completion alerts">🔔</button>
         <span id="connection" class="connection" role="status"></span>
       </header>
       <div id="global-error" class="banner error" role="alert" hidden></div>
@@ -70,7 +72,7 @@
           <input id="photo-files" type="file" accept="image/*" multiple hidden>
           <label class="sr-only" for="draft" data-i18n="message">Message</label>
           <textarea id="draft" rows="2" data-i18n-placeholder="messagePlaceholder" placeholder="Continue the conversation…"></textarea>
-          <div class="composer-actions"><button id="add-photos" class="photo-add" type="button" data-i18n="photosAdd">Add photos</button><span id="directory" class="directory" title="Working directory"></span><div class="send-actions"><label class="sr-only" for="model" data-i18n="model">Model</label><select id="model"></select><button id="send" class="primary send" type="submit" data-i18n="send">Send ↑</button><button id="stop" class="stop" type="button" hidden data-i18n="stop">Stop ■</button></div></div>
+          <div class="composer-actions"><button id="add-photos" class="photo-add" type="button" data-i18n="photosAdd">Add photos</button><span id="directory" class="directory" title="Working directory"></span><div class="send-actions"><label class="sr-only" for="model" data-i18n="model">Model</label><select id="model"></select><label class="sr-only" for="effort" data-i18n="reasoningEffort">Reasoning effort</label><select id="effort" hidden></select><button id="send" class="primary send" type="submit" data-i18n="send">Send ↑</button><button id="stop" class="stop" type="button" hidden data-i18n="stop">Stop ■</button></div></div>
           <p id="model-notice" class="small muted" hidden data-i18n="modelNotice">The selected model applies to your next message. Chat history is kept.</p>
         </form>
       </section>
@@ -89,6 +91,18 @@
     <h3>Android</h3><p id="install-android">Open this address in Chrome, then choose Install app or Add to home screen from the menu.</p>
     <p id="install-network" class="small muted">Keep your Mac awake and TheAll running. Connect using your configured TheAll HTTPS address; no VPN app is needed.</p>
     <button id="install-prompt" class="primary wide" hidden data-i18n="installNow">Install TheAll</button>
+  </dialog>
+  <dialog id="notification-dialog">
+    <div class="dialog-heading"><h2 data-i18n="notificationsTitle">Task completion alerts</h2><button id="close-notifications" class="icon-button" type="button" aria-label="Close">×</button></div>
+    <p data-i18n="notificationsHelp">Receive completion alerts on your phone and paired watch. Watch delivery follows your device’s notification and Focus settings.</p>
+    <p id="notification-status" class="small" role="status"></p>
+    <p id="notification-error" class="error" role="alert" hidden></p>
+    <div class="notification-actions">
+      <button id="notification-enable" class="primary" type="button" data-i18n="notificationsEnable">Enable alerts</button>
+      <button id="notification-disable" type="button" data-i18n="notificationsDisable" hidden>Turn off alerts</button>
+      <button id="notification-test" type="button" data-i18n="notificationsTest" hidden>Send test alert</button>
+      <button id="notification-install" type="button" data-i18n="install" hidden>Add to home screen</button>
+    </div>
   </dialog>
   <noscript>TheAll requires JavaScript to connect to your Mac.</noscript>
 </body>

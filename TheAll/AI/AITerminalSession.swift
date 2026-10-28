@@ -10,14 +10,15 @@ final class AITerminalSession {
     private(set) var hasSavedConnection = false
     private(set) var exitCode: Int32?
     private(set) var chat: AIChatSession?
-    private(set) var models: [AIModelOption] = []
+    private var catalogModels: [AIModelOption] = []
+    var models: [AIModelOption] { AIModelOption.merge(catalog: catalogModels, backend: chat?.backendModels ?? []) }
     private(set) var isLoadingModels = false
     var modelError: String?
     var draft = AIConnection(apiKey: "") {
         didSet {
             if draft.apiKey != oldValue.apiKey || draft.baseURL != oldValue.baseURL || draft.useBearerToken != oldValue.useBearerToken {
                 cancelModels()
-                models = []
+                catalogModels = []
                 modelError = nil
             }
         }
@@ -33,6 +34,7 @@ final class AITerminalSession {
     @ObservationIgnored private let loadModels: (AIProvider, AIConnection) async throws -> [AIModelOption]
     @ObservationIgnored var onLaunch: ((AILaunchConfiguration) -> Void)?
     @ObservationIgnored var onStop: (() -> Void)?
+    @ObservationIgnored var onTurnCompleted: ((UUID) -> Void)?
     @ObservationIgnored var onFirstMessageSubmitted: ((String) -> Void)?
     @ObservationIgnored private var activeConnection: AIConnection?
     @ObservationIgnored private var modelTask: Task<Void, Never>?
@@ -107,6 +109,8 @@ final class AITerminalSession {
         self.directory = chat.directory
         chat.onFirstMessageSubmitted = { [weak self] in self?.onFirstMessageSubmitted?($0) }
         chat.onStateChanged = { [weak self] in self?.saveHistory() }
+        chat.onTurnCompleted = { [weak self] in self?.onTurnCompleted?($0) }
+        chat.catalogModels = catalogModels
         chat.start(configuration)
         saveHistory()
     }
@@ -134,6 +138,7 @@ final class AITerminalSession {
                              directory: snapshot.directory, transport: transport, restoring: snapshot,
                              imageStore: historyStore?.imageStore ?? .shared)
         chat?.onStateChanged = { [weak self] in self?.saveHistory() }
+        chat?.onTurnCompleted = { [weak self] in self?.onTurnCompleted?($0) }
         choose(snapshot.provider)
         if !isRunning {
             chat?.errorMessage = errorMessage ?? L10n.string("ai.history.connectionNeeded")
@@ -193,6 +198,11 @@ final class AITerminalSession {
         } catch { modelError = error.localizedDescription }
     }
 
+    func selectReasoningEffort(_ value: String) {
+        guard let chat, value.isEmpty || chat.supportedReasoningEfforts.contains(value) else { return }
+        chat.reasoningEffort = value
+    }
+
     func refreshModels() {
         guard let provider else { return }
         let connection = isRunning ? activeConnection : draft
@@ -206,7 +216,8 @@ final class AITerminalSession {
             do {
                 let models = try await load(provider, connection)
                 guard let self, self.modelRequestID == requestID else { return }
-                self.models = models
+                self.catalogModels = models
+                self.chat?.catalogModels = models
                 self.isLoadingModels = false
                 if models.isEmpty { self.modelError = L10n.string("ai.models.empty") }
             } catch {
@@ -239,7 +250,7 @@ final class AITerminalSession {
         chat = nil
         cancelModels()
         activeConnection = nil
-        models = []
+        catalogModels = []
         modelError = nil
         onStop?()
         isRunning = false

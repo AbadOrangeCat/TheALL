@@ -17,6 +17,7 @@ final class AIChatImageTests: XCTestCase {
         func send(_ message: [String: Any]) throws {
             if rejectWrites { throw CocoaError(.fileWriteUnknown) }
             sent.append(message)
+            respondToClaudeEffortControl(message, sent: sent) { onMessage?($0) }
         }
         func send(_ message: [String: Any], completion: @escaping (Result<Void, Error>) -> Void) throws {
             try send(message)

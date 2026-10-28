@@ -1,6 +1,6 @@
 # TheAll
 
-macOS 标签页 + 分割窗格式终端 app，以 libghostty 作为终端引擎，Swift/AppKit + SwiftUI 实现。
+TheAll 是 Claude Code / Codex AI 工作台。macOS 使用 Swift/AppKit + SwiftUI，保留 libghostty 引擎；Windows 使用 `desktop/` 中的 Electron 外壳与本机 CLI，沿用工作区、标签页、分屏和聊天交互。
 
 ## Quick Start
 
@@ -20,6 +20,14 @@ xcodebuild -project TheAll.xcodeproj -scheme TheAll -configuration Debug build
 # 5. 检查文档/目录是否漂移
 ./scripts/check-doc-drift.sh
 ```
+
+## Windows desktop
+
+Windows 模块独立位于 `desktop/`，不修改 Mac 的应用身份、签名、凭据或历史。入口 `src/main.mjs` / `preload.cjs` 仅暴露受限 IPC，renderer 禁用 Node 并开启 sandbox/contextIsolation。`runtime.mjs` 管理工作区/分屏与桌面、LAN、relay 的统一 API；`ai.mjs` 驱动本机 Claude/Codex；`store.mjs` 原子持久化并通过系统加密保存凭据；`relay.mjs` 和 `tls.mjs` 提供远程连接与可选局域网 HTTPS。
+
+`renderer/` 对齐 Mac 桌面布局和主题，聊天复用 `TheAll/Mobile/MobileWeb.bundle`。`npm run prepare:assets --prefix desktop` 生成忽略的 `desktop/web/`、翻译/主题模块与许可证；不要直接编辑生成文件。`desktop/assets/themes/` 是带 MIT 许可的 Mac 主题快照。
+
+使用 Node.js 24：`npm ci --prefix desktop`、`npm ci --prefix mobile-relay`，然后 `npm test --prefix desktop` / `npm run test:desktop --prefix desktop`。桌面 smoke 仅使用临时 profile 和离线假 CLI；禁止指向真实用户数据。源码开发数据与安装版 `%APPDATA%\TheAll` 分开，路径不含版本号。完整指南与 Windows 原生验收范围见 `docs/windows.md`。
 
 ## Architecture Overview
 
@@ -76,6 +84,9 @@ TheAll/
 │   ├── MobileLANAddress.swift — 枚举私网 IPv4、优先物理网络与地址恢复
 │   ├── MobileLANIdentity.swift — 本机 CA、内存 TLS 身份与手机公开证书导出
 │   ├── MobilePairingStore.swift — 一次性配对、设备 token 哈希、撤销与过期
+│   ├── MobileWebPush.swift — 标准 Web Push 加密、VAPID 签名与系统推送服务发送
+│   ├── MobilePushStore.swift — 私有推送身份与按设备/来源绑定的订阅
+│   ├── MobileNotificationService.swift — 独立于浏览器连接的完成事件投递与撤销
 │   ├── MobileChatAPI.swift — workspace/历史分页与幂等的回复/新建/停止/回答
 │   ├── MobileRelayClient.swift — 电脑主动 WSS 连接、自有 Ed25519 身份与自动重连
 │   └── MobileWeb.bundle/ — iOS/Android PWA、图标、仅缓存页面的 Service Worker

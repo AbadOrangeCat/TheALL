@@ -1,5 +1,18 @@
 # Architecture
 
+## Windows implementation
+
+Windows uses a separate Electron application under `desktop/`; the Swift/AppKit architecture below describes macOS. Both applications expose the same workspace → tab → split-pane hierarchy and structured Claude Code/Codex chat. The Windows desktop embeds the shared mobile chat renderer in retained pane frames, adding the desktop sidebar, tabs, splitters, composer controls and settings. Build-time adapters fail if shared source contracts change unexpectedly.
+
+- `src/main.mjs` / `preload.cjs`: sandboxed windows, trusted main-frame IPC (`desktop-ipc.mjs` compares WebContents ID and process/frame tokens plus the exact live origin/document, never JS wrapper identity), OS folder selection, image normalization and encrypted credential access.
+- `src/runtime.mjs`: a loopback desktop server, per-device LAN/relay sessions, scoped APIs, submission receipts, ownership checks and lazy CLI creation. Reading history never launches an agent.
+- `src/ai.mjs`: native executable/npm discovery, isolated provider configuration, bounded JSON pipes, model acknowledgements, conversation resume, automatic tool approval and interactive questions.
+- `src/store.mjs`: atomic versioned snapshots, stable conversation IDs and encrypted secrets. Invalid or oversized stores fail without replacing the last valid file.
+- `src/relay.mjs` / `tls.mjs`: existing relay wire protocol and encrypted local certificate identity. Desktop administrative APIs and credentials are not exposed to phones.
+- `renderer/`: desktop hierarchy, draft persistence, five languages and Mac theme palettes. `scripts/prepare-assets.mjs` generates shared web assets, catalogs, icons and dependency notices.
+
+Installed Windows builds share `%APPDATA%\TheAll`; development uses `%APPDATA%\TheAll Development`. Neither path includes the version. The two OS applications have independent history stores; this is not automatic Mac-to-Windows synchronization. See [Windows setup and validation](windows.md).
+
 ## Overview
 
 theall 是 SwiftUI 侧边栏 + AppKit 标签页 / 分割窗格混合架构。两层通过 `NSViewRepresentable` 桥接。状态单向流动：**WorkspaceStore → 视图**，用户交互写回 WorkspaceStore。
@@ -336,3 +349,9 @@ AI 路径不执行旧的 quick action、workspace defaultCommand 或 resume shel
 ## Application namespace migration
 
 The project, source directory, module and targets are `TheAll` / `TheAllTests`. Bundle identifiers default to `com.theall.app.dev` and `com.theall.app`. `THEALL_APP_IDENTIFIER` may be overridden in ignored `Local.xcconfig` when an existing installation needs to retain its signed identity, Keychain helper, conversation storage and mobile identities. `AppNamespaceMigration` runs before any settings stores initialize. An explicitly configured `THEALL_PREVIOUS_NAMESPACE` copies missing preference keys and renames configuration assignment keys into `theall`, without changing values or overwriting existing data. Source data is retained; a completion marker prevents deleted settings from being restored on later launches. Migration failure blocks startup instead of opening an empty workspace.
+
+### Turn metadata and background completion notifications
+
+`AIChatSession` records completion time and monotonic elapsed duration only for a submitted turn. Optional message fields keep old history readable. Model capability metadata drives reasoning effort controls; Claude applies acknowledged flag settings before the user message, and Codex supplies per-turn effort. Selections are persisted without recreating conversations.
+
+`MobileNotificationService` receives explicit successful-turn events through the application-owned chat registry, independently of `MobileEventHub` and open WebSockets. `MobilePushStore` preserves a private VAPID identity and subscriptions bound to the current authenticated device and origin. `MobileWebPush` implements RFC 8291/8292 and only sends to HTTPS Apple/Google/Mozilla push endpoints. Device, workspace and origin authorization is checked again before sending; stop/revoke/unsubscribe cancels pending delivery. Windows implements the same contract in `desktop/src/web-push.mjs`. The mobile worker displays generic encrypted push payloads without fetching private chat data; OS settings govern phone/watch notification mirroring.

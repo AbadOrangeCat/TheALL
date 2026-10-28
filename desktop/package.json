@@ -1,0 +1,96 @@
+{
+  "name": "theall-desktop",
+  "version": "0.1.6",
+  "description": "TheAll AI workspace for Windows",
+  "author": "TheAll",
+  "license": "SEE LICENSE IN LICENSE",
+  "private": true,
+  "type": "module",
+  "main": "src/main.mjs",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "prepare:assets": "node scripts/prepare-assets.mjs",
+    "start": "npm run prepare:assets && electron .",
+    "test": "npm run prepare:assets && node --test test/*.test.mjs",
+    "pack:win": "npm run prepare:assets && electron-builder --win --x64 --dir",
+    "dist:win": "npm run prepare:assets && electron-builder --win nsis portable zip --x64",
+    "dist:win:arm64": "npm run prepare:assets && electron-builder --win nsis portable zip --arm64",
+    "test:desktop": "npm run prepare:assets && node scripts/desktop-smoke.mjs",
+    "dist:win:zip": "npm run prepare:assets && electron-builder --win zip --x64",
+    "dist:win:zip:arm64": "npm run prepare:assets && electron-builder --win zip --arm64"
+  },
+  "dependencies": {
+    "@peculiar/x509": "3.1.0",
+    "qrcode": "1.5.4",
+    "reflect-metadata": "0.2.2",
+    "ws": "8.22.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.64.1",
+    "electron": "45.1.0",
+    "electron-builder": "26.18.0"
+  },
+  "build": {
+    "appId": "com.theall.app.windows",
+    "productName": "TheAll",
+    "artifactName": "TheAll-${version}-windows-${arch}-zip.${ext}",
+    "asar": true,
+    "directories": {
+      "output": "dist",
+      "buildResources": "assets"
+    },
+    "files": [
+      "src/**/*",
+      "renderer/**/*",
+      "web/**/*",
+      "assets/**/*",
+      "LICENSE",
+      "THIRD-PARTY-NOTICES.txt",
+      "package.json",
+      "!**/*.map",
+      "!**/test/**"
+    ],
+    "win": {
+      "icon": "assets/TheAll.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "requestedExecutionLevel": "asInvoker"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": false,
+      "allowToChangeInstallationDirectory": true,
+      "deleteAppDataOnUninstall": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "installerLanguages": [
+        "en_US",
+        "zh_CN",
+        "fr_FR",
+        "ja_JP",
+        "ko_KR"
+      ],
+      "license": "LICENSE",
+      "artifactName": "TheAll-${version}-windows-${arch}-nsis.${ext}"
+    },
+    "portable": {
+      "requestExecutionLevel": "user",
+      "artifactName": "TheAll-${version}-windows-${arch}-portable.${ext}"
+    }
+  }
+}

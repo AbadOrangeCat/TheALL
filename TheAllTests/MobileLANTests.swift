@@ -22,6 +22,7 @@ final class MobileLANTests: XCTestCase {
         func stop() {}
         func send(_ message: [String: Any]) throws {
             sent.append(message)
+            if ready, respondToClaudeEffortControl(message, sent: sent, reply: { onMessage?($0) }) { return }
             if ready, let id = message["request_id"] as? String, message["request"] != nil {
                 onMessage?(["type": "control_response", "response": ["subtype": "success", "request_id": id, "response": [:]]])
             }

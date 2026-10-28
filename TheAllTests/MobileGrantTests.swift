@@ -24,6 +24,7 @@ final class MobileGrantTests: XCTestCase {
         func stop() {}
         func send(_ message: [String: Any]) throws {
             sent.append(message)
+            if ready, respondToClaudeEffortControl(message, sent: sent, reply: { onMessage?($0) }) { return }
             guard let request = message["request"] as? [String: Any],
                   let id = message["request_id"] as? String else { return }
             if holdModel, request["subtype"] as? String == "set_model" { heldModelID = id; return }

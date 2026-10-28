@@ -47,6 +47,7 @@ final class MobileAccessController {
     @ObservationIgnored private var nextLANRenewal = Date.distantFuture
     @ObservationIgnored private var lanMaterial: MobileLANIdentity.Material?
     @ObservationIgnored private var pendingLANInvitation: MobilePairingStore.Access?
+    @ObservationIgnored private let notifications: MobileNotificationService
     @ObservationIgnored private let api: MobileChatAPI
     @ObservationIgnored private lazy var events: MobileEventHub = {
         let hub = MobileEventHub(registry: registry, bootID: api.bootID)
@@ -67,8 +68,9 @@ final class MobileAccessController {
          defaults: UserDefaults = .standard, port: UInt16? = nil, lanPort: UInt16? = nil,
          relayIdentity: MobileRelayIdentity = MobileRelayIdentity(),
          lanIdentity: MobileLANIdentity = MobileLANIdentity(),
+         notifications: MobileNotificationService = MobileNotificationService(),
          listAddresses: @escaping () -> [MobileLANAddress] = MobileLANAddress.available) {
-        self.registry = registry; self.pairing = pairing; self.defaults = defaults
+        self.registry = registry; self.pairing = pairing; self.defaults = defaults; self.notifications = notifications
         self.relayIdentity = relayIdentity; self.lanIdentity = lanIdentity; self.listAddresses = listAddresses
         #if DEBUG
         self.port = port ?? 49832; self.lanPort = lanPort ?? 49834
@@ -85,6 +87,25 @@ final class MobileAccessController {
             (defaults.bool(forKey: "theall.mobile.useLAN") ? .encrypted : .quick)
         api = MobileChatAPI(registry: registry)
         devices = pairing.devices
+        notifications.isAuthorized = { [weak self] record, chatID in
+            guard let self, self.isEnabled,
+                  let device = self.pairing.devices.first(where: { $0.id == record.deviceID }),
+                  device.expiresAt > Date(), device.origin == record.origin, self.scopeExists(device),
+                  Entry.allCases.contains(where: { self.origins(for: $0).contains(record.origin) }) else { return false }
+            guard let chatID else { return true }
+            guard let owner = self.shareWorkspaces.first(where: { workspace in
+                workspace.tabs.contains { $0.layout.allTerminalIds().contains(chatID) }
+            }) else { return false }
+            return device.access.allows(workspaceID: owner.id)
+        }
+        registry.onTurnCompleted = { [weak self] chatID, eventID in
+            guard let self, self.isEnabled else { return }
+            let epoch = self.enableGeneration
+            Task { @MainActor [weak self] in
+                guard let self, self.isEnabled, self.enableGeneration == epoch else { return }
+                self.notifications.completed(chatID: chatID, eventID: eventID)
+            }
+        }
         server.handler = { [weak self] request in
             await self?.handle(request, via: .preview) ?? .error("Unavailable", status: 503)
         }
@@ -125,13 +146,13 @@ final class MobileAccessController {
             guard let self, self.isEnabled, self.useRelay else { return }
             // A reconnect is a new authorization epoch. Requests waiting for
             // backend readiness/model changes must not execute after link loss.
-            if self.relayConnected && !connected { self.relayGeneration = UUID() }
+            if self.relayConnected && !connected { self.relayGeneration = UUID(); self.notifications.cancelPending() }
             self.relayConnected = connected; self.relayError = error
             if !connected { self.events.validate() }
         }
         termination = NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification,
             object: nil, queue: .main) { [weak self] _ in
-                self?.registry.flush(); self?.server.stop(); self?.lanServer.stop(); self?.relay.stop()
+                self?.notifications.cancelPending(); self?.registry.flush(); self?.server.stop(); self?.lanServer.stop(); self?.relay.stop()
             }
         refreshLANAddresses()
     }
@@ -153,6 +174,7 @@ final class MobileAccessController {
     }
     func disable() {
         isEnabled = false; isListening = false; enableGeneration = UUID()
+        notifications.cancelPending()
         defaults.set(false, forKey: "theall.mobile.enabled")
         cancelInvitation()
         addressTimer?.invalidate(); addressTimer = nil
@@ -231,6 +253,7 @@ final class MobileAccessController {
         } catch { lanError = L10n.string(lanMode == .quick ? "mobile.error.listen" : "mobile.lan.failed") }
     }
     private func stopLAN() {
+        notifications.cancelPending()
         lanGeneration = UUID(); lanServer.stop(); isLANListening = false; lanURL = nil
         pendingLANInvitation = nil; isPreparingLANInvitation = false
         if pairingEntry == .lan { cancelInvitation() }
@@ -248,6 +271,7 @@ final class MobileAccessController {
         } catch { configuredOrigin = nil; relayError = L10n.string("mobile.error.url") }
     }
     private func stopRelay() {
+        notifications.cancelPending()
         relayGeneration = UUID(); relay.stop(); relayConnected = false; configuredOrigin = nil
         if pairingEntry == .relay { cancelInvitation() }
         events.validate()
@@ -291,6 +315,7 @@ final class MobileAccessController {
             try pairing.revoke(id); devices = pairing.devices; error = nil
             if pairedDevice?.id == id { pairedDevice = nil }
             events.revoke(id)
+            try notifications.unsubscribe(deviceID: id)
         }
         catch { self.error = L10n.string("mobile.error.storage") }
     }
@@ -382,11 +407,15 @@ final class MobileAccessController {
             return .json(["deviceName": device.name, "bootID": api.bootID, "access": device.access.json])
         }
         if request.path == "/api/logout", request.method == "POST" {
-            do { try pairing.revoke(device.id); devices = pairing.devices; events.revoke(device.id) }
+            do { try pairing.revoke(device.id); devices = pairing.devices; events.revoke(device.id); try notifications.unsubscribe(deviceID: device.id) }
             catch { return .error(L10n.string("mobile.error.storage"), status: 500) }
             var response = MobileHTTPResponse.json(["ok": true])
             response.headers["Set-Cookie"] = cookie("", secure: secure, via: entry, maxAge: 0)
             return response
+        }
+        if request.path == "/api/notifications" || request.path.hasPrefix("/api/notifications/") {
+            guard scopeExists(device) else { return .error(L10n.string("mobile.error.scope"), status: 403) }
+            return await notificationResponse(request, device: device, origin: origin)
         }
         let generation = generation(for: entry)
         let enabledGeneration = enableGeneration
@@ -395,6 +424,38 @@ final class MobileAccessController {
             return self.isEnabled && self.enableGeneration == enabledGeneration && self.generation(for: entry) == generation &&
                 self.origins(for: entry).contains(origin) && self.pairing.authenticate(token, origin: origin) != nil
         })
+    }
+
+    @MainActor
+    private func notificationResponse(_ request: MobileHTTPRequest, device: MobilePairingStore.Device, origin: String) async -> MobileHTTPResponse {
+        do {
+            if request.method == "GET", request.path == "/api/notifications" {
+                return .json(try notifications.state(deviceID: device.id, origin: origin))
+            }
+            guard request.method == "POST", ["/api/notifications/subscribe", "/api/notifications/unsubscribe", "/api/notifications/test"].contains(request.path)
+            else { return .error("Not found", status: 404) }
+            guard MobilePushStore.secureOrigin(origin) else {
+                return .json(["available": false, "enabled": false, "reason": "https_required"], status: 400)
+            }
+            guard request.body.count <= 16384, let body = try JSONSerialization.jsonObject(with: request.body) as? [String: Any]
+            else { return .error(L10n.string("mobile.error.request"), status: 400) }
+            switch request.path {
+            case "/api/notifications/subscribe":
+                try notifications.subscribe(deviceID: device.id, origin: origin, body: body)
+                return .json(["enabled": true])
+            case "/api/notifications/unsubscribe":
+                try notifications.unsubscribe(deviceID: device.id)
+                return .json(["enabled": false])
+            default:
+                try await notifications.test(deviceID: device.id, origin: origin)
+                return .json(["ok": true])
+            }
+        } catch let error as MobileWebPush.PushError {
+            let status: Int
+            switch error { case .storage: status = 500; case .unavailable: status = 503; default: status = 400 }
+            return .error(error.localizedDescription, status: status)
+        } catch is CancellationError { return .error(L10n.string("mobile.error.authorization"), status: 401) }
+        catch { return .error(L10n.string("mobile.error.request"), status: 400) }
     }
 
     private func cookieName(secure: Bool, via entry: Entry) -> String {
@@ -418,7 +479,7 @@ final class MobileAccessController {
         let types = ["html": "text/html; charset=utf-8", "js": "application/javascript; charset=utf-8", "css": "text/css; charset=utf-8",
                      "webmanifest": "application/manifest+json", "png": "image/png", "svg": "image/svg+xml"]
         // Exact allowlist rather than exposing the bundle's arbitrary filesystem.
-        let allowed: Set<String> = ["index.html", "app.js", "core.js", "live.js", "photos.js", "i18n.js", "styles.css", "manifest.webmanifest", "sw.js",
+        let allowed: Set<String> = ["index.html", "app.js", "core.js", "live.js", "photos.js", "i18n.js", "notifications.js", "timing.js", "effort.js", "styles.css", "manifest.webmanifest", "sw.js",
                                    "icons/icon-192.png", "icons/icon-512.png", "icons/apple-touch-icon.png"]
         guard allowed.contains(path), let root = Bundle.main.url(forResource: "MobileWeb", withExtension: "bundle"),
               let type = types[URL(fileURLWithPath: path).pathExtension],

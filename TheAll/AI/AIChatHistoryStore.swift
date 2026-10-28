@@ -11,15 +11,19 @@ struct AIChatSnapshot: Codable {
     var messages: [AIChatMessage]
     var conversationID: String?
     var draftImages: [AIChatImage] = []
+    var reasoningEffort: String = ""
+    var codexAppliedReasoningEffort: String?
 
     private enum CodingKeys: String, CodingKey {
-        case version, provider, directory, model, input, messages, conversationID, draftImages
+        case version, provider, directory, model, input, messages, conversationID, draftImages, reasoningEffort, codexAppliedReasoningEffort
     }
 
     init(version: Int = 1, provider: AIProvider, directory: String, model: String, input: String,
-         messages: [AIChatMessage], conversationID: String?, draftImages: [AIChatImage] = []) {
+         messages: [AIChatMessage], conversationID: String?, draftImages: [AIChatImage] = [], reasoningEffort: String = "", codexAppliedReasoningEffort: String? = nil) {
         self.version = version == 1 && (!draftImages.isEmpty || messages.contains { !$0.images.isEmpty }) ? 2 : version
         self.provider = provider; self.directory = directory; self.model = model
+        self.reasoningEffort = reasoningEffort
+        self.codexAppliedReasoningEffort = codexAppliedReasoningEffort
         self.input = input; self.messages = messages; self.conversationID = conversationID; self.draftImages = draftImages
     }
 
@@ -33,6 +37,8 @@ struct AIChatSnapshot: Codable {
         messages = try values.decode([AIChatMessage].self, forKey: .messages)
         conversationID = try values.decodeIfPresent(String.self, forKey: .conversationID)
         draftImages = try values.decodeIfPresent([AIChatImage].self, forKey: .draftImages) ?? []
+        reasoningEffort = try values.decodeIfPresent(String.self, forKey: .reasoningEffort) ?? ""
+        codexAppliedReasoningEffort = try values.decodeIfPresent(String.self, forKey: .codexAppliedReasoningEffort)
     }
 
     func redacting(_ secrets: [String]) -> Self {

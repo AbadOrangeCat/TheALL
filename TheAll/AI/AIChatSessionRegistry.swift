@@ -8,6 +8,7 @@ final class AIChatSessionRegistry {
     let directories: TerminalPwdStore
     let history: AIChatHistoryStore
     private(set) var sessions: [UUID: AITerminalSession] = [:]
+    @ObservationIgnored var onTurnCompleted: ((UUID, UUID) -> Void)?
     private let makeSession: () -> AITerminalSession
     private let makeTransport: () -> any AIChatTransport
 
@@ -39,6 +40,10 @@ final class AIChatSessionRegistry {
         }
         session.onFirstMessageSubmitted = { [weak self] prompt in
             self?.workspaces.nameWorkspaceFromFirstPrompt(prompt, terminalId: id)
+        }
+        session.onTurnCompleted = { [weak self, weak session] eventID in
+            guard let self, let session, self.sessions[id] === session, self.contains(id) else { return }
+            self.onTurnCompleted?(id, eventID)
         }
         sessions[id] = session
         session.restoreHistory(for: id, store: history, transport: makeTransport())

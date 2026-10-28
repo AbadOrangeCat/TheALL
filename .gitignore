@@ -7,6 +7,14 @@
 
 # Build outputs
 build/
+/desktop/node_modules/
+/desktop/dist/
+/desktop/web/
+/desktop/.test-data/
+/desktop/LICENSE
+/desktop/THIRD-PARTY-NOTICES.txt
+/desktop/renderer/native-strings.mjs
+/desktop/renderer/themes.mjs
 *.o
 *.d
 *.profraw

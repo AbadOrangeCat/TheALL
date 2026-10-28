@@ -54,7 +54,7 @@ class Gateway(http.server.BaseHTTPRequestHandler):
             self.wfile.write(b'{}')
             return
         with (root / 'requests.jsonl').open('a') as output:
-            output.write(json.dumps({'model': body.get('model'), 'count': len(body.get('messages', body.get('input', []))), 'images': image_summaries(body)}) + '\n')
+            output.write(json.dumps({'model': body.get('model'), 'count': len(body.get('messages', body.get('input', []))), 'images': image_summaries(body), 'effort': body.get('output_config', {}).get('effort', body.get('reasoning', {}).get('effort'))}) + '\n')
         if path.endswith('/messages') and not body.get('stream'):
             result = {'id': 'probe', 'type': 'message', 'role': 'assistant', 'model': body['model'], 'content': [{'type': 'text', 'text': 'OK'}], 'stop_reason': 'end_turn', 'stop_sequence': None, 'usage': {'input_tokens': 1, 'output_tokens': 1}}
             self.send_response(200)

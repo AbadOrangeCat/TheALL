@@ -3,17 +3,17 @@
 </p>
 
 <h1 align="center">TheAll</h1>
-<p align="center"><strong>Claude Code and Codex. One native macOS workspace.</strong><br />Keep your projects, AI conversations, and models together. Continue from your phone.</p>
+<p align="center"><strong>Claude Code and Codex. One workspace for Mac and Windows.</strong><br />Keep your projects, AI conversations, and models together. Continue from your phone.</p>
 
 <p align="center">
-  <a href="https://github.com/AbadOrangeCat/TheALL/releases/tag/v0.1.5"><img alt="Release v0.1.5" src="https://img.shields.io/badge/release-v0.1.5-176B68?style=flat-square" /></a>
+  <a href="https://github.com/AbadOrangeCat/TheALL/releases/tag/v0.1.6"><img alt="Release v0.1.6" src="https://img.shields.io/badge/release-v0.1.6-176B68?style=flat-square" /></a>
   <img alt="macOS 14 or later" src="https://img.shields.io/badge/macOS-14%2B-263C3B?style=flat-square" />
   <img alt="Apple Silicon" src="https://img.shields.io/badge/Apple_Silicon-arm64-263C3B?style=flat-square" />
   <img alt="Mobile web app for iOS and Android" src="https://img.shields.io/badge/mobile-iOS_%26_Android-263C3B?style=flat-square" />
 </p>
 
 <p align="center">
-  <a href="https://github.com/AbadOrangeCat/TheALL/releases/tag/v0.1.5"><strong>Download for Mac</strong></a> ·
+  <a href="https://github.com/AbadOrangeCat/TheALL/releases/tag/v0.1.6"><strong>Download TheAll</strong></a> ·
   <a href="https://abadorangecat.github.io/TheALL/">Website</a> ·
   <a href="docs/mobile-access.md">Mobile setup</a> ·
   <a href="README.zh-CN.md">简体中文</a>
@@ -38,26 +38,33 @@
 
 API connections are saved through macOS Keychain. Chat history stays on your Mac; conversations are sent to the AI endpoint you configure. TheAll uses SwiftUI, AppKit, and Ghostty's terminal engine.
 
+## Windows desktop preview
+
+A Windows desktop implementation is now included in [`desktop/`](desktop/), with the Mac workspace/sidebar, tabs, split panes, chat controls, saved history, themes, five languages and phone connections. Claude Code and Codex run locally on the Windows computer. Credentials use Windows system encryption.
+
+Download the **Windows preview** from the [v0.1.6 release](https://github.com/AbadOrangeCat/TheALL/releases/tag/v0.1.6): x64 and ARM64 installers, portable EXEs, and ZIPs. See the [Windows guide](docs/windows.md). Packages are unsigned; ARM64 is cross-built and not device-tested. Windows CI covers the x64 runtime and credential/history restoration; installed-package upgrades, real provider CLIs and physical phone/watch delivery still need device acceptance.
+
 ## Get started
 
 **Requirements:** macOS 14 or later, an Apple Silicon Mac, an API connection, and the [Claude Code CLI](https://code.claude.com/docs/en/setup) or [Codex CLI](https://developers.openai.com/codex/cli) for your chosen provider. The CLIs are installed separately.
 
-1. Download the [v0.1.5 DMG](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.5/TheAll-0.1.5-macos-arm64.dmg) or [ZIP](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.5/TheAll-0.1.5-macos-arm64.zip), then move **TheAll.app** to Applications.
+1. Download the [v0.1.6 DMG](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.6/TheAll-0.1.6-macos-arm64.dmg) or [ZIP](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.6/TheAll-0.1.6-macos-arm64.zip), then move **TheAll.app** to Applications.
 2. Open TheAll, create a workspace, and select a working folder and **Claude / OpenAI**.
 3. Enter your API key and, if needed, a custom Base URL. Later conversations can reuse the saved connection.
 4. Choose a model and send your first question. The folder control and model dropdown stay beside the composer.
 
-**About this release:** v0.1.5 is signed with a local development certificate and is **not notarized by Apple**. macOS may block the first launch. After verifying the download and choosing to trust it, follow [Apple’s guidance](https://support.apple.com/en-us/102445) and use **System Settings → Privacy & Security → Open Anyway** if macOS offers it. Keep system security protections enabled. [SHA-256 checksums](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.5/SHA256SUMS.txt) are included. This release is arm64 only, and automatic updates are not configured.
+**About this release:** v0.1.6 is signed with a local development certificate and is **not notarized by Apple**. macOS may block the first launch. After verifying the download and choosing to trust it, follow [Apple’s guidance](https://support.apple.com/en-us/102445) and use **System Settings → Privacy & Security → Open Anyway** if macOS offers it. Keep system security protections enabled. [SHA-256 checksums](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.6/SHA256SUMS.txt) are included. This release is arm64 only, and automatic updates are not configured.
 
 **Execution behavior:** coding-agent tools run automatically, including file changes, deletion, dependency installation, and Git pushes. Use a project and API connection you intend the agent to operate. Questions that require your answer still pause for input.
 
-## New in v0.1.5: scan and connect
+## New in v0.1.6
 
-On the same Wi-Fi, click **Connect phone** at the bottom of the Mac sidebar and scan the QR code with your phone camera. Opening the link pairs automatically: no certificate installation, address entry, device-name form, or second Connect button. The shortcut opens the QR code directly; it is also available in Settings.
+- **Windows preview:** local Claude Code/Codex, workspaces, tabs, split panes, saved conversations and phone access.
+- **Reasoning effort beside the model:** choices come from the selected model's reported capabilities. Claude settings are read back before every message; a mismatch stops submission and keeps your draft. The completion footer distinguishes CLI-confirmed effort from Codex's requested effort. A model's own description of its internal budget is not a settings readback.
+- **Completion details:** each new finished turn shows its completion time and elapsed duration, saved with the conversation.
+- **Phone and watch alerts:** opt into task-completion Web Push over HTTPS. iOS uses a Home Screen Web App; compatible watches mirror phone notifications according to OS settings. Physical device delivery remains unverified. Local HTTP quick connect supports chat, but cannot receive background push.
 
-Quick connect uses **unencrypted local HTTP** on a trusted private network. Optional HTTPS, relay access, and sharing permissions remain under Advanced connection settings. HTTPS enables the full PWA installation flow; quick connect works as an online browser page.
-
-Local development tests now build into a separate directory with a separate application identity, preventing test builds from replacing the app you open and showing an empty test workspace.
+The sidebar **Connect phone** button still provides automatic QR pairing on trusted local Wi-Fi. Advanced settings offer HTTPS and self-hosted relay access.
 
 ## Photos
 
