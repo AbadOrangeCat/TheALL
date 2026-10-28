@@ -41,7 +41,10 @@ function Assert-Staged {
   if ((Get-SHA256 $p.manifest) -ne $p.manifestHash) { throw 'Prepared update manifest changed' }
   Assert-ApplicationFolder $p.stage
   $files = @(Get-ChildItem -LiteralPath $p.stage -File -Recurse -Force)
-  $manifest = @(Get-Content -LiteralPath $p.manifest -Raw -Encoding UTF8 | ConvertFrom-Json)
+  # Windows PowerShell 5.1 emits a JSON array as one pipeline object. Assign
+  # before wrapping so the manifest remains an array of file records on 5.1/7.
+  $manifest = Get-Content -LiteralPath $p.manifest -Raw -Encoding UTF8 | ConvertFrom-Json
+  $manifest = @($manifest)
   if ($files.Count -ne $manifest.Count) { throw 'Prepared update files changed' }
   foreach ($record in $manifest) {
     $file = Join-Path $p.stage $record.name
