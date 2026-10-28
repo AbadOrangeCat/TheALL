@@ -31,7 +31,7 @@ class Child extends EventEmitter {
 
 async function fixture(t, provider = 'claude', handler, chatOverrides = {}, options = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'theall-ai-'));
-  const executable = path.join(root, 'fake-cli'); await writeFile(executable, '', { mode: 0o700 });
+  const executable = path.join(root, process.platform === 'win32' ? 'fake-cli.exe' : 'fake-cli'); await writeFile(executable, '', { mode: 0o700 });
   let launched;
   const child = new Child((message, child, done) => {
     if (handler?.(message, child, done) === false) return false;
