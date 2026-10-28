@@ -73,3 +73,17 @@ test('Windows helper rejects a modified prepared package and rolls back a failed
  const result=await commit(prepared);assert.equal(result.ok,false);assert.deepEqual(await fs.readFile(target),original);await waitFile(path.join(f.root,'old-restarted'));
  await fs.writeFile(file,'tampered');await assert.rejects(armInstaller(prepared),/size changed|checksum/);
 });
+test('Windows cancelled update cannot replace or relaunch the app after cache cleanup and normal quit',{skip:!windows,timeout:90000},async t=>{
+ const f=await fixture(t),target=path.join(f.root,'TheAll.exe'),file=path.join(f.folder,'next.exe');
+ const oldMarker=path.join(f.root,'old-started'),newMarker=path.join(f.root,'new-started');
+ await executable(target,oldMarker);const original=await fs.readFile(target);await executable(file,newMarker);
+ const prepared=await prepareInstaller({file,asset:await asset(file,'portable'),folder:f.folder},{kind:'portable',target},{userData:f.userData});
+ const child=spawn(process.execPath,['-e','process.stdin.resume()'],{stdio:['pipe','ignore','ignore'],windowsHide:true});t.after(()=>child.stdin.end());
+ prepared.plan.pid=child.pid;await fs.writeFile(prepared.planFile,JSON.stringify(prepared.plan));
+ const handoff=await armInstaller(prepared);await handoff.go();await new Promise(r=>setTimeout(r,150));
+ await handoff.cancel();await fs.rm(f.folder,{recursive:true,force:true,maxRetries:20,retryDelay:100});
+ const exited=new Promise(resolve=>child.once('exit',resolve));child.stdin.end();await exited;
+ await new Promise(r=>setTimeout(r,2000));
+ assert.deepEqual(await fs.readFile(target),original);
+ for(const marker of [oldMarker,newMarker,prepared.plan.result])await assert.rejects(fs.access(marker));
+});

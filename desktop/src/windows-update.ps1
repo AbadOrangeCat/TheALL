@@ -87,15 +87,24 @@ if ($Prepare) {
 # Spawned before shutdown; nothing can be changed until the parent has saved
 # drafts and committed the one-time handoff marker.
 [IO.File]::WriteAllText($p.ready, 'ready')
+function Test-Cancelled {
+  # A failed application save removes this update's cache after cancellation.
+  # Treat a missing plan as cancellation too; never relaunch after normal quit.
+  return (Test-Path -LiteralPath $p.cancel) -or !(Test-Path -LiteralPath $Plan -PathType Leaf)
+}
 $deadline = [DateTime]::UtcNow.AddSeconds(120)
 while (!(Test-Path -LiteralPath $p.go)) {
-  if ((Test-Path -LiteralPath $p.cancel) -or [DateTime]::UtcNow -gt $deadline) { exit 1 }
+  if ((Test-Cancelled) -or [DateTime]::UtcNow -gt $deadline) { exit 1 }
   Start-Sleep -Milliseconds 100
 }
 try {
   $process = Get-Process -Id $p.pid -ErrorAction SilentlyContinue
-  if ($process -and !$process.WaitForExit(60000)) { throw 'TheAll did not exit; update cancelled' }
-  if (Test-Path -LiteralPath $p.cancel) { exit 1 }
+  $deadline = [DateTime]::UtcNow.AddSeconds(60)
+  while ($process -and !$process.WaitForExit(100)) {
+    if (Test-Cancelled) { exit 1 }
+    if ([DateTime]::UtcNow -gt $deadline) { throw 'TheAll did not exit; update cancelled' }
+  }
+  if (Test-Cancelled) { exit 1 }
   Assert-Package
   if ($p.kind -eq 'nsis') {
     $arguments = '/S --updated --force-run /D=' + $p.target
