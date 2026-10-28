@@ -13,7 +13,7 @@ final class AIChatTests: XCTestCase {
         var launch: AILaunchConfiguration?
         var directory: String?
         func start(_ configuration: AILaunchConfiguration, directory: String) throws { starts += 1; launch = configuration; self.directory = directory }
-        func send(_ message: [String: Any]) throws { sent.append(message) }
+        func send(_ message: [String: Any]) throws { sent.append(message); respondToClaudeEffortControl(message, sent: sent) { onMessage?($0) } }
         func stop() { stops += 1 }
         func emit(_ message: [String: Any]) { onMessage?(message) }
         func respond(_ value: [String: Any] = [:], to message: [String: Any]? = nil) {
@@ -388,7 +388,9 @@ final class AIChatTests: XCTestCase {
             wait(5) { FileManager.default.fileExists(atPath: portFile.path) }
             guard let port = try? String(contentsOf: portFile, encoding: .utf8) else { XCTFail("Fixture did not start"); continue }
             let endpoint = "http://127.0.0.1:" + port + (provider == .openai ? "/v1" : "")
-            let connection = AIConnection(apiKey: "fake-local-integration-key", baseURL: endpoint, model: "fixture-one")
+            let firstModel = provider == .claude ? "claude-opus-5-5" : "fixture-one"
+            let secondModel = provider == .claude ? "claude-sonnet-5-5" : "fixture-two"
+            let connection = AIConnection(apiKey: "fake-local-integration-key", baseURL: endpoint, model: firstModel)
             var configuration = try AILaunchConfiguration.make(provider: provider, connection: connection, executable: binary)
             // Real CLIs, exclusively fake credentials, isolated configuration,
             // a temporary working directory, and a local server. Both
@@ -400,7 +402,7 @@ final class AIChatTests: XCTestCase {
             configuration.environment["CODEX_HOME"] = codexHome.path
             configuration.environment["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] = "1"
             configuration.environment["DISABLE_AUTOUPDATER"] = "1"
-            let chat = AIChatSession(provider: provider, model: "fixture-one", directory: root.path)
+            let chat = AIChatSession(provider: provider, model: firstModel, directory: root.path)
             defer { chat.stop() }
             chat.start(configuration)
             wait(20) { chat.isReady || chat.errorMessage != nil }
@@ -414,7 +416,7 @@ final class AIChatTests: XCTestCase {
             let conversationID = chat.conversationID
             XCTAssertNotNil(conversationID)
             chat.input = "Continue the same conversation"
-            chat.model = "fixture-two"
+            chat.model = secondModel
             XCTAssertEqual(chat.input, "Continue the same conversation")
             chat.send()
             wait(25) { !chat.isBusy }
@@ -424,11 +426,11 @@ final class AIChatTests: XCTestCase {
             XCTAssertEqual(chat.messages.filter { $0.role == .assistant }.count, 2)
             let lines = (try? String(contentsOf: root.appendingPathComponent("requests.jsonl"), encoding: .utf8)) ?? ""
             let requests = lines.split(separator: "\n").compactMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] }
-            XCTAssertEqual(requests.first?["model"] as? String, "fixture-one")
-            XCTAssertEqual(requests.last?["model"] as? String, "fixture-two")
+            XCTAssertEqual(requests.first?["model"] as? String, firstModel)
+            XCTAssertEqual(requests.last?["model"] as? String, secondModel)
             // Claude may validate a newly selected model with an extra request.
-            let firstCount = requests.filter { $0["model"] as? String == "fixture-one" }.compactMap { $0["count"] as? Int }.max() ?? 0
-            let secondCount = requests.filter { $0["model"] as? String == "fixture-two" }.compactMap { $0["count"] as? Int }.max() ?? 0
+            let firstCount = requests.filter { $0["model"] as? String == firstModel }.compactMap { $0["count"] as? Int }.max() ?? 0
+            let secondCount = requests.filter { $0["model"] as? String == secondModel }.compactMap { $0["count"] as? Int }.max() ?? 0
             XCTAssertGreaterThan(firstCount, 0)
             XCTAssertGreaterThan(secondCount, firstCount)
             let nextFolder = root.appendingPathComponent("next-project")
@@ -481,7 +483,7 @@ final class AIChatTests: XCTestCase {
             XCTAssertEqual(reopened.messages.map(\.text), beforeClose)
             XCTAssertEqual(reopened.input, "Continue after reopening TheAll")
             XCTAssertEqual(reopened.directory, nextFolder.path)
-            XCTAssertEqual(reopened.model, "fixture-two")
+            XCTAssertEqual(reopened.model, secondModel)
             reopened.start(configuration)
             wait(20) { reopened.isReady || reopened.errorMessage != nil }
             XCTAssertTrue(reopened.isReady, reopened.errorMessage ?? "Reopened chat did not initialize")
@@ -496,6 +498,50 @@ final class AIChatTests: XCTestCase {
                 (try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any])?["count"] as? Int
             }.last ?? 0
             XCTAssertGreaterThan(resumedCount, previousCount, "Backend context must also survive reopening")
+
+            // Inspect actual outbound API payloads, not the model's prose or
+            // the SDK's settings ACK, when verifying effort changes.
+            let effortModel = try XCTUnwrap(reopened.backendModels.first {
+                (provider != .claude || $0.id == firstModel)
+                    && $0.reasoningEfforts.contains("xhigh")
+            })
+            reopened.model = effortModel.id
+            for effort in effortModel.reasoningEfforts + [""] {
+                reopened.reasoningEffort = effort
+                reopened.input = "Verify selected effort " + (effort.isEmpty ? "default" : effort)
+                reopened.send()
+                wait(25) { !reopened.isBusy }
+                XCTAssertFalse(reopened.isBusy)
+                XCTAssertNil(reopened.errorMessage)
+                let payloads = try String(contentsOf: root.appendingPathComponent("requests.jsonl"), encoding: .utf8)
+                let last = try XCTUnwrap(payloads.split(separator: "\n").last)
+                let payload = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(last.utf8)) as? [String: Any])
+                if !effort.isEmpty {
+                    // Ultra belongs to Codex's client; this installed CLI
+                    // emits xhigh for its underlying model request.
+                    let expected = provider == .openai && effort == "ultra" ? "xhigh" : effort
+                    XCTAssertEqual(payload["effort"] as? String, expected, "\(provider): selected \(effort)")
+                    XCTAssertEqual(reopened.messages.last?.reasoningEffort, effort)
+                    XCTAssertEqual(reopened.messages.last?.reasoningEffortVerified, provider == .claude)
+                } else if provider == .openai {
+                    XCTAssertEqual(payload["effort"] as? String, effortModel.defaultReasoningEffort)
+                } else {
+                    XCTAssertEqual(payload["effort"] as? String, "medium", "Opus 5.5 Default must clear the prior explicit max")
+                }
+            }
+            reopened.reasoningEffort = "high"; reopened.input = "High before reopen"; reopened.send()
+            wait(25) { !reopened.isBusy }; XCTAssertNil(reopened.errorMessage)
+            reopened.reasoningEffort = ""; reopened.input = "Default after reopen"
+            let defaultSnapshot = reopened.snapshot
+            reopened.stop()
+            let defaultChat = AIChatSession(provider: provider, model: "", directory: root.path, restoring: defaultSnapshot)
+            defer { defaultChat.stop() }
+            defaultChat.start(configuration); wait(20) { defaultChat.isReady || defaultChat.errorMessage != nil }
+            XCTAssertTrue(defaultChat.isReady)
+            defaultChat.send(); wait(25) { !defaultChat.isBusy }
+            XCTAssertNil(defaultChat.errorMessage)
+            XCTAssertEqual(defaultChat.messages.last?.reasoningEffort, provider == .claude ? "medium" : effortModel.defaultReasoningEffort)
+            XCTAssertEqual(defaultChat.messages.last?.reasoningEffortVerified, provider == .claude)
         }
     }
 
@@ -628,12 +674,12 @@ final class AIChatTests: XCTestCase {
             func delete(for provider: AIProvider) throws {}
         }
         let session = AITerminalSession(credentials: Store(), makeLaunch: { _, _ in self.configuration }, loadModels: { _, _ in
-            [AIModelOption(id: "model-a", title: "Model A"), AIModelOption(id: "model-b", title: "Model B")]
+            [AIModelOption(id: "model-a", title: "Model A", reasoningEfforts: ["low", "medium", "high"]), AIModelOption(id: "model-b", title: "Model B", reasoningEfforts: ["low", "medium", "high"])]
         })
         session.choose(.claude)
         let pipe = Transport()
         session.startChat(configuration, directory: "/tmp/example-project", transport: pipe)
-        pipe.respond()
+        pipe.respond(["models": [["value": "model-a", "displayName": "Model A", "supportsEffort": true, "supportedEffortLevels": ["low", "medium", "high"]]]])
         let chat = try XCTUnwrap(session.chat)
         var submittedPrompts: [String] = []
         session.onFirstMessageSubmitted = { submittedPrompts.append($0) }
@@ -728,7 +774,7 @@ final class AIChatTests: XCTestCase {
         XCTAssertEqual(chat.input, "This draft stays here when the model changes.")
         capture("TheAll jump button hidden at bottom")
         session.startChat(configuration, directory: "/tmp/example-project", transport: pipe)
-        pipe.respond()
+        pipe.respond(["models": [["value": "model-a", "displayName": "Model A", "supportsEffort": true, "supportedEffortLevels": ["low", "medium", "high"]]]])
         let active = try XCTUnwrap(session.chat)
         active.input = "Explain the project."
         active.send(); pipe.respond()

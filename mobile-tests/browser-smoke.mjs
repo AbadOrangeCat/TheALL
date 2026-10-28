@@ -22,6 +22,10 @@ const creations = [];
 const hasSession = req => paired && (req.headers.cookie || '').split(';').some(part => part.trim() === `${cookieName}=${sessionToken}`);
 let sessionProbes = 0, workspaceReads = 0, eventConnections = 0, bootID = 'boot-1';
 let access = { workspaceId: null, writable: true };
+const notificationChat = 'F8D37844-CC8D-45F7-B56A-363E156FA233';
+let includeNotificationChat = false, notificationReads = 0;
+const rejectedNotificationChat = 'ed942fc9-7358-415d-bdc2-71c2e0977b99';
+let unauthorizedNotificationReads = 0;
 let rejectEvents = false; const eventSockets = new Set();
 function wsSend(socket, message) {
   const data = Buffer.from(JSON.stringify(message)); const header = Buffer.alloc(data.length < 126 ? 2 : 4);
@@ -32,7 +36,7 @@ function push(message = { type: 'changed', bootID }) { for (const socket of even
 const screenshotPath = process.env.SCREENSHOT_PATH || join(tmpdir(), 'theall-mobile-preview.png');
 const requests = [];
 const all = Array.from({ length: 122 }, (_, n) => ({ id: `m${n}`, role: n % 2 ? 'assistant' : 'user', text: `Historical message ${n}`, isIntermediate: false }));
-all.push({ id: 'u', role: 'user', text: '查看当前项目的状态，并运行测试。' }, { id: 'p', role: 'assistant', isIntermediate: true, text: '正在检查工作目录与提交状态。' }, { id: 'a', role: 'assistant', text: '检查已完成，所有测试通过。\n\n```sh\nnpm test\n```\nhttps://example.com\n<script>alert("xss")</script>' });
+all.push({ id: 'u', role: 'user', text: '查看当前项目的状态，并运行测试。' }, { id: 'p', role: 'assistant', isIntermediate: true, text: '正在检查工作目录与提交状态。' }, { id: 'a', role: 'assistant', completedAt: '2026-10-28T00:01:02.123Z', durationMs: 65432, completionStatus: 'completed', reasoningEffort: 'high', reasoningEffortVerified: true, text: '检查已完成，所有测试通过。\n\n```sh\nnpm test\n```\nhttps://example.com\n<script>alert("xss")</script>' });
 const server = createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost');
   const json = (status, body, headers = {}) => { res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...headers }); res.end(JSON.stringify(body)); };
@@ -57,7 +61,9 @@ const server = createServer(async (req, res) => {
     if (url.pathname === '/api/logout') { paired = false; return json(200, {}, { 'Set-Cookie': `${cookieName}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0${lanMode ? '' : '; Secure'}` }); }
     if (!hasSession(req)) return json(401, { error: 'Pair first' });
     if (url.pathname === '/api/chats') { creations.push(body); return json(200, { id: 'd' }); }
-    if (url.pathname === '/api/workspaces') { workspaceReads++; return json(200, { bootID, access, workspaces: [{ id: 'w', name: 'Project Atlas', conversations: [{ id: 'c', title: '检查项目状态', directory: '/Users/you/Projects/atlas', provider: 'claude', model: 'claude-sonnet', status: 'idle', messageCount: all.length }, { id: 'd', title: 'Another conversation', directory: '/Users/you/Projects/atlas', provider: 'openai', status: 'idle', messageCount: 0 }] }].filter(w => !access.workspaceId || w.id === access.workspaceId) }); }
+    if (url.pathname === '/api/workspaces') { workspaceReads++; return json(200, { bootID, access, workspaces: [{ id: 'w', name: 'Project Atlas', conversations: [{ id: 'c', title: '检查项目状态', directory: '/Users/you/Projects/atlas', provider: 'claude', model: 'claude-sonnet', status: 'idle', messageCount: all.length }, { id: 'd', title: 'Another conversation', directory: '/Users/you/Projects/atlas', provider: 'openai', status: 'idle', messageCount: 0 }, ...(includeNotificationChat ? [{ id: notificationChat, title: 'Notification target', provider: 'claude', status: 'idle', messageCount: 0 }] : [])] }].filter(w => !access.workspaceId || w.id === access.workspaceId) }); }
+    if (url.pathname === '/api/chats/' + rejectedNotificationChat) { unauthorizedNotificationReads++; return json(403, { error: 'Forbidden' }); }
+    if (url.pathname === '/api/chats/' + notificationChat) { notificationReads++; return json(200, { id: notificationChat, bootID, access, provider: 'claude', model: '', messages: [], start: 0, total: 0, canResume: true, isBusy: false, models: [] }); }
     if (url.pathname === '/api/chats/c/send') {
       assert.equal(req.headers['x-theall-client'], '1'); requests.push(body);
       if (unknown) { unknown = false; all.push({ id: 'sent', role: 'user', text: body.text }); return json(503, { code: 'outcome_unknown', error: 'Mac acknowledgement was lost' }); }
@@ -67,7 +73,7 @@ const server = createServer(async (req, res) => {
       const messages = url.pathname.endsWith('/c') ? all : [];
       const end = Math.min(Number(url.searchParams.get('before') ?? messages.length), messages.length);
       const start = Math.max(0, end - 100);
-      return json(200, { id: url.pathname.endsWith('/c') ? 'c' : 'd', bootID, access, provider: 'claude', model: 'claude-sonnet', directory: '/Users/you/Projects/atlas', messages: messages.slice(start, end), start, total: messages.length, isReady: false, canResume: true, isBusy: false, canInterrupt: false, questions: url.pathname.endsWith('/d') ? [{ id: 'qg', title: 'Pick an option', questions: [{ id: 'q', prompt: 'Which task?', options: ['Build', 'Test'], multiple: true, secret: false }] }] : [], models: [{ id: 'claude-sonnet', title: 'Claude Sonnet' }] });
+      return json(200, { id: url.pathname.endsWith('/c') ? 'c' : 'd', bootID, access, provider: 'claude', model: 'claude-sonnet', directory: '/Users/you/Projects/atlas', messages: messages.slice(start, end), start, total: messages.length, isReady: false, canResume: true, isBusy: false, canInterrupt: false, questions: url.pathname.endsWith('/d') ? [{ id: 'qg', title: 'Pick an option', questions: [{ id: 'q', prompt: 'Which task?', options: ['Build', 'Test'], multiple: true, secret: false }] }] : [], defaultModel: 'claude-sonnet', reasoningEffort: '', models: [{ id: 'claude-sonnet', title: 'Claude Sonnet', reasoningEfforts: ['low', 'high'], defaultReasoningEffort: 'high' }, { id: 'no-reasoning', title: 'No effort support' }] });
     }
     return json(404, { error: 'Unknown test endpoint' });
   }
@@ -167,6 +173,24 @@ try {
   all.at(-1).text += '\nLive pushed update'; push();
   await until(() => evaluate('document.getElementById("messages").textContent.includes("Live pushed update")'), 'event-driven transcript update');
   assert.equal(await evaluate('document.getElementById("send").disabled'), false, 'archived canResume chat can send');
+  assert.equal(await evaluate('document.querySelectorAll(".message-timing").length'), 1);
+  assert.match(await evaluate('document.querySelector(".message-timing").textContent'), /Completed.*Took.*1 min/);
+  assert.match(await evaluate('document.querySelector(".message-timing").textContent'), /CLI confirmed effort: high/);
+  assert.deepEqual(await evaluate('[...document.getElementById("effort").options].map(option => option.value)'), ['', 'low', 'high']);
+  await evaluate('document.getElementById("effort").value="high"; document.getElementById("effort").dispatchEvent(new Event("change")); document.getElementById("model").value="no-reasoning"; document.getElementById("model").dispatchEvent(new Event("change"))');
+  assert.equal(await evaluate('document.getElementById("effort").hidden'), false, 'effort control keeps its location when unavailable');
+  assert.equal(await evaluate('document.getElementById("effort").disabled'), true);
+  assert.equal(await evaluate('document.getElementById("draft").value'), 'A draft kept across navigation');
+  await evaluate('document.getElementById("model").value=""; document.getElementById("model").dispatchEvent(new Event("change"))');
+  assert.equal(await evaluate('document.getElementById("effort").hidden'), false, 'resolved default model has real capability metadata');
+  assert.equal(await evaluate('document.getElementById("effort").value'), '');
+  await evaluate('document.getElementById("effort").value="high"; document.getElementById("effort").dispatchEvent(new Event("change"))');
+  await evaluate('document.getElementById("open-notifications").click()');
+  await until(() => evaluate('!document.getElementById("notification-status").textContent.includes("Updating")'), 'notification capability status');
+  assert.match(await evaluate('document.getElementById("notification-status").textContent'), lanMode ? /HTTPS/ : /Update the desktop/);
+  assert.equal(await evaluate('document.getElementById("notification-enable").hidden'), true);
+  await evaluate('document.getElementById("close-notifications").click()');
+
   await evaluate('document.getElementById("composer").requestSubmit()');
   await until(() => evaluate('!document.getElementById("mutation-error").hidden'), 'unknown send outcome');
   assert.equal(await evaluate('document.getElementById("draft").value'), 'A draft kept across navigation');
@@ -179,7 +203,7 @@ try {
   await evaluate('document.getElementById("retry-operation").click()');
   await until(() => evaluate('document.getElementById("draft").value === ""'), 'successful explicit retry');
   assert.equal(requests.length, 2); assert.deepEqual(requests[0], requests[1]);
-  assert.equal(requests[0].bootID, 'boot-1');
+  assert.equal(requests[0].bootID, 'boot-1'); assert.equal(requests[0].reasoningEffort, 'high');
   await evaluate('window.dispatchEvent(new Event("offline"))');
   assert.equal(await evaluate('document.getElementById("send").disabled'), true);
   await evaluate('window.dispatchEvent(new Event("online")); document.querySelectorAll(".conversation")[1].click()');
@@ -293,6 +317,21 @@ try {
   assert.equal(pairRequests, 4);
   await pause(1000);
   assert.equal(await evaluate('document.getElementById("pair-screen").hidden && document.getElementById("new-chat").hidden'), true);
+  // Completion links wait for authentication and resolve IDs only against authorized workspaces.
+  includeNotificationChat = true;
+  await call('Page.navigate', { url: `http://${bindAddress}:${port}/?chat=${notificationChat.toLowerCase()}` });
+  await until(() => evaluate('document.getElementById("chat-title").textContent === "Notification target"'), 'notification opens canonical authorized conversation');
+  assert.equal(await evaluate('location.search'), ''); assert.ok(notificationReads > 0);
+  await call('Page.navigate', { url: `http://${bindAddress}:${port}/?chat=${rejectedNotificationChat}` });
+  await until(() => evaluate('document.getElementById("global-error").textContent.length > 0'), 'unknown notification target explained');
+  assert.equal(unauthorizedNotificationReads, 0, 'unknown chat was never fetched');
+  paired = false;
+  await call('Page.navigate', { url: `http://${bindAddress}:${port}/?chat=${notificationChat.toLowerCase()}` });
+  await until(() => evaluate('!document.getElementById("pair-screen").hidden && document.getElementById("pair-form").hidden === false'), 'expired notification session requires pairing');
+  invitation = 'notification-invitation';
+  await evaluate('document.getElementById("pair-token").value="notification-invitation"; document.getElementById("pair-form").requestSubmit()');
+  await until(() => evaluate('document.getElementById("chat-title").textContent === "Notification target"'), 'notification target survives re-pairing');
+  assert.equal(requests.length, 3, 'notification clicks never submit messages');
   assert.deepEqual(exceptions, []);
   console.log(`PASS (${lanMode ? 'insecure LAN HTTP' : 'secure-context loopback'}): automatic pairing/cookies/UUID/photo/new-chat, history pagination, safe rendering, mobile layout, archived resume, draft retention, unknown-outcome retry, offline guard, question drafts, initial offline recovery, Mac restart, WebSocket push/backoff/fallback, scope, read-only, revocation, five languages. Screenshot: ${screenshotPath}`);
 } finally {

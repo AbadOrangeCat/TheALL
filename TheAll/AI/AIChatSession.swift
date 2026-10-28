@@ -12,16 +12,22 @@ struct AIChatMessage: Identifiable, Codable {
     /// Keep the original role/text so expanding it restores the full content.
     var isIntermediate = false
     var images: [AIChatImage] = []
+    var completedAt: String?
+    var durationMs: Double?
+    var completionStatus: String?
+    var reasoningEffort: String?
+    var reasoningEffortVerified = false
     var isVisibleInTranscript: Bool {
         (role != .tool || isError) && (!text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !images.isEmpty)
     }
 
-    private enum CodingKeys: String, CodingKey { case id, role, text, model, isError, isIntermediate, images }
+    private enum CodingKeys: String, CodingKey { case id, role, text, model, isError, isIntermediate, images, completedAt, durationMs, completionStatus, reasoningEffort, reasoningEffortVerified }
 
     init(id: String, role: Role, text: String, model: String = "", isError: Bool = false,
-         isIntermediate: Bool = false, images: [AIChatImage] = []) {
+         isIntermediate: Bool = false, images: [AIChatImage] = [], completedAt: String? = nil, durationMs: Double? = nil, completionStatus: String? = nil) {
         self.id = id; self.role = role; self.text = text; self.model = model
         self.isError = isError; self.isIntermediate = isIntermediate; self.images = images
+        self.completedAt = completedAt; self.durationMs = durationMs; self.completionStatus = completionStatus
     }
 
     init(from decoder: Decoder) throws {
@@ -33,6 +39,12 @@ struct AIChatMessage: Identifiable, Codable {
         isError = try values.decodeIfPresent(Bool.self, forKey: .isError) ?? false
         isIntermediate = try values.decodeIfPresent(Bool.self, forKey: .isIntermediate) ?? false
         images = try values.decodeIfPresent([AIChatImage].self, forKey: .images) ?? []
+        completedAt = try values.decodeIfPresent(String.self, forKey: .completedAt)
+        completionStatus = try values.decodeIfPresent(String.self, forKey: .completionStatus)
+        durationMs = try values.decodeIfPresent(Double.self, forKey: .durationMs)
+        reasoningEffort = try values.decodeIfPresent(String.self, forKey: .reasoningEffort)
+        reasoningEffortVerified = try values.decodeIfPresent(Bool.self, forKey: .reasoningEffortVerified) ?? false
+        if let durationMs, !durationMs.isFinite || durationMs < 0 { self.durationMs = nil }
     }
 }
 
@@ -60,8 +72,22 @@ final class AIChatSession {
     var draftImages: [AIChatImage] = [] { didSet { onStateChanged?() } }
     let imageStore: AIChatImageStore
     var model: String {
-        didSet { if model != oldValue { showsModelChangeHint = true; onStateChanged?() } }
+        didSet { if model != oldValue { showsModelChangeHint = true; if !reasoningEffort.isEmpty && !reasoningEfforts(for: model).contains(reasoningEffort) { reasoningEffort = "" }; onStateChanged?() } }
     }
+    var reasoningEffort = "" { didSet { onStateChanged?() } }
+    private(set) var backendModels: [AIModelOption] = []
+    var catalogModels: [AIModelOption] = [] { didSet { onStateChanged?() } }
+    var supportedReasoningEfforts: [String] { reasoningEfforts(for: model) }
+    func reasoningEfforts(for model: String) -> [String] {
+        let models = AIModelOption.merge(catalog: catalogModels, backend: backendModels)
+        if let option = models.first(where: { $0.id == model }) { return option.reasoningEfforts }
+        let selected = model.isEmpty ? defaultModel ?? "" : model
+        return models.first { $0.id == selected }?.reasoningEfforts ?? []
+    }
+    @ObservationIgnored private var turnReasoningEffort = ""
+    @ObservationIgnored private var turnAppliedReasoningEffort: String?
+    @ObservationIgnored private var turnEffortVerified = false
+    @ObservationIgnored private var codexAppliedReasoningEffort: String?
     private(set) var showsModelChangeHint = false
     private(set) var messages: [AIChatMessage] = []
     private(set) var approvals: [AIChatApproval] = []
@@ -73,6 +99,13 @@ final class AIChatSession {
     var errorMessage: String?
     @ObservationIgnored var onFirstMessageSubmitted: ((String) -> Void)?
     @ObservationIgnored var onStateChanged: (() -> Void)?
+    @ObservationIgnored var onTurnCompleted: ((UUID) -> Void)?
+    @ObservationIgnored private var completionToken: UUID?
+    @ObservationIgnored private var turnStartedAt: Date?
+    @ObservationIgnored private var turnStartedUptime: TimeInterval?
+    @ObservationIgnored private var awaitingSubmittedTurn = false
+    @ObservationIgnored private var turnWasInterrupted = false
+    @ObservationIgnored private var seenCompletionIDs: [String] = []
     var visibleMessages: [AIChatMessage] { messages.filter(\.isVisibleInTranscript) }
     var activeThinkingID: String? {
         guard isBusy, approvals.isEmpty else { return nil }
@@ -97,7 +130,7 @@ final class AIChatSession {
     @ObservationIgnored private var turnID: String?
     @ObservationIgnored private var turnModel = ""
     private var thinkingStartIndex = 0
-    @ObservationIgnored private var defaultModel: String?
+    private(set) var defaultModel: String?
     @ObservationIgnored private var appliedClaudeModel: String
     @ObservationIgnored private var claudeMessageID = ""
     @ObservationIgnored private var streamedClaudeIDs = Set<String>()
@@ -129,6 +162,8 @@ final class AIChatSession {
             self.directory = snapshot.directory
             self.model = snapshot.model
             self.appliedClaudeModel = snapshot.model
+            self.reasoningEffort = snapshot.reasoningEffort
+            self.codexAppliedReasoningEffort = snapshot.codexAppliedReasoningEffort ?? (provider == .openai && !snapshot.reasoningEffort.isEmpty ? snapshot.reasoningEffort : nil)
             self.input = snapshot.input
             self.draftImages = snapshot.draftImages
             self.messages = snapshot.messages
@@ -140,7 +175,7 @@ final class AIChatSession {
 
     private var rawSnapshot: AIChatSnapshot {
         AIChatSnapshot(provider: provider, directory: directory, model: model, input: input,
-                       messages: messages, conversationID: conversationID, draftImages: draftImages)
+                       messages: messages, conversationID: conversationID, draftImages: draftImages, reasoningEffort: reasoningEffort, codexAppliedReasoningEffort: codexAppliedReasoningEffort)
     }
 
     var snapshot: AIChatSnapshot { rawSnapshot.redacting(secrets) }
@@ -165,6 +200,7 @@ final class AIChatSession {
         }
         if !model.isEmpty { configuration.arguments += ["--model", model] }
         appliedClaudeModel = model
+        backendModels = []
         self.configuration = configuration
         stopped = false
         isReady = false
@@ -208,6 +244,7 @@ final class AIChatSession {
                         try self.rpc("model/list", params: ["limit": 100]) { [weak self] result in
                             guard let self else { return }
                             if case .success(let value) = result, let models = value["data"] as? [[String: Any]] {
+                                self.backendModels = AIModelOption.cliModels(models, provider: .openai)
                                 self.defaultModel = models.first { $0["isDefault"] as? Bool == true }?["model"] as? String
                             }
                             self.startCodexThread(resuming: sessionID)
@@ -269,7 +306,11 @@ final class AIChatSession {
     }
 
     private func initialized(_ result: Result<[String: Any], Error>) {
-        do { _ = try result.get(); isReady = true }
+        do {
+            let value = try result.get()
+            backendModels = AIModelOption.cliModels(value["models"] as? [[String: Any]] ?? [], provider: .claude)
+            isReady = true
+        }
         catch { fail(error) }
     }
 
@@ -280,15 +321,19 @@ final class AIChatSession {
 
     /// Remote clients own their drafts. Never overwrite or clear the Mac composer.
     @discardableResult
-    func sendRemote(_ prompt: String, images: [AIChatImage] = [], model selectedModel: String? = nil,
+    func sendRemote(_ prompt: String, images: [AIChatImage] = [], model selectedModel: String? = nil, reasoningEffort selectedEffort: String? = nil,
                     stillAuthorized: @escaping () -> Bool = { true },
                     completion: @escaping (RemoteSubmissionResult) -> Void = { _ in }) -> Bool {
         guard stillAuthorized(), remoteSubmission == nil, isReady, !isBusy, approvals.isEmpty,
               (!prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !images.isEmpty)
         else { completion(.rejected); return false }
+        let nextModel = selectedModel ?? model
+        let nextEffort = selectedEffort ?? (nextModel == model ? reasoningEffort : "")
+        guard nextEffort.isEmpty || reasoningEfforts(for: nextModel).contains(nextEffort) else { completion(.rejected); return false }
         remoteRequestWasWritten = false
         remoteSubmission = completion
         if let selectedModel { model = selectedModel }
+        reasoningEffort = nextEffort
         return submit(prompt, images: images, clearsComposer: false, stillAuthorized: stillAuthorized)
     }
 
@@ -297,7 +342,17 @@ final class AIChatSession {
                         stillAuthorized: @escaping () -> Bool = { true }) -> Bool {
         guard isReady, !isBusy, approvals.isEmpty,
               (!prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !images.isEmpty) else { return false }
+        guard reasoningEffort.isEmpty || supportedReasoningEfforts.contains(reasoningEffort) else {
+            errorMessage = L10n.string("ai.effort.unsupported")
+            completeRemoteSubmission(.rejected)
+            return false
+        }
         turnModel = model
+        turnReasoningEffort = reasoningEffort
+        turnAppliedReasoningEffort = nil
+        turnEffortVerified = false
+        awaitingSubmittedTurn = true
+        turnWasInterrupted = false
         thinkingStartIndex = messages.count
         isBusy = true
         errorMessage = nil
@@ -327,8 +382,7 @@ final class AIChatSession {
                         _ = try result.get()
                         self.appliedClaudeModel = selected
                         guard stillAuthorized() else {
-                            self.isBusy = false
-                            self.canInterrupt = false
+                            self.finishTurn()
                             self.completeRemoteSubmission(.rejected)
                             return
                         }
@@ -365,11 +419,54 @@ final class AIChatSession {
                         }
                     } catch { self.fail(error) }
                 }
-                if appliedClaudeModel == selected { submit(.success([:])) }
-                else { try control("set_model", fields: ["model": selected.isEmpty ? NSNull() : selected as Any], completion: submit) }
+                let selectedEffort = turnReasoningEffort
+                let applyEffort: (Result<[String: Any], Error>) -> Void = { [weak self] result in
+                    guard let self, !self.stopped, self.transportGeneration == generation else { return }
+                    do {
+                        _ = try result.get()
+                        self.appliedClaudeModel = selected
+                        guard stillAuthorized() else { self.finishTurn(); self.completeRemoteSubmission(.rejected); return }
+                        // A successful settings ACK can still be clamped by
+                        // policy. Reapply (including Default) and read back
+                        // every turn; cached choices cannot prove live state.
+                        try self.control("apply_flag_settings", fields: ["settings": ["effortLevel": selectedEffort.isEmpty ? NSNull() : selectedEffort as Any]]) { [weak self] result in
+                            guard let self, !self.stopped, self.transportGeneration == generation else { return }
+                            do {
+                                _ = try result.get()
+                                try self.control("get_settings") { [weak self] result in
+                                    guard let self, !self.stopped, self.transportGeneration == generation else { return }
+                                    do {
+                                        let value = try result.get()
+                                        guard let applied = value["applied"] as? [String: Any],
+                                              applied["effort"] is String || applied["effort"] is NSNull else {
+                                            throw ChatError.backend(L10n.string("ai.effort.unverified"))
+                                        }
+                                        let actual = applied["effort"] as? String
+                                        if let actual, actual.isEmpty || actual.count > 32 || !actual.utf8.allSatisfy({ (97...122).contains($0) }) {
+                                            throw ChatError.backend(L10n.string("ai.effort.unverified"))
+                                        }
+                                        if !selectedEffort.isEmpty, actual != selectedEffort {
+                                            throw ChatError.backend(L10n.string("ai.effort.mismatch", selectedEffort, actual ?? L10n.string("ai.effort.unknown")))
+                                        }
+                                        self.turnAppliedReasoningEffort = actual
+                                        self.turnEffortVerified = actual != nil
+                                        submit(.success([:]))
+                                    } catch {
+                                        if case ChatError.backend(let message) = error,
+                                           message.contains("Unsupported control request"), message.contains("get_settings") {
+                                            submit(.failure(ChatError.backend(L10n.string("ai.effort.unverified"))))
+                                        } else { submit(.failure(error)) }
+                                    }
+                                }
+                            } catch { submit(.failure(error)) }
+                        }
+                    } catch { self.fail(error) }
+                }
+                if appliedClaudeModel == selected { applyEffort(.success([:])) }
+                else { try control("set_model", fields: ["model": selected.isEmpty ? NSNull() : selected as Any], completion: applyEffort) }
             } else {
                 guard stillAuthorized() else {
-                    isBusy = false
+                    finishTurn()
                     completeRemoteSubmission(.rejected)
                     return false
                 }
@@ -381,6 +478,20 @@ final class AIChatSession {
                     "input": content]
                 guard let selected = turnModel.isEmpty ? defaultModel : turnModel else { throw ChatError.protocolError }
                 params["model"] = selected
+                let selectedEffort = turnReasoningEffort
+                if selectedEffort.isEmpty {
+                    let fallback = AIModelOption.merge(catalog: catalogModels, backend: backendModels).first { $0.id == selected }?.defaultReasoningEffort
+                    guard fallback != nil || codexAppliedReasoningEffort == nil else { throw ChatError.backend(L10n.string("ai.effort.unsupported")) }
+                    params["effort"] = fallback.map { $0 as Any } ?? NSNull()
+                } else { params["effort"] = selectedEffort }
+                // A lost acknowledgement can still mean the backend accepted
+                // the override. Preserve it independently of the editable draft.
+                let previousCodexEffort = codexAppliedReasoningEffort
+                turnAppliedReasoningEffort = params["effort"] as? String
+                if let applied = params["effort"] as? String {
+                    codexAppliedReasoningEffort = applied
+                    onStateChanged?()
+                }
                 var written = false
                 var rejectedSynchronously = false
                 try rpc("turn/start", params: params) { [weak self] result in
@@ -388,9 +499,16 @@ final class AIChatSession {
                     do {
                         let value = try result.get()
                         self.turnID = (value["turn"] as? [String: Any])?["id"] as? String
+                        self.acceptSubmittedTurn()
+                        if let applied = params["effort"] as? String { self.codexAppliedReasoningEffort = applied }
+                        self.onStateChanged?()
                         self.notifyFirstMessage(prompt, images: images)
                         self.completeRemoteSubmission(.accepted)
                     } catch {
+                        if case ChatError.backend = error {
+                            self.codexAppliedReasoningEffort = previousCodexEffort
+                            self.onStateChanged?()
+                        }
                         rejectedSynchronously = !written
                         if clearsComposer, written {
                             if self.input.isEmpty { self.input = prompt }
@@ -412,6 +530,7 @@ final class AIChatSession {
     }
 
     private func didSubmit(_ prompt: String, images: [AIChatImage], clearsComposer: Bool) {
+        if provider == .claude { acceptSubmittedTurn() }
         messages.append(AIChatMessage(id: UUID().uuidString, role: .user, text: prompt, images: images))
         if clearsComposer, input == prompt { input = "" }
         if clearsComposer {
@@ -435,6 +554,7 @@ final class AIChatSession {
     @discardableResult
     func interrupt() -> Bool {
         guard isBusy, canInterrupt else { return false }
+        turnWasInterrupted = true
         do {
             if provider == .claude {
                 try control("interrupt") { [weak self] result in
@@ -461,6 +581,7 @@ final class AIChatSession {
     }
 
     func stop() {
+        if isBusy { turnWasInterrupted = true }
         transportGeneration = UUID()
         clearPendingClaudeWrite()
         completeRemoteSubmission(remoteRequestWasWritten ? .uncertain : .rejected)
@@ -526,7 +647,32 @@ final class AIChatSession {
         }
     }
 
+    private func acceptSubmittedTurn() {
+        guard awaitingSubmittedTurn, completionToken == nil else { return }
+        completionToken = UUID()
+        turnStartedAt = Date()
+        turnStartedUptime = ProcessInfo.processInfo.systemUptime
+    }
+
+    private func recordTurnCompletion(success: Bool) {
+        guard let token = completionToken, turnStartedAt != nil else { return }
+        completionToken = nil // Consume before callbacks; duplicate results cannot notify.
+        if let index = currentTurnRange.last(where: { messages[$0].role == .assistant && !messages[$0].isIntermediate && messages[$0].isVisibleInTranscript }) {
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            messages[index].completedAt = formatter.string(from: Date())
+            messages[index].completionStatus = turnWasInterrupted ? "interrupted" : (success ? "completed" : "failed")
+            messages[index].durationMs = max(0, (ProcessInfo.processInfo.systemUptime - (turnStartedUptime ?? ProcessInfo.processInfo.systemUptime)) * 1000)
+            messages[index].reasoningEffort = turnAppliedReasoningEffort
+            messages[index].reasoningEffortVerified = turnEffortVerified
+            revision += 1
+        }
+        if success, !turnWasInterrupted { onTurnCompleted?(token) }
+    }
+
     private func finishTurn() {
+        recordTurnCompletion(success: false)
+        completionToken = nil; turnStartedAt = nil; turnStartedUptime = nil; awaitingSubmittedTurn = false
         isBusy = false
         canInterrupt = false
         turnID = nil
@@ -568,12 +714,12 @@ final class AIChatSession {
         if changed { revision += 1 }
     }
 
-    private func completeClaudeReply(_ result: [String: Any]) {
+    private func completeClaudeReply(_ result: [String: Any]) -> Bool {
         guard result["is_error"] as? Bool != true,
               (result["subtype"] as? String).map({ $0 == "success" }) ?? true,
               (result["terminal_reason"] as? String).map({ $0 == "completed" }) ?? true,
               (result["stop_reason"] as? String).map({ ["end_turn", "stop_sequence"].contains($0) }) ?? true
-        else { return }
+        else { return false }
         var finalIDs = trailingAnswerIDs()
         if let text = result["result"] as? String, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             let finalText = sanitized(text)
@@ -593,10 +739,11 @@ final class AIChatSession {
             }
         }
         collapseCompletedProgress(finalAnswerIDs: finalIDs)
+        return true
     }
 
-    private func completeCodexReply(_ turn: [String: Any]) {
-        guard turn["status"] as? String == "completed", turn["error"] == nil || turn["error"] is NSNull else { return }
+    private func completeCodexReply(_ turn: [String: Any]) -> Bool {
+        guard turn["status"] as? String == "completed", turn["error"] == nil || turn["error"] is NSNull else { return false }
         // The completed turn may supply phases/text omitted from earlier events.
         for item in turn["items"] as? [[String: Any]] ?? [] {
             receiveCodex(["method": "item/completed", "params": ["item": item]])
@@ -604,6 +751,7 @@ final class AIChatSession {
         let answers = messages[currentTurnRange].filter { $0.role == .assistant && $0.isVisibleInTranscript && !$0.isError }
         let explicitAnswers = Set(answers.filter { ["partial_answer", "final_answer"].contains(codexMessagePhases[$0.id] ?? "") }.map(\.id))
         collapseCompletedProgress(finalAnswerIDs: explicitAnswers.union(trailingAnswerIDs()))
+        return true
     }
 
     private func clearApprovals() {
@@ -715,6 +863,7 @@ final class AIChatSession {
                 approvals.removeAll { $0.id == id }; approvalReplies[id] = nil
             }
         case "system":
+            if let resolved = message["model"] as? String { defaultModel = resolved }
             if let id = message["session_id"] as? String { conversationID = id }
         case "stream_event":
             guard let event = message["event"] as? [String: Any] else { return }
@@ -769,12 +918,20 @@ final class AIChatSession {
                               isError: block["is_error"] as? Bool == true)
             }
         case "result":
+            guard message["parent_tool_use_id"] == nil || message["parent_tool_use_id"] is NSNull else { return }
+            if let resultID = message["uuid"] as? String {
+                guard !seenCompletionIDs.contains(resultID) else { return }
+                seenCompletionIDs.append(resultID)
+                if seenCompletionIDs.count > 256 { seenCompletionIDs.removeFirst() }
+            }
             if let id = message["session_id"] as? String { conversationID = id }
             if message["is_error"] as? Bool == true {
                 errorMessage = sanitized((message["errors"] as? [String])?.joined(separator: "\n")
                     ?? message["result"] as? String ?? L10n.string("ai.chat.failed"))
             }
-            completeClaudeReply(message)
+            guard isBusy, awaitingSubmittedTurn else { return }
+            let success = completeClaudeReply(message)
+            recordTurnCompletion(success: success)
             finishTurn()
         default: break
         }
@@ -834,6 +991,7 @@ final class AIChatSession {
            let conversationID, thread != conversationID { return }
         switch method {
         case "turn/started":
+            acceptSubmittedTurn()
             if !isBusy { thinkingStartIndex = messages.count }
             turnID = (params["turn"] as? [String: Any])?["id"] as? String
             isBusy = true
@@ -883,10 +1041,18 @@ final class AIChatSession {
             default: break
             }
         case "turn/completed":
+            if let completedID = (params["turn"] as? [String: Any])?["id"] as? String {
+                guard !seenCompletionIDs.contains(completedID), turnID == nil || turnID == completedID else { return }
+                seenCompletionIDs.append(completedID)
+                if seenCompletionIDs.count > 256 { seenCompletionIDs.removeFirst() }
+            }
             if let turn = params["turn"] as? [String: Any], let error = turn["error"] as? [String: Any] {
                 errorMessage = sanitized(error["message"] as? String ?? L10n.string("ai.chat.failed"))
             }
-            if let turn = params["turn"] as? [String: Any] { completeCodexReply(turn) }
+            if let turn = params["turn"] as? [String: Any] {
+                if turn["status"] as? String == "interrupted" { turnWasInterrupted = true }
+                recordTurnCompletion(success: completeCodexReply(turn))
+            }
             finishTurn()
         case "error":
             if let error = params["error"] as? [String: Any] {

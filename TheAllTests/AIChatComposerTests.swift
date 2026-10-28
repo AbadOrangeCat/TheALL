@@ -10,7 +10,7 @@ final class AIChatComposerTests: XCTestCase {
         var onExit: ((Int32) -> Void)?
         var sent: [[String: Any]] = []
         func start(_ configuration: AILaunchConfiguration, directory: String) throws {}
-        func send(_ message: [String: Any]) throws { sent.append(message) }
+        func send(_ message: [String: Any]) throws { sent.append(message); respondToClaudeEffortControl(message, sent: sent) { onMessage?($0) } }
         func stop() {}
         func ready() {
             onMessage?(["type": "control_response", "response": ["subtype": "success",

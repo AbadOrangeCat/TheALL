@@ -3,17 +3,17 @@
 </p>
 
 <h1 align="center">TheAll</h1>
-<p align="center"><strong>把 Claude Code 和 Codex，放进同一个 macOS 工作台。</strong><br />项目、AI 对话和模型集中管理。离开电脑，也能在手机上继续。</p>
+<p align="center"><strong>把 Claude Code 和 Codex，放进同一个 Mac 与 Windows 工作台。</strong><br />项目、AI 对话和模型集中管理。离开电脑，也能在手机上继续。</p>
 
 <p align="center">
-  <a href="https://github.com/AbadOrangeCat/TheALL/releases/tag/v0.1.5"><img alt="版本 v0.1.5" src="https://img.shields.io/badge/release-v0.1.5-176B68?style=flat-square" /></a>
+  <a href="https://github.com/AbadOrangeCat/TheALL/releases/tag/v0.1.6"><img alt="版本 v0.1.6" src="https://img.shields.io/badge/release-v0.1.6-176B68?style=flat-square" /></a>
   <img alt="macOS 14 及以上" src="https://img.shields.io/badge/macOS-14%2B-263C3B?style=flat-square" />
   <img alt="Apple Silicon arm64" src="https://img.shields.io/badge/Apple_Silicon-arm64-263C3B?style=flat-square" />
   <img alt="支持 iOS 和 Android 手机 Web App" src="https://img.shields.io/badge/mobile-iOS_%26_Android-263C3B?style=flat-square" />
 </p>
 
 <p align="center">
-  <a href="https://github.com/AbadOrangeCat/TheALL/releases/tag/v0.1.5"><strong>下载 Mac 版</strong></a> ·
+  <a href="https://github.com/AbadOrangeCat/TheALL/releases/tag/v0.1.6"><strong>下载 TheAll</strong></a> ·
   <a href="https://abadorangecat.github.io/TheALL/">项目主页</a> ·
   <a href="docs/mobile-access.md">手机连接</a> ·
   <a href="README.md">English</a>
@@ -38,26 +38,33 @@
 
 API 连接通过 macOS Keychain 保存。聊天记录保存在 Mac 上，对话会发送到你配置的 AI 服务地址。TheAll 使用 SwiftUI、AppKit 和 Ghostty 终端引擎。
 
+## Windows 桌面预览版
+
+仓库已加入 [`desktop/`](desktop/) Windows 桌面实现，对齐 Mac 的工作区侧栏、标签页、分屏、聊天操作、历史记录、主题、五种语言和手机连接。Claude Code / Codex 直接在 Windows 本机运行，API Key 使用 Windows 系统加密保存。
+
+在 [v0.1.6 发布页](https://github.com/AbadOrangeCat/TheALL/releases/tag/v0.1.6) 下载 **Windows 预览版**：提供 x64 / ARM64 安装包、便携 EXE 和 ZIP。参见 [Windows 说明](docs/windows.md)。安装包未签名，ARM64 为交叉构建、尚未实机测试；Windows CI 验证 x64 运行、凭据和历史恢复，安装升级、真实 CLI 与手机/手表仍需实机验收。
+
 ## 开始使用
 
 **运行要求：** macOS 14 及以上、Apple Silicon 芯片的 Mac、可用的 API 连接，以及对应提供商的 [Claude Code CLI](https://code.claude.com/docs/en/setup) 或 [Codex CLI](https://developers.openai.com/codex/cli)。CLI 需要单独安装。
 
-1. 下载 [v0.1.5 DMG](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.5/TheAll-0.1.5-macos-arm64.dmg) 或 [ZIP](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.5/TheAll-0.1.5-macos-arm64.zip)，将 **TheAll.app** 移到「应用程序」。
+1. 下载 [v0.1.6 DMG](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.6/TheAll-0.1.6-macos-arm64.dmg) 或 [ZIP](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.6/TheAll-0.1.6-macos-arm64.zip)，将 **TheAll.app** 移到「应用程序」。
 2. 打开 TheAll，创建工作区，选择工作文件夹和 **Claude / OpenAI**。
 3. 输入 API Key，需要时填写自定义 Base URL；之后的对话可复用已保存的连接。
 4. 选择模型，发送第一个问题。工作目录与模型下拉框始终位于输入框旁。
 
-**本版安装说明：** v0.1.5 使用本地开发证书签名，**尚未经过 Apple 公证**。macOS 可能阻止首次打开；核对下载并确认信任后，可按 [Apple 官方说明](https://support.apple.com/en-us/102445)，使用系统提供的「系统设置 → 隐私与安全性 → 仍要打开」。请保留系统安全保护。本版提供 [SHA-256 校验文件](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.5/SHA256SUMS.txt)，仅包含 arm64 构建，暂未配置自动更新。
+**本版安装说明：** v0.1.6 使用本地开发证书签名，**尚未经过 Apple 公证**。macOS 可能阻止首次打开；核对下载并确认信任后，可按 [Apple 官方说明](https://support.apple.com/en-us/102445)，使用系统提供的「系统设置 → 隐私与安全性 → 仍要打开」。请保留系统安全保护。本版提供 [SHA-256 校验文件](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.6/SHA256SUMS.txt)，仅包含 arm64 构建，暂未配置自动更新。
 
 **执行方式：** 编程 Agent 的工具操作会自动执行，包括修改和删除文件、安装依赖及 Git 推送。请选用你准备让 Agent 操作的项目与 API 连接；需要用户回答的问题仍会暂停等待输入。
 
-## v0.1.5：扫码就能连接手机
+## v0.1.6 新功能
 
-手机与 Mac 连接同一 Wi-Fi，点击 Mac 侧边栏底部的 **连接手机**，再用手机相机扫码。打开链接后自动配对，无需安装证书、填写地址或设备名，也不需要再次点击连接。主界面按钮直接弹出二维码，设置里的入口仍然保留。
+- **Windows 预览版：** 在 Windows 本机使用 Claude Code / Codex，支持工作区、标签页、分屏、历史与手机连接。
+- **模型旁选择思考强度：** 选项取自当前模型报告的能力。Claude 每次发送前读取 CLI 实际设置，不一致时停止发送并保留草稿；回答底部区分「CLI 已确认强度」和 Codex 的「请求强度」。模型在聊天中自述的内部数值不作为设置证据。
+- **回合完成信息：** 显示完成时间及使用时长，随聊天历史保存。
+- **手机与手表提醒：** HTTPS 下可开启任务完成 Web Push；iOS 需添加为主屏幕 Web App，兼容手表通过手机系统转发通知。实体设备投递仍待验证；局域网 HTTP 快捷连接支持聊天，但无法接收后台推送。
 
-快捷连接使用**未加密的局域网 HTTP**，适合可信的私人网络。HTTPS 加密模式、外网中继和共享权限保留在高级连接设置中；完整 PWA 安装使用 HTTPS，快捷模式作为在线网页使用。
-
-本地开发测试改用独立输出目录和应用身份，避免测试构建覆盖日常打开的开发版、显示空的测试工作区。
+侧边栏 **连接手机** 仍支持可信 Wi-Fi 下自动扫码配对；高级设置提供 HTTPS 与自建中继。
 
 ## 让对话支持照片
 

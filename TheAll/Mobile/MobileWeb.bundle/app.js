@@ -1,5 +1,9 @@
 import { APIError, request, chatPath, mergePage, turns, operation, readPairToken, safeLink, isPrivateLANHTTP } from './core.js';
 
+import { NotificationPreferences, readNotificationChat, notificationMessage } from './notifications.js';
+import { turnTiming } from './timing.js';
+import { reasoningOptions, selectedReasoningEffort } from './effort.js';
+
 import { PHOTO_LIMITS, PhotoError, validatePhotoSelection, preparePhoto, imagePath, freezePhotoSubmission, removeSubmittedPhotos } from './photos.js';
 
 const $ = id => document.getElementById(id);
@@ -10,29 +14,101 @@ const connectionAllowed = secure || quickLAN;
 let scannedToken = readPairToken(location, history);
 import { LiveUpdates } from './live.js';
 import { t, language, setLanguage, supportedLanguages } from './i18n.js';
+let notificationPreferences;
+let notificationCleanup = Promise.resolve();
+let pendingNotification = readNotificationChat(location, history);
+pendingNotification = pendingNotification ? { chatId: pendingNotification } : undefined;
+const receivedNotifications = new Set();
+let notificationNavigationError = '';
+let notificationDesktop = !!window.theall;
+try { notificationDesktop ||= window.parent !== window && !!window.parent.theall; } catch { /* Embedded on another origin. */ }
 function translatePage() {
   document.documentElement.lang = language();
   document.querySelectorAll('[data-i18n]').forEach(node => { node.textContent = t(node.dataset.i18n); });
   document.querySelectorAll('[data-i18n-placeholder]').forEach(node => { node.placeholder = t(node.dataset.i18nPlaceholder); });
   for (const [id, key] of Object.entries({ 'open-sidebar': 'openWorkspaces', 'close-sidebar': 'close',
     'drawer-shade': 'close', 'new-chat': 'newChat', 'jump-bottom': 'jumpBottom',
-    'close-new': 'close', 'close-install': 'close', 'close-photo': 'close', 'add-photos': 'photosAdd', transcript: 'history', sidebar: 'workspaces' })) $(id).ariaLabel = t(key);
+    'open-notifications': 'notificationsTitle', 'close-notifications': 'close', 'effort': 'reasoningEffort', 'close-new': 'close', 'close-install': 'close', 'close-photo': 'close', 'add-photos': 'photosAdd', transcript: 'history', sidebar: 'workspaces' })) $(id).ariaLabel = t(key);
   $('directory').title = $('directory').textContent || t('directory');
   document.querySelectorAll('.language-select').forEach(select => { select.value = language(); });
   $('connection-note').textContent = quickLAN ? t('quickLANNote') : '';
   $('connection-note').hidden = !quickLAN;
   $('install-android').textContent = t(quickLAN ? 'installAndroidLAN' : 'installAndroid');
   $('install-network').textContent = t(quickLAN ? 'installNetworkLAN' : 'installNetwork');
+  $('open-notifications').title = t('notificationsTitle');
+  if (notificationPreferences) renderNotificationSettings();
+  if (notificationNavigationError) showError('global-error', t(notificationNavigationError));
 }
 translatePage();
 $('device-name').value = /iPad/.test(navigator.userAgent) ? 'iPad' : /iPhone/.test(navigator.userAgent) ? 'iPhone' : /Android/.test(navigator.userAgent) ? 'Android' : t('deviceMobile');
 
 const state = {
   suspended: false, authenticated: false, connected: false, sessionGeneration: 0, access: { workspaceId: null, writable: true }, live: false, refreshQueued: false, bootID: null, workspaces: [], selected: null, selection: 0,
-  chats: new Map(), drafts: new Map(), imageDrafts: new Map(), imageLoading: new Set(), models: new Map(), modelNotices: new Set(), scroll: new Map(),
+  chats: new Map(), drafts: new Map(), imageDrafts: new Map(), imageLoading: new Set(), models: new Map(), efforts: new Map(), modelNotices: new Set(), scroll: new Map(),
   progress: new Map(), errors: new Map(), answerDrafts: new Map(), pending: new Map(), rendering: '', questionRendering: '',
   recoveryTimer: null, sessionProbe: null, pairingAttempt: null, pollTimer: null, polling: false, loadingOlder: false, newOperation: null, installPrompt: null
 };
+notificationPreferences = new NotificationPreferences({ request, language,
+  env: { navigator, Notification: window.Notification, PushManager: window.PushManager,
+    isSecureContext: secure, matchMedia: window.matchMedia.bind(window), desktop: notificationDesktop },
+  onChange: () => renderNotificationSettings()
+});
+function renderNotificationSettings() {
+  const status = notificationPreferences.state;
+  $('notification-settings').hidden = $('open-notifications').hidden = notificationDesktop;
+  $('open-notifications').classList.toggle('enabled', status.enabled);
+  const keys = { https: 'notificationsHTTPS', install: 'notificationsInstall', unsupported: 'notificationsUnsupported',
+    blocked: 'notificationsBlocked', update: 'notificationsUpdate', unavailable: 'notificationsUnavailable',
+    enabled: 'notificationsEnabled', disabled: 'notificationsDisabled', sent: 'notificationsTestSent' };
+  $('notification-status').textContent = t(status.busy || status.reason === 'loading' ? 'notificationsWorking' : keys[status.reason] || 'notificationsUnavailable');
+  showError('notification-error', status.error ? t(status.error.key || 'notificationsUnavailable') : '');
+  $('notification-enable').hidden = !status.available || status.enabled || status.reason === 'blocked';
+  $('notification-disable').hidden = !status.enabled && status.error?.key !== 'notificationsUnsubscribeFailed';
+  $('notification-test').hidden = !status.enabled;
+  $('notification-install').hidden = status.reason !== 'install';
+  for (const id of ['notification-enable', 'notification-disable', 'notification-test']) $(id).disabled = status.busy;
+}
+function openNotifications() {
+  if (notificationDesktop) return;
+  drawer(false); $('notification-dialog').showModal(); notificationPreferences.refresh();
+}
+$('notification-settings').onclick = $('open-notifications').onclick = openNotifications;
+$('close-notifications').onclick = () => $('notification-dialog').close();
+$('notification-enable').onclick = () => notificationPreferences.enable().catch(() => {});
+$('notification-disable').onclick = () => notificationPreferences.disable().catch(() => {});
+$('notification-test').onclick = () => notificationPreferences.test().catch(() => {});
+$('notification-install').onclick = () => { $('notification-dialog').close(); $('install-dialog').showModal(); };
+renderNotificationSettings();
+function clearNotificationSubscription() {
+  const session = state.sessionGeneration;
+  notificationCleanup = Promise.all([notificationCleanup.catch(() => {}), notificationPreferences.disconnect()]).catch(() => {
+    if (!state.authenticated && state.sessionGeneration === session) showError('pair-error', t('notificationsUnsubscribeFailed'));
+  });
+}
+// Notification clicks only select an authorized existing chat. They never submit
+// a prompt, retry a pending operation, or discard an in-memory draft.
+async function openPendingNotification() {
+  if (!state.authenticated || pendingNotification === undefined) return;
+  const target = pendingNotification; pendingNotification = undefined; notificationNavigationError = '';
+  if (target.chatId === null) {
+    rememberDraft(); closePhoto(); state.selected = null; state.selection++;
+    state.rendering = ''; state.questionRendering = '';
+    $('messages').replaceChildren(); $('questions').replaceChildren(); $('draft').value = '';
+    $('chat-area').hidden = true; $('welcome').hidden = false; renderWorkspaces(); return;
+  }
+  const chat = state.workspaces.flatMap(workspace => workspace.conversations).find(item => item.id.toLowerCase() === target.chatId.toLowerCase());
+  if (chat) { if (state.selected !== chat.id) await selectChat(chat.id); }
+  else { notificationNavigationError = 'notificationChatUnavailable'; showError('global-error', t(notificationNavigationError)); }
+}
+if (!notificationDesktop && navigator.serviceWorker) navigator.serviceWorker.addEventListener('message', event => {
+  const message = notificationMessage(event, location.origin); if (!message) return;
+  event.ports?.[0]?.postMessage({ id: message.id, accepted: true });
+  if (receivedNotifications.has(message.id)) return;
+  receivedNotifications.add(message.id);
+  if (receivedNotifications.size > 256) receivedNotifications.delete(receivedNotifications.values().next().value);
+  pendingNotification = message;
+  if (state.authenticated) poll();
+});
 const liveURL = new URL('/api/events', location.href); liveURL.protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
 const live = new LiveUpdates({ url: liveURL.href,
   onHello: data => { updateBootID(data.bootID); applyAccess(data.access); },
@@ -51,6 +127,7 @@ document.querySelectorAll('.language-select').forEach(select => {
   select.value = language();
   select.onchange = () => {
     setLanguage(select.value); translatePage();
+    notificationPreferences.syncLanguage().catch(() => {});
     state.rendering = ''; state.questionRendering = '';
     renderWorkspaces(); renderAccess(); connected(state.connected);
     if (state.selected) renderChat();
@@ -66,7 +143,7 @@ function applyAccess(value) {
   const scopeChanged = next.workspaceId !== state.access.workspaceId;
   if (scopeChanged) {
     const allowed = new Set(state.workspaces.filter(w => !next.workspaceId || w.id === next.workspaceId).flatMap(w => w.conversations.map(c => c.id)));
-    for (const key of ['chats', 'drafts', 'imageDrafts', 'models', 'scroll', 'errors', 'pending']) {
+    for (const key of ['chats', 'drafts', 'imageDrafts', 'models', 'efforts', 'scroll', 'errors', 'pending']) {
       for (const id of state[key].keys()) if (!allowed.has(id)) state[key].delete(id);
     }
     for (const key of ['answerDrafts', 'progress']) {
@@ -121,10 +198,12 @@ document.addEventListener('keydown', event => { if (event.key === 'Escape') draw
 
 function pairScreen(error = '') {
   cancelSessionRecovery(); cancelPairing(); live.stop(); state.sessionGeneration++; state.refreshQueued = false;
-  state.authenticated = false; state.connected = false;
+  state.authenticated = false; state.connected = false; notificationNavigationError = '';
+  if ($('notification-dialog').open) $('notification-dialog').close();
+  clearNotificationSubscription();
   clearTimeout(state.pollTimer);
   state.selection++; state.selected = null; state.workspaces = [];
-  for (const key of ['chats', 'drafts', 'imageDrafts', 'models', 'scroll', 'progress', 'errors', 'answerDrafts', 'pending']) state[key].clear();
+  for (const key of ['chats', 'drafts', 'imageDrafts', 'models', 'efforts', 'scroll', 'progress', 'errors', 'answerDrafts', 'pending']) state[key].clear();
   state.imageLoading.clear(); closePhoto(); $('photo-previews').replaceChildren(); $('photo-files').value = '';
   state.modelNotices.clear(); state.rendering = ''; state.questionRendering = ''; state.newOperation = null;
   $('messages').replaceChildren(); $('questions').replaceChildren(); $('workspace-list').replaceChildren(); $('draft').value = '';
@@ -156,7 +235,7 @@ async function recoverSession() {
     await startSession(data);
   } catch (error) {
     if (state.sessionProbe !== probe) return;
-    if (error.status === 401) { showError('pair-error', ''); }
+    if (error.status === 401) { showError('pair-error', ''); clearNotificationSubscription(); }
     else if (error.status === 403) { pairScreen(error.message); }
     else {
       showError('pair-error', describe(error));
@@ -176,6 +255,8 @@ async function startSession(data) {
   $('pair-screen').hidden = true; $('application').hidden = false;
   $('device-label').textContent = data.deviceName || '';
   connected(true); await poll(); if (state.authenticated && !state.suspended) live.start();
+  const session = state.sessionGeneration;
+  notificationCleanup.then(() => { if (state.authenticated && session === state.sessionGeneration) return notificationPreferences.connect(); }).catch(() => {});
 }
 function pairingUI(active) {
   $('pair-form').hidden = active;
@@ -256,6 +337,7 @@ function rememberDraft() {
   state.scroll.set(state.selected, { top: $('transcript').scrollTop, bottom: atBottom() });
 }
 async function selectChat(id) {
+  notificationNavigationError = ''; showError('global-error', '');
   rememberDraft(); closePhoto(); state.selected = id; const selection = ++state.selection; const hadCached = state.chats.has(id);
   state.rendering = ''; state.questionRendering = ''; state.loadingOlder = false;
   $('welcome').hidden = true; $('chat-area').hidden = false;
@@ -300,7 +382,8 @@ async function poll() {
         state.chats.set(id, mergePage(state.chats.get(id), chat)); renderChat();
       }
     }
-    connected(true); showError('global-error', '');
+    connected(true); showError('global-error', notificationNavigationError ? t(notificationNavigationError) : '');
+    await openPendingNotification();
   } catch (error) { if (session === state.sessionGeneration) handleReadError(error); }
   finally {
     state.polling = false;
@@ -381,6 +464,17 @@ function messageNode(message, provider, chatID, previousNodes) {
       images.append(button);
     }
     node.append(images);
+  }
+  const timing = turnTiming(message, language());
+  if (timing) {
+    const footer = el('div', 'message-timing');
+    const at = el('time', '', `${t(timing.status === 'failed' ? 'turnFailedAt' : timing.status === 'interrupted' ? 'turnInterruptedAt' : 'turnCompletedAt')} ${timing.time}`);
+    at.dateTime = timing.iso;
+    footer.append(at, el('span', '', `${t('turnDuration')} ${timing.duration}`));
+    if (typeof message.reasoningEffort === 'string' && /^[a-z]{1,32}$/.test(message.reasoningEffort)) {
+      footer.append(el('span', '', `${t(message.reasoningEffortVerified === true ? 'effortConfirmed' : 'effortRequested')}: ${message.reasoningEffort}`));
+    }
+    node.append(footer);
   }
   return node;
 }
@@ -500,7 +594,7 @@ function updateComposer() {
   $('draft').disabled = !data; // Offline drafts remain editable, but can never be submitted/queued.
   $('model').hidden = !state.access.writable; $('model').disabled = !state.access.writable || !data || !!pending;
   $('model-notice').hidden = !state.modelNotices.has(state.selected);
-  const options = [{ id: '', title: t('defaultModel') }, ...(data?.models || [])];
+  const options = [{ id: '', title: t('defaultModel') }, ...(data?.models || []).filter(model => model.id !== '')];
   if (data?.model && !options.some(m => m.id === data.model)) options.push({ id: data.model, title: data.model });
   const selected = state.models.has(state.selected) ? state.models.get(state.selected) : data?.model || '';
   if (selected && !options.some(m => m.id === selected)) options.push({ id: selected, title: selected });
@@ -509,6 +603,16 @@ function updateComposer() {
     $('model').dataset.options = JSON.stringify(options);
   }
   $('model').value = selected;
+  const efforts = reasoningOptions(data, selected);
+  const effort = state.efforts.get(state.selected) ?? data?.reasoningEffort ?? '';
+  $('effort').hidden = !state.access.writable; $('effort').disabled = !data || !!pending || !efforts.length;
+  const effortOptions = [{ id: '', title: t('defaultEffort') }, ...efforts.map(id => ({ id, title: t('effort_' + id) === 'effort_' + id ? id : t('effort_' + id) }))];
+  if (effort && !efforts.includes(effort)) effortOptions.push({ id: effort, title: effort, disabled: true });
+  if ($('effort').dataset.options !== JSON.stringify(effortOptions)) {
+    $('effort').replaceChildren(...effortOptions.map(item => { const option = el('option', '', item.title); option.value = item.id; option.disabled = !!item.disabled; return option; }));
+    $('effort').dataset.options = JSON.stringify(effortOptions);
+  }
+  $('effort').value = effort; $('effort').title = t(efforts.length ? 'reasoningEffort' : 'effortUnavailable');
   $('mutation-error').hidden = !pending?.error;
   $('mutation-error').firstElementChild.textContent = pending?.error || '';
   $('retry-operation').hidden = !pending?.uncertain;
@@ -567,7 +671,13 @@ $('photo-files').onchange = async () => {
 };
 function resizeDraft() { $('draft').style.height = 'auto'; $('draft').style.height = `${Math.min(180, $('draft').scrollHeight)}px`; }
 $('draft').oninput = () => { state.drafts.set(state.selected, $('draft').value); resizeDraft(); updateComposer(); };
-$('model').onchange = () => { if (!state.access.writable) return; state.models.set(state.selected, $('model').value); state.modelNotices.add(state.selected); updateComposer(); };
+$('model').onchange = () => {
+  if (!state.access.writable) return;
+  const data = state.chats.get(state.selected), model = $('model').value;
+  state.efforts.set(state.selected, selectedReasoningEffort(data, model, state.efforts.get(state.selected)));
+  state.models.set(state.selected, model); state.modelNotices.add(state.selected); updateComposer();
+};
+$('effort').onchange = () => { if (!state.access.writable) return; state.efforts.set(state.selected, $('effort').value); updateComposer(); };
 $('draft').onkeydown = event => {
   if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && !event.isComposing) { event.preventDefault(); $('composer').requestSubmit(); }
 };
@@ -581,7 +691,7 @@ $('composer').onsubmit = async event => {
   const photos = state.imageDrafts.get(id) || [];
   if ((!text.trim() && !photos.length) || state.imageLoading.has(id) || !(data?.isReady || data?.canResume) || data.isBusy || !canMutate(id)) return;
   const model = state.models.has(id) ? state.models.get(id) : data.model;
-  await runOperation(id, { kind: 'send', text, imageIDs: photos.map(photo => photo.id), request: operation(chatPath(id, '/send'), { bootID: state.bootID, text, images: freezePhotoSubmission(photos), model: model || '' }) });
+  await runOperation(id, { kind: 'send', text, imageIDs: photos.map(photo => photo.id), request: operation(chatPath(id, '/send'), { bootID: state.bootID, text, images: freezePhotoSubmission(photos), model: model || '', reasoningEffort: state.efforts.has(id) ? state.efforts.get(id) : data.reasoningEffort || '' }) });
 };
 $('stop').onclick = async () => {
   const id = state.selected;

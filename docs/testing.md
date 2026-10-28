@@ -1,5 +1,13 @@
 # Testing
 
+## Windows desktop
+
+Run `npm ci --prefix desktop` and `npm ci --prefix mobile-relay`, then `npm test --prefix desktop`, `node --test mobile-tests/*.test.mjs`, `npm test --prefix mobile-relay`, and `npm run test:desktop --prefix desktop`. The last command launches an isolated Electron profile with an offline CLI fixture. It forwards real IPC frame metadata through distinct wrappers to cover Electron frame-wrapper identity, then exercises startup, the actual provider/API/folder buttons, IPC isolation, sends, collapsed progress, prompt recall, encrypted credentials, split layout, dirty drafts saved during Quit and history after reopening. Unit tests also reject other windows, child/detached frames, stale documents and mismatched origins. It never opens the user's Mac application. Windows uses real DPAPI; macOS UI verification substitutes encryption only inside the test process to avoid Keychain changes.
+
+`desktop/test/runtime-regressions.test.mjs` covers concurrent CLI recovery, revocation during model acknowledgement, shutdown during decryption, uncertain submission persistence and damaged-store preservation. `desktop/test/runtime-lifecycle.test.mjs` additionally verifies deletion during process shutdown, relay cancellation and credential changes during startup. TLS and relay tests use real local network connections. Optional installed-CLI tests use the loopback fake gateway, never a live API account. See [Windows validation](windows.md#validation) for commands and native acceptance requirements. A cross-build or a configured workflow does not count as a completed Windows run.
+
+The following XCTest instructions apply to macOS.
+
 ## Test Strategy
 
 | 类型 | 覆盖 | 工具 |
@@ -99,3 +107,9 @@ try XCTSkipIf(ProcessInfo.processInfo.environment["SKIP_GHOSTTY_INTEGRATION"] ==
 7. Debug 构建：启动后无论如何不应发 appcast 请求；Update section 的 button 为 disabled，hint 行可见。
 
 完事把 `MARKETING_VERSION` 改回。
+
+## Completion notifications, timing and reasoning effort
+
+Run `./scripts/test-local.sh` for the isolated native suite, `node --test mobile-tests/*.test.mjs` for mobile shell/worker logic, and `npm test --prefix desktop` for Windows runtime logic. `npm run test:desktop --prefix desktop` checks the real sandboxed Electron UI, completion timestamps and reasoning-effort drafts across Quit/reopen, including temporarily unavailable model metadata. Installed provider CLIs can be verified offline with `THEALL_TEST_INSTALLED_CLIS=1 node --test desktop/test/ai.integration.test.mjs`; the fixture uses a fake key and a loopback-only gateway.
+
+Notification tests verify the official RFC 8291 encryption vector, VAPID signatures, authorized device/scope/origin routing, revocation/cancellation, expired subscriptions, duplicate completion events and history restore. They never send a real phone notification. Physical acceptance requires an HTTPS mobile connection and explicit notification opt-in; iPhone uses the installed Home Screen web app. Test with the web app closed and the phone locked, then check Apple Watch or Wear OS notification mirroring under the device's normal notification/Focus settings. Plain HTTP LAN pairing remains usable for chat but cannot provide background push.

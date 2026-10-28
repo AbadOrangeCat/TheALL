@@ -813,3 +813,10 @@ dialog>p {
 @media(max-width:450px) { .composer-actions { flex-wrap:wrap; row-gap:8px } .composer-actions .directory { flex:1; min-width:70px } .composer-actions .send-actions { margin-left:auto } }
 
 .pair-status { display:flex; align-items:center; gap:10px; padding:16px 0; color:var(--accent); }
+
+.notification-button { flex:none; position:relative; font-size:18px }
+.notification-button.enabled::after { content:''; position:absolute; right:3px; top:3px; width:6px; height:6px; border-radius:50%; background:var(--accent) }
+.notification-actions { display:flex; flex-wrap:wrap; gap:10px; margin-top:20px }
+.notification-actions button { padding:10px 14px; border:1px solid var(--border); border-radius:9px }
+#notification-status { padding:12px; background:var(--raised); border-radius:9px; line-height:1.6 }
+.message-timing { display:flex; flex-wrap:wrap; gap:6px 14px; margin-top:12px; color:var(--muted); font-size:11px; line-height:1.5; font-variant-numeric:tabular-nums }

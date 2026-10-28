@@ -3,6 +3,46 @@ import Foundation
 struct AIModelOption: Identifiable, Equatable {
     let id: String
     let title: String
+    var reasoningEfforts: [String] = []
+    var defaultReasoningEffort: String? = nil
+    var resolvedModel: String? = nil
+
+    static func cliModels(_ values: [[String: Any]], provider: AIProvider) -> [AIModelOption] {
+        let aliases: [AIModelOption] = values.compactMap { value in
+            guard let rawID = value[provider == .claude ? "value" : "model"] as? String else { return nil }
+            let id = provider == .claude && rawID == "default" ? "" : rawID
+            let raw: [String]
+            if provider == .claude {
+                raw = value["supportsEffort"] as? Bool == true ? (value["supportedEffortLevels"] as? [String] ?? []) : []
+            } else { raw = (value["supportedReasoningEfforts"] as? [[String: Any]] ?? []).compactMap { $0["reasoningEffort"] as? String } }
+            let levels = Array(NSOrderedSet(array: raw.filter { !$0.isEmpty && $0.count <= 32 && $0.utf8.allSatisfy { (97...122).contains($0) } })) as? [String] ?? []
+            let fallback = value["defaultReasoningEffort"] as? String
+            let resolved = provider == .claude ? value["resolvedModel"] as? String : nil
+            return AIModelOption(id: id, title: value["displayName"] as? String ?? id, reasoningEfforts: levels,
+                defaultReasoningEffort: fallback.flatMap { levels.contains($0) ? $0 : nil },
+                resolvedModel: resolved.flatMap { !$0.isEmpty && $0.count <= 256 && !$0.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains) ? $0 : nil })
+        }
+        // Claude advertises picker aliases (opus/default) separately from the
+        // actual API ID. Only its explicit resolution may bridge those names.
+        var result = aliases
+        for resolved in Set(aliases.compactMap(\.resolvedModel)).sorted() where !aliases.contains(where: { $0.id == resolved }) {
+            let matching = aliases.filter { $0.resolvedModel == resolved }
+            let levels = (matching.first?.reasoningEfforts ?? []).filter { level in matching.allSatisfy { $0.reasoningEfforts.contains(level) } }
+            result.append(AIModelOption(id: resolved, title: resolved, reasoningEfforts: levels, resolvedModel: resolved))
+        }
+        return result
+    }
+
+    static func merge(catalog: [AIModelOption], backend: [AIModelOption]) -> [AIModelOption] {
+        var result = catalog.map { item -> AIModelOption in
+            guard let capability = backend.first(where: { $0.id == item.id }) else { return item }
+            return AIModelOption(id: item.id, title: item.title, reasoningEfforts: capability.reasoningEfforts,
+                                 defaultReasoningEffort: capability.defaultReasoningEffort)
+        }
+        let ids = Set(result.map(\.id))
+        result += backend.filter { !ids.contains($0.id) }
+        return result
+    }
 }
 
 /// Load from the selected gateway, never a second service with the same key.
@@ -41,8 +81,21 @@ final class AIModelCatalog: NSObject, URLSessionTaskDelegate, @unchecked Sendabl
 
     struct Page: Decodable {
         struct Model: Decodable {
+            struct Capabilities: Decodable {
+                struct Effort: Decodable {
+                    let supported: Bool?
+                    struct Support: Decodable { let supported: Bool? }
+                    let low: Support?; let medium: Support?; let high: Support?; let max: Support?; let xhigh: Support?
+                    var levels: [String] {
+                        guard supported == true else { return [] }
+                        return [("low", low), ("medium", medium), ("high", high), ("xhigh", xhigh), ("max", max)].compactMap { $0.1?.supported == true ? $0.0 : nil }
+                    }
+                }
+                let effort: Effort?
+            }
             let id: String
             let display_name: String?
+            let capabilities: Capabilities?
         }
         let data: [Model]
         let has_more: Bool?
@@ -79,7 +132,7 @@ final class AIModelCatalog: NSObject, URLSessionTaskDelegate, @unchecked Sendabl
                 throw CatalogError.invalidResponse
             }
             for model in page.data where !model.id.isEmpty && !model.id.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains) {
-                models[model.id] = AIModelOption(id: model.id, title: model.display_name ?? model.id)
+                models[model.id] = AIModelOption(id: model.id, title: model.display_name ?? model.id, reasoningEfforts: model.capabilities?.effort?.levels ?? [])
             }
             if provider == .openai || page.has_more != true {
                 return models.values.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }

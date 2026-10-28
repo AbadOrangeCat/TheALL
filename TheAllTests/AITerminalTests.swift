@@ -134,6 +134,8 @@ final class AITerminalTests: XCTestCase {
         XCTAssertTrue(openai.command.contains("--no-daemon"))
         XCTAssertTrue(claude.command.contains("'--setting-sources' ''"))
         XCTAssertTrue(claude.environment["CLAUDE_CONFIG_DIR"]?.contains("/Library/Application Support/") == true)
+        XCTAssertEqual(claude.environment["CLAUDE_CODE_EFFORT_LEVEL"], "")
+        XCTAssertEqual(claude.environment["CLAUDE_CODE_EXTRA_BODY"], "")
         XCTAssertFalse(openai.command.contains(" login "))
         let chatArguments = openai.chatConfiguration(for: .openai).arguments
         XCTAssertTrue(chatArguments.contains("approval_policy=\"never\""))

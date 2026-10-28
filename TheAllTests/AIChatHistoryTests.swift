@@ -10,7 +10,7 @@ final class AIChatHistoryTests: XCTestCase {
         var launch: AILaunchConfiguration?
         var stops = 0
         func start(_ configuration: AILaunchConfiguration, directory: String) throws { launch = configuration }
-        func send(_ message: [String: Any]) throws { sent.append(message) }
+        func send(_ message: [String: Any]) throws { sent.append(message); respondToClaudeEffortControl(message, sent: sent) { onMessage?($0) } }
         func stop() { stops += 1 }
         func emit(_ value: [String: Any]) { onMessage?(value) }
         func respond(_ result: [String: Any] = [:]) {

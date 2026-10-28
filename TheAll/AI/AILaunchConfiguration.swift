@@ -31,6 +31,9 @@ struct AILaunchConfiguration {
             "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL",
             "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR",
             "CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR", "ANTHROPIC_CUSTOM_HEADERS", "ANTHROPIC_UNIX_SOCKET",
+            // These inherited overrides win over SDK effort settings, even
+            // when apply_flag_settings acknowledges the selected level.
+            "CLAUDE_CODE_EFFORT_LEVEL", "CLAUDE_CODE_EXTRA_BODY",
             "OPENAI_API_KEY", "OPENAI_BASE_URL", "THEALL_OPENAI_API_KEY",
         ].map { ($0, "") })
         environment["PATH"] = ([URL(fileURLWithPath: binary).deletingLastPathComponent().path] + searchPaths)
