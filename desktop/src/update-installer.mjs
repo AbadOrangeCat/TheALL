@@ -54,11 +54,18 @@ export async function prepareInstaller({ file, asset, folder }, target, { userDa
 }
 export async function armInstaller({ plan, planFile, powershell, scriptFile }) {
   await verifyPackage(plan.file, plan);
-  const child = spawn(powershell, ['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',scriptFile,'-Plan',planFile], { detached: true, stdio: 'ignore', windowsHide: true });
-  let failure; child.once('error', e => { failure = e; }); child.once('exit', code => { if (code !== null) failure = new Error('The update installer could not start'); });
+  const logFile=path.join(path.dirname(planFile),'installer.log');
+  const log=await fs.open(logFile,'a',0o600);
+  let child;
+  try { child = spawn(powershell, ['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',scriptFile,'-Plan',planFile], { detached: true, stdio: ['ignore',log.fd,log.fd], windowsHide: true }); }
+  finally { await log.close(); }
+  let failure; child.once('error', e => { failure = e; }); child.once('exit', code => { if (code !== null) failure = new Error(`The update installer exited before it was ready (${code})`); });
   child.unref();
   for (let i = 0; i < 150; i++) {
-    if (failure) throw failure;
+    if (failure) {
+      const detail=await fs.readFile(logFile,'utf8').catch(()=>'');
+      throw new Error(failure.message+(detail?'\n'+detail.slice(-4000):''));
+    }
     try { await fs.access(plan.ready); return { go: () => fs.writeFile(plan.go, 'install', { flag: 'wx' }), cancel: async () => { await fs.writeFile(plan.cancel, 'cancel').catch(()=>{}); if (child.exitCode === null) child.kill(); } }; } catch {}
     await delay(100);
   }
