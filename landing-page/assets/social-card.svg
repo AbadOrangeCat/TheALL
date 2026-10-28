@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-labelledby="title desc"><title id="title">TheAll social card</title><desc id="desc">Source for social-card.png. scripts/sync-version.py updates the version and re-renders the PNG.</desc>
+<rect width="1200" height="630" fill="#173D3B"/>
+<circle cx="1116.4" cy="60.9" r="196.5" fill="#214C43"/>
+<circle cx="1154.7" cy="38.9" r="145.7" fill="#2A5849"/>
+<circle cx="1200.3" cy="12.2" r="92.3" fill="#356451"/>
+<rect x="62" y="61" width="96" height="96" rx="24" fill="#F5F4ED"/>
+<image x="75" y="74" width="70" height="70" href="logo@2x.png"/>
+<text x="183" y="130" font-family="Avenir Next, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="68" font-weight="600" fill="#FFFEF9">TheAll</text>
+<rect x="1026.5" y="91.5" width="100" height="33" rx="16.5" fill="#2A514A" stroke="#456B5C"/>
+<text x="1076.5" y="113" text-anchor="middle" font-family="Avenir Next, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="17" font-weight="400" fill="#CFF1DC">v0.1.6</text>
+<text x="65" y="273" font-family="Avenir Next, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="63" font-weight="600" fill="#FFFEF9">Claude Code &amp; Codex.</text>
+<text x="65" y="350" font-family="Avenir Next, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="52" font-weight="600" letter-spacing="-1" fill="#CFF1DC">One workspace for Mac &amp; Windows.</text>
+<text x="66" y="401" font-family="Avenir Next, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="26" font-weight="400" fill="#C7D8D0">Your projects, conversations, and models. Together.</text>
+<rect x="66" y="454" width="1067" height="1" fill="#476A5B"/>
+<rect x="66.5" y="491.5" width="133.5" height="33" rx="13" fill="#2A514A" stroke="#456B5C"/>
+<text x="84.5" y="513" font-family="Avenir Next, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="18" font-weight="400" fill="#CFF1DC">macOS 14+</text>
+<rect x="212.5" y="491.5" width="219" height="33" rx="13" fill="#2A514A" stroke="#456B5C"/>
+<text x="230.5" y="513" font-family="Avenir Next, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="18" font-weight="400" fill="#CFF1DC">Windows 10+ preview</text>
+<rect x="444.5" y="491.5" width="154.5" height="33" rx="13" fill="#2A514A" stroke="#456B5C"/>
+<text x="462.5" y="513" font-family="Avenir Next, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="18" font-weight="400" fill="#CFF1DC">iOS + Android</text>
+<text x="66" y="591" font-family="Avenir Next, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="18" font-weight="400" fill="#B7CDC0">github.com/AbadOrangeCat/TheALL</text>
+</svg>

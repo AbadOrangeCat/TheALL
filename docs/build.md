@@ -69,11 +69,11 @@ Vendor/
 
 ## TheAll 本地构建
 
-当前版本为 **0.1.6**，产物为 `TheAll.app`（Debug 显示名 `TheAll dev`）。
+版本号以 `project.yml` 的 `MARKETING_VERSION` 为准（见[版本号](#版本号)），产物为 `TheAll.app`（Debug 显示名 `TheAll dev`）。
 工程、target 和 module 统一为 `TheAll`，测试宿主为 TheAll.app。
 本地测试使用 `./scripts/test-local.sh`，输出固定在 `../work/TestDerivedData`；不能在用户开发版的 `../work/DerivedData` 中运行测试，以免测试身份覆盖开发应用并显示空工作区。
 应用没有配置自动更新：发布前需设置自有 `SUFeedURL` 和 `SUPublicEDKey`，
-不能复用其他项目的更新源或签名。0.1.6 提供手动下载安装包，未启用 Sparkle 自动更新。
+不能复用其他项目的更新源或签名。当前提供手动下载安装包，未启用 Sparkle 自动更新。
 
 ## TheAll 本地签名与钥匙串
 
@@ -101,15 +101,34 @@ target 也使用同一证书，独立启用 hardened runtime，不注入调试 e
 表单中重新填写一次；新连接由固定 helper 另存为 `.ai-connections.v3`，旧条目保留。登录钥匙串
 锁定时需先解锁。不要用“允许所有应用访问”或明文保存 API Key 来消除提示。
 
+## 版本号
+
+`project.yml` 的 `MARKETING_VERSION` 是唯一的版本来源。发新版本时运行：
+
+```bash
+./scripts/sync-version.py 0.1.7
+```
+
+脚本写入 `MARKETING_VERSION`，把 `CURRENT_PROJECT_VERSION` 加 1，并同步：
+
+- `TheAll.xcodeproj/project.pbxproj` 中的同名设置；
+- `desktop/package.json` 与 `package-lock.json`，Windows 版运行时从 `package.json` 读取版本；
+- README、`docs/windows.md` 和网站中指向当前版本的链接、安装包文件名与标签；
+- `landing-page/assets/social-card.svg` 中的版本号，并用 Chrome 重新渲染 `social-card.png`。`overview.png` 同样由 `overview.svg` 渲染。
+
+手动改过 `project.yml` 时，不带参数运行即可同步。`--check` 只读校验，`check-doc-drift.sh` 和 Release workflow 会调用。PNG 记录了渲染所用 SVG 的哈希，修改 SVG 后未重新渲染时校验会失败。请在 macOS 上渲染，以使用图中的 Avenir Next 字体。
+
+描述某个具体版本的行（如 README 的 “New in v0.1.6”、网站的版本亮点、“请保留 v0.1.4 或更新版本”）带有 `<!-- version:keep -->` 标记，脚本不会改写；同步结束时会列出其中仍指向其他版本的行，编写新版本说明时按需更新。新增此类历史版本描述时也要加上这个标记，否则校验会把它当成过期版本号。
+
 ## Release 流程
 
-### 0.1.6 手动发布
+### 手动发布
 
-当前 GitHub 仓库为 `AbadOrangeCat/TheALL`。当前本地构建目标为 **macOS 14+ / Apple Silicon（arm64）**；不要把当前只含 arm64 的 Ghostty 静态库打包成 universal。
+当前 GitHub 仓库为 `AbadOrangeCat/TheALL`。当前本地构建目标为 **macOS 14+ / Apple Silicon（arm64）**；不要把当前只含 arm64 的 Ghostty 静态库打包成 universal。下文的 `<version>` 指 `MARKETING_VERSION`，例如 `0.1.7`。
 
-现有本地证书不属于 Apple Developer ID，不能提供 Apple 公证。0.1.6 安装包使用固定本地证书签名，未经过 Apple 公证；源码使用与分发遵循当前 LICENSE、单独授予的书面许可及第三方组件许可证。应用内自动更新尚未配置，因此不生成 Sparkle appcast。
+现有本地证书不属于 Apple Developer ID，不能提供 Apple 公证。安装包使用固定本地证书签名，未经过 Apple 公证；源码使用与分发遵循当前 LICENSE、单独授予的书面许可及第三方组件许可证。应用内自动更新尚未配置，因此不生成 Sparkle appcast。
 
-1. 运行测试、文档漂移检查，并核对 `MARKETING_VERSION` 与发布 tag。
+1. 用 `./scripts/sync-version.py <version>` 更新版本号，运行测试、文档漂移检查，并核对 `MARKETING_VERSION` 与发布 tag。
 2. 将 **同一次 Ghostty 构建**的 `libghostty.a` 和 `.zig-cache` 中的 `libintl.a` 分离。`GHOSTTY_ARCHIVE`、`GETTEXT_ARCHIVE` 应为这两个文件的绝对路径，`RUNTIME_DIR` 为新的输出目录：
 
    ```bash
@@ -135,11 +154,11 @@ target 也使用同一证书，独立启用 hardened runtime，不注入调试 e
 
    ```bash
    python3 scripts/verify-release-bundle.py build/Build/Products/Release/TheAll.app \
-     --sources /absolute/path/TheAll-0.1.6-third-party-sources.tar.gz
+     --sources /absolute/path/TheAll-<version>-third-party-sources.tar.gz
    ```
 
-   脚本检查签名、identity、arm64、动态 gettext、许可证和源码包，阻止测试文件或本地配置混入。将 app、LICENSE、ThirdPartyLicenses 和安装说明打包为 `TheAll-0.1.6-macos-arm64.dmg` / `.zip`。与 `TheAll-0.1.6-third-party-sources.tar.gz` 一起生成 `SHA256SUMS.txt`。
-5. 提交代码，给对应提交打 `v0.1.6` annotated tag，用 `gh release create --verify-tag --notes-file <发布说明>` 上传二进制、对应源码和校验文件。发布说明必须明确未公证、Apple Silicon/macOS 14 要求，以及 Claude Code/Codex 需另行安装。
+   脚本检查签名、identity、arm64、动态 gettext、许可证和源码包，阻止测试文件或本地配置混入。将 app、LICENSE、ThirdPartyLicenses 和安装说明打包为 `TheAll-<version>-macos-arm64.dmg` / `.zip`。与 `TheAll-<version>-third-party-sources.tar.gz` 一起生成 `SHA256SUMS.txt`。
+5. 提交代码，给对应提交打 `v<version>` annotated tag，用 `gh release create --verify-tag --notes-file <发布说明>` 上传二进制、对应源码和校验文件。发布说明必须明确未公证、Apple Silicon/macOS 14 要求，以及 Claude Code/Codex 需另行安装。发布说明采用双语：完整的 `## English` 部分在前，`## 中文` 部分在后，不要按段落中英混排。
 6. 核对远端提交、tag、发布页及安装包下载校验和一致。不要在发布验证时重新启动用户正在使用的开发版。
 
 ### 未来的 Developer ID / 公证发布

@@ -81,9 +81,9 @@ if [[ $status -eq 0 ]]; then
   echo "CLAUDE.md Directory Structure matches TheAll/ Swift files (depth ≤ 2)."
 fi
 
-# Landing-page 版本号必须与 project.yml 的 MARKETING_VERSION 一致。
-# 同步脚本见 scripts/sync-landing-version.sh。
-if ! "$here/sync-landing-version.sh" --check; then
+# README、网站、分享卡片、Xcode 工程和 Windows 包的版本号必须与 project.yml 的
+# MARKETING_VERSION 一致。同步脚本见 scripts/sync-version.py。
+if ! "$here/sync-version.py" --check; then
   status=1
 fi
 
