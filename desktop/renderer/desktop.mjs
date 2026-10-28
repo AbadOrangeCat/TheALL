@@ -4,6 +4,7 @@ import { themes } from './themes.mjs';
 const $=id=>document.getElementById(id);
 const bridge=window.theall;
 if(!bridge)throw new Error('The desktop window is not connected to TheAll');
+let updateState={phase:'idle'}, updateSignature='';
 const state={workspaces:[],selected:null,settings:{},activePane:null,section:'appearance',polling:false,viewSignatures:new Map(),views:new Map(),drag:null,metadata:new Map(),modelLoads:new Map()};
 const invoke=async(method,payload={})=>{const result=await bridge.invoke(method,payload);if(['connection.save','connection.remove'].includes(method)){state.settings=await bridge.invoke('settings.get');state.modelLoads.delete(payload.provider);}return result;};
 function node(tag,cls,text){const value=document.createElement(tag);if(cls)value.className=cls;if(text!==undefined)value.textContent=text;return value;}
@@ -134,7 +135,7 @@ function renderSettings(){
   const close=selectField(t('settings.terminal.confirmClose'),[['true','true'],['false','false'],['always','always']],state.settings.confirmClose||'true');close.input.onchange=()=>run(()=>saveSettings({confirmClose:close.input.value}));content.append(close.wrap,resetSettings({scrollbackLimit:10000000,copyOnSelect:'false',hideMouseWhileTyping:false,confirmClose:'true'}));
   content.append(node('h3','',t('shortcuts')));for(const[label,key]of [[t('newWorkspace'),'Ctrl+N'],[t('newTab'),'Ctrl+T'],[t('closePane'),'Ctrl+W'],[t('splitRight'),'Ctrl+D'],[t('splitDown'),'Ctrl+Shift+D'],[t('send'),'Ctrl+Enter'],[t('history'),'↑ / ↓']]){const row=node('div','setting-row');row.append(node('span','',label),node('kbd','',key));content.append(row);}content.append(node('p','help',t('toolsAutomatic')));
  }else if(state.section==='update'){
-  content.append(node('p','',`${t('version')}: ${state.settings.version||'0.1.5'}`),node('p','help',t('manualUpdates')));const a=node('a','primary',t('openReleases'));a.href='https://github.com/AbadOrangeCat/TheALL/releases/latest';a.target='_blank';a.rel='noreferrer';a.style.display='inline-block';a.style.marginTop='20px';content.append(a);
+  content.append(node('p','',`${t('version')}: ${state.settings.version||''}`),node('p','help',t('updateAutomatic')));const updateBox=node('div');updateBox.id='update-settings';content.append(updateBox);renderUpdateSettings();const a=node('a','',t('openReleases'));a.href='https://github.com/AbadOrangeCat/TheALL/releases/latest';a.target='_blank';a.rel='noreferrer';a.style.display='inline-block';a.style.marginTop='20px';content.append(a);
  }
 }
 function connectionForm(provider){
@@ -164,6 +165,22 @@ async function openPhone(mode='lan'){
  scope.input.onchange=()=>run(pair);permission.input.onchange=()=>run(pair);connection.input.onchange=()=>run(pair);address.input.onchange=()=>run(pair);await pair();
 }
 function shortcuts(e){if(e.isComposing||!(e.ctrlKey||e.metaKey))return;let action;const key=e.key.toLowerCase();if(key===',')action=()=>showSettings();else if(key==='n')action=createWorkspace;else if(key==='t')action=()=>createTab();else if(key==='w')action=()=>closePane();else if(key==='d')action=()=>split(e.shiftKey?'vertical':'horizontal');else if(/^[1-9]$/.test(key)){const index=Number(key)-1;if(e.altKey){const tab=selectedWorkspace()?.tabs?.[index];if(tab)action=()=>chooseTab(tab.id);}else{const w=state.workspaces[index];if(w)action=()=>chooseWorkspace(w.id);}}else if(e.altKey&&['arrowleft','arrowright'].includes(key)){const ids=terminals(selectedTab()?.layout),index=ids.indexOf(state.activePane),id=ids[(index+(key==='arrowright'?1:ids.length-1))%ids.length];if(id)action=()=>{window.theallDesktop.active(id);document.querySelector(`.pane[data-id="${CSS.escape(id)}"] iframe`)?.contentWindow?.focus();};}else if(e.shiftKey&&['[',']'].includes(key)){const tabs=selectedWorkspace()?.tabs||[],index=tabs.findIndex(v=>v.id===selectedTab()?.id),tab=tabs[(index+(key===']'?1:tabs.length-1))%tabs.length];if(tab)action=()=>chooseTab(tab.id);}if(action){e.preventDefault();run(action);return true;}return false;}
-document.addEventListener('keydown',shortcuts);$('toggle-sidebar').onclick=()=>document.body.classList.toggle('collapsed-sidebar');$('new-workspace').onclick=()=>run(createWorkspace);$('empty-new').onclick=()=>run(createWorkspace);$('new-tab').onclick=()=>run(()=>createTab());$('settings-button').onclick=()=>showSettings();$('version-button').onclick=()=>showSettings('update');$('close-settings').onclick=hideSettings;$('phone-shortcut').onclick=()=>run(()=>openPhone());$('close-phone').onclick=()=>$('phone-dialog').close();
+document.addEventListener('keydown',shortcuts);$('toggle-sidebar').onclick=()=>document.body.classList.toggle('collapsed-sidebar');$('new-workspace').onclick=()=>run(createWorkspace);$('empty-new').onclick=()=>run(createWorkspace);$('new-tab').onclick=()=>run(()=>createTab());$('settings-button').onclick=()=>showSettings();$('version-button').onclick=()=>showSettings('update');$('close-settings').onclick=hideSettings;$('update-shortcut').onclick=()=>run(async()=>{updateState=await invoke('update.install');renderUpdate();});$('phone-shortcut').onclick=()=>run(()=>openPhone());$('close-phone').onclick=()=>$('phone-dialog').close();
+function updateText(){return t(({available:'updateInstall',downloading:'updateDownloading',waiting:'updateWaiting',installing:'updateInstalling',error:'updateFailed',checking:'updateChecking',upToDate:'updateCurrent',disabled:'updateDevelopment'})[updateState.phase]||'updateCheck');}
+function renderUpdate(){
+ const busy=['downloading','waiting','installing','checking'].includes(updateState.phase);
+ const card=$('update-shortcut');card.hidden=!updateState.version;card.disabled=busy;
+ $('update-title').textContent=updateState.phase==='error'?t('updateFailed'):`${t('updateAvailable')} ${updateState.version||''}`;
+ $('update-detail').textContent=updateText()+(updateState.phase==='downloading'?` ${Math.floor((updateState.progress||0)*100)}%`:'');
+ card.title=updateState.error||'';renderUpdateSettings();
+}
+function renderUpdateSettings(){
+ const box=$('update-settings');if(!box)return;box.replaceChildren(node('p','help',updateText()));
+ if(updateState.error)box.append(node('p','error-text',updateState.error));
+ const busy=['downloading','waiting','installing','checking'].includes(updateState.phase);
+ const actions=node('div','row-actions');const check=button(t('updateCheck'),async()=>{updateState=await invoke('update.check');renderUpdate();});check.disabled=busy||updateState.phase==='disabled';actions.append(check);
+ if(updateState.version){const install=button(t('updateInstall')+' '+updateState.version,async()=>{updateState=await invoke('update.install');renderUpdate();},'primary');install.disabled=busy;actions.append(install);}box.append(actions);
+}
+async function pollUpdate(){try{const next=await invoke('update.status'),signature=JSON.stringify([getLocale(),next]);if(signature!==updateSignature){updateSignature=signature;updateState=next;renderUpdate();}}catch{}}
 matchMedia('(prefers-color-scheme:dark)').addEventListener('change',()=>applySettings());
-try{state.settings=await invoke('settings.get');const info=await invoke('app.info');state.settings.version=info.version;$('app-version').textContent=info.version;applySettings();await refresh();if(!state.workspaces.length)await createWorkspace();setInterval(()=>refresh().catch(error),1500);async function metadata(){for(const w of state.workspaces){try{state.metadata.set(w.id,await invoke('workspace.metadata',{id:w.id}));}catch{}}renderWorkspaces();}metadata();setInterval(metadata,7000);}catch(e){error(e);}
+try{state.settings=await invoke('settings.get');const info=await invoke('app.info');state.settings.version=info.version;$('app-version').textContent=info.version;applySettings();await pollUpdate();setInterval(pollUpdate,1000);await refresh();if(!state.workspaces.length)await createWorkspace();setInterval(()=>refresh().catch(error),1500);async function metadata(){for(const w of state.workspaces){try{state.metadata.set(w.id,await invoke('workspace.metadata',{id:w.id}));}catch{}}renderWorkspaces();}metadata();setInterval(metadata,7000);}catch(e){error(e);}

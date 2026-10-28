@@ -63,6 +63,10 @@ final class AIChatSessionRegistry {
     }
 
     func flush() { sessions.values.forEach { $0.flushHistory() }; history.flush() }
+    func flushForUpdate() throws {
+        for session in sessions.values { try session.flushHistoryForUpdate() }
+        try history.flushForUpdate()
+    }
     func validateConnection(for provider: AIProvider) throws { try makeSession().validateSavedConnection(for: provider) }
 
     private func observeLayout() {

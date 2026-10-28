@@ -118,18 +118,18 @@ TheAll 的设置面板分成八个 tab：**Appearance（外观）**、**Font（�
 
 ## 7. Update
 
-新增在 Settings tab 条最后一位。与其它 section 不同：不读写 theall config 文件，状态全部活在内存（`UpdateStore`）+ Sparkle 自管的 `UserDefaults` keys。
+Settings 最后一页显示当前版本、检查状态、发行说明、下载进度和可重试的错误。发现新版时，侧栏 **手机扫码连接** 上方同时出现更新卡片；点击即可下载，所有 AI 回合结束后保存草稿并重启安装。只有代码提交而没有新 Release 时不会提示升级。更新卡片及设置页沿用当前主题。
 
-**UI 状态（共 7 种）**：`idle`, `checking`, `upToDate`, `updateAvailable(version, releaseNotes)`, `downloading(progress)`, `readyToInstall`, `error(message)`。详见 `docs/superpowers/specs/2026-04-19-auto-update-design.md`。
+macOS 使用应用级 `UpdateStore` 和 Sparkle；Windows 由主进程更新服务提供状态。正在下载时不能重复开始下载，等待任务结束时不强行终止任务。保存或校验失败不应退出安装；错误保留重试入口。
 
 **Sparkle 自管的 `UserDefaults` keys**（不在 theall config 文件里）：
-- `SULastCheckTime` — 上次 check 时间
-- `SUSkippedMinorVersion` / `SUSkippedMajorVersion` — 用户点了 "Skip This Version"
-- `SUAutomaticallyUpdate` — （未使用）静默升级开关
-- `SUEnableAutomaticChecks` — 由 Info.plist 设为 `YES`
-- `SUScheduledCheckInterval` — 由 Info.plist 设为 86400（24h）
+- `SULastCheckTime` — 上次检查时间
+- `SUSkippedMinorVersion` / `SUSkippedMajorVersion` — 跳过的版本
+- `SUAutomaticallyUpdate` — 设为 NO；下载和安装必须由用户点击开始
+- `SUEnableAutomaticChecks` — 设为 YES
+- `SUScheduledCheckInterval` — 21600 秒（6 小时）
 
-Debug 构建整个 section 仍然渲染，但 "Check for Updates" 按钮 disabled，并附一行 `(Auto-update is disabled in Debug builds.)` 说明。
+普通 macOS Debug 可检查但不能安装正式发布包；测试宿主禁用线上更新。Windows 未打包的开发实例禁用线上自动更新。旧版没有更新功能，需要先手动安装一次包含新功能的版本。
 
 ## 手机连接
 

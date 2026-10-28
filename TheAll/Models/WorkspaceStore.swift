@@ -359,6 +359,15 @@ final class WorkspaceStore {
 
     // MARK: - Persistence
 
+    /// Finish pending divider/layout writes before an update relaunch.
+    func flushForUpdate() throws {
+        saveWorkItem?.cancel()
+        saveWorkItem = nil
+        let data = try JSONEncoder().encode(workspaces)
+        UserDefaults.standard.set(data, forKey: persistenceKey)
+        guard UserDefaults.standard.synchronize() else { throw CocoaError(.fileWriteUnknown) }
+    }
+
     private func save() {
         guard let data = try? JSONEncoder().encode(workspaces) else { return }
         UserDefaults.standard.set(data, forKey: persistenceKey)

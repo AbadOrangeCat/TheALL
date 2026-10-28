@@ -11,7 +11,7 @@ options:
 packages:
   Sparkle:
     url: https://github.com/sparkle-project/Sparkle
-    from: "2.6.0"
+    from: "2.9.6"
 
 targets:
   TheAll:
@@ -36,7 +36,13 @@ targets:
         CFBundlePackageType: APPL
         NSPrincipalClass: NSApplication
         LSMinimumSystemVersion: $(MACOSX_DEPLOYMENT_TARGET)
-        SUEnableAutomaticChecks: NO
+        SUEnableAutomaticChecks: YES
+        SUScheduledCheckInterval: 21600
+        SUAutomaticallyUpdate: NO
+        SUAllowsAutomaticUpdates: NO
+        SUVerifyUpdateBeforeExtraction: YES
+        SUFeedURL: https://github.com/AbadOrangeCat/TheALL/releases/latest/download/appcast.xml
+        SUPublicEDKey: YBBpUV7p3LiBoMSSXdUPajMzhJEUU1huhNPg6tyrMYQ=
         ITSAppUsesNonExemptEncryption: NO
         TheAllPreviousNamespace: $(THEALL_PREVIOUS_NAMESPACE)
         # TCC-protected folders — TheAll hosts shells that may read/write anywhere

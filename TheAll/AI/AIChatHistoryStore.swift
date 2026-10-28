@@ -65,7 +65,7 @@ final class AIChatHistoryStore {
     let imageStore: AIChatImageStore
     private let queue = DispatchQueue(label: "com.theall.chat-history", qos: .utility)
     private let queueKey = DispatchSpecificKey<Bool>()
-    private var pending: [UUID: (AIChatSnapshot, [String], (Bool) -> Void)] = [:]
+    private var pending: [UUID: (AIChatSnapshot, [String], ((Bool) -> Void)?)] = [:]
     private var scheduled = false
     private var terminationObserver: NSObjectProtocol?
     private let notifications: NotificationCenter
@@ -112,6 +112,17 @@ final class AIChatHistoryStore {
         else { queue.sync { writePending() } }
     }
 
+    /// An updater must not terminate until all queued snapshots are on disk.
+    /// Failed writes stay pending, so fixing disk/permission issues allows retry.
+    func flushForUpdate() throws {
+        let checkpoint = {
+            self.writePending()
+            guard self.pending.isEmpty else { throw HistoryError.saveFailed }
+        }
+        if DispatchQueue.getSpecific(key: queueKey) == true { try checkpoint() }
+        else { try queue.sync(execute: checkpoint) }
+    }
+
     private func file(for terminalID: UUID) -> URL {
         directory.appendingPathComponent(terminalID.uuidString + ".json")
     }
@@ -135,8 +146,13 @@ final class AIChatHistoryStore {
                 try data.write(to: file(for: id), options: .atomic)
                 try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file(for: id).path)
                 succeeded = true
-            } catch { succeeded = false }
-            DispatchQueue.main.async { completion(succeeded) }
+            } catch {
+                // A save completion is a one-shot result. Keep failed bytes for
+                // checkpoint retries without notifying the original caller twice.
+                pending[id] = (snapshot, secrets, nil)
+                succeeded = false
+            }
+            if let completion { DispatchQueue.main.async { completion(succeeded) } }
         }
     }
 
@@ -145,5 +161,5 @@ final class AIChatHistoryStore {
         flush()
     }
 
-    enum HistoryError: Error { case unsupportedVersion }
+    enum HistoryError: Error { case unsupportedVersion, saveFailed }
 }

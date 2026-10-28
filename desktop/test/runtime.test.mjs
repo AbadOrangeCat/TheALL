@@ -185,3 +185,44 @@ test('real LAN pairing, scope, read-only, cookie isolation, WebSocket revoke and
   assert(messages.some(m=>m.type==='hello'));assert(messages.some(m=>m.type==='revoked'));
   assert.equal((await f.api('/api/session',{url,cookie})).status,401);
 });
+
+test('update handoff gates new desktop and phone tasks, permits draft flush and can recover',async t=>{
+ const f=await fixture(t);const id=await f.create();assert.equal(f.runtime.tryBeginUpdate(),true);
+ assert.equal(f.runtime.tryBeginUpdate(),false);
+ await assert.rejects(f.runtime.desktop('workspace.create',{}),/installing an update/);
+ await f.runtime.desktop('draft.save',{id,text:'Saved before update',model:'test-model'});
+ const denied=await f.api(`/api/chats/${id}/send`,{body:mutation(f.runtime,{text:'Must not start',model:'test-model'})});assert.equal(denied.status,503);assert.equal(FakeSession.starts,0);
+ await assert.rejects(f.runtime.desktop('update.install',{}),/installing an update/);
+ f.runtime.abortUpdate();const sent=await f.api(`/api/chats/${id}/send`,{body:mutation(f.runtime,{text:'Retry after failed installation',model:'test-model'})});assert.equal(sent.status,200);
+ const data=await f.api(`/api/chats/${id}`);assert(data.body.messages.some(m=>m.text==='Retry after failed installation'));
+});
+test('an initializing provider and an active AI turn prevent update handoff',async t=>{
+ let instance;class BusySession extends FakeSession{constructor(o){super(o);instance=this;}async send(input){await super.send(input);this.isBusy=true;}}
+ const f=await fixture(t,{Session:BusySession});const id=await f.create();let resolve;FakeSession.delay=new Promise(r=>resolve=r);
+ const sending=f.api(`/api/chats/${id}/send`,{body:mutation(f.runtime,{text:'Running task',model:'test-model'})});
+ for(let i=0;i<100&&!FakeSession.starts;i++)await new Promise(r=>setTimeout(r,5));
+ assert.equal(f.runtime.tryBeginUpdate(),false);resolve();assert.equal((await sending).status,200);assert.equal(f.runtime.tryBeginUpdate(),false);
+ instance.isBusy=false;instance.questions=[{id:'question'}];assert.equal(f.runtime.tryBeginUpdate(),false);instance.questions=[];assert.equal(f.runtime.tryBeginUpdate(),true);
+});
+
+test('final save failure cancels update shutdown without disabling the runtime or losing drafts',async t=>{
+ let session;class RecoverableSession extends FakeSession{constructor(options){super(options);session=this;}}
+ const f=await fixture(t,{Session:RecoverableSession});const id=await f.create();
+ assert.equal((await f.api(`/api/chats/${id}/send`,{body:mutation(f.runtime,{text:'Before update',model:'test-model'})})).status,200);
+ const conversationID=session.chat.conversationID;
+ const socket=new WebSocket(f.runtime.url.replace('http:','ws:')+'/api/events',{headers:{origin:f.runtime.url,cookie:`TheAllDesktopSession=${f.runtime.desktopToken}`}});
+ t.after(()=>socket.terminate());const events=[];socket.on('message',b=>events.push(JSON.parse(b.toString())));
+ await new Promise((resolve,reject)=>{socket.once('open',resolve);socket.once('error',reject);});
+ await f.runtime.desktop('draft.save',{id,text:'Keep me',model:'test-model'});
+ events.length=0;session.emit('change'); // A coalesced event is pending when shutdown cancels it.
+ assert(f.runtime.tryBeginUpdate());const original=Store.prototype.save;let calls=0;
+ Store.prototype.save=function(){if(this.directory===f.dataDir&&++calls===2)throw new Error('Injected disk full');return original.call(this);};
+ try{await assert.rejects(f.runtime.close(),/Injected disk full/);}finally{Store.prototype.save=original;}
+ const response=await f.api(`/api/chats/${id}`);assert.equal(response.status,200);assert.equal((await f.runtime.desktop('draft.get',{id})).text,'Keep me');
+ await f.runtime.desktop('draft.save',{id,text:'Recovered',model:'test-model'});
+ assert.equal((await f.api(`/api/chats/${id}/send`,{body:mutation(f.runtime,{text:'After failed update',model:'test-model'})})).status,200);
+ assert.equal(session.chat.conversationID,conversationID);
+ for(let i=0;i<100&&!events.some(e=>e.type==='changed');i++)await new Promise(r=>setTimeout(r,10));
+ assert(events.some(e=>e.type==='changed'),'Live phone/desktop events resume after a cancelled shutdown');
+ assert.equal(f.runtime.tryBeginUpdate(),true);f.runtime.abortUpdate();
+});
