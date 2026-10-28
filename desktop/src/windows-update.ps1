@@ -1,7 +1,17 @@
-param([Parameter(Mandatory=$true)][string]$Plan, [switch]$Prepare)
+param([Parameter(Mandatory=$true)][string]$Plan, [switch]$Prepare, [switch]$Launch)
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $p = Get-Content -LiteralPath $Plan -Raw -Encoding UTF8 | ConvertFrom-Json
+if ($Launch) {
+  # A detached Node spawn can make Windows PowerShell exit before -File runs.
+  # Start through a normal short-lived PowerShell launcher instead. Its native
+  # child has its own hidden window and file-backed output, and survives both
+  # this launcher and the application. Arguments are native argv, not shell code.
+  if ($PSCommandPath -match '["\r\n]' -or $Plan -match '["\r\n]') { throw 'Invalid installer location' }
+  $arguments = '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + $PSCommandPath + '" -Plan "' + $Plan + '"'
+  $child = Start-Process -FilePath (Join-Path $PSHOME 'powershell.exe') -ArgumentList $arguments -WindowStyle Hidden -RedirectStandardOutput $p.stdoutLog -RedirectStandardError $p.stderrLog -PassThru
+  exit 0
+}
 function Get-SHA256([string]$File) {
   # Windows PowerShell launched from a newer shell can inherit a module path
   # without Get-FileHash. Use the built-in .NET primitive on both runtimes.

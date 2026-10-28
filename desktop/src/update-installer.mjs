@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
-import { execFile, spawn } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { verifyPackage } from './updater.mjs';
@@ -39,7 +39,8 @@ export async function prepareInstaller({ file, asset, folder }, target, { userDa
   const id = randomUUID(), parent = path.dirname(target.target);
   const plan = { ...target, file, sha256: asset.sha256, size: asset.size, pid: process.pid,
     stage: path.join(parent, `.TheAll-update-${id}${target.kind === 'portable' ? '.exe' : ''}`), backup: path.join(parent, `.TheAll-backup-${id}`),
-    manifest: path.join(folder, 'manifest.json'), ready: path.join(folder, 'ready'), go: path.join(folder, 'go'), cancel: path.join(folder, 'cancel'), result: path.join(userData, 'Updates', 'last-result.json') };
+    manifest: path.join(folder, 'manifest.json'), ready: path.join(folder, 'ready'), go: path.join(folder, 'go'), cancel: path.join(folder, 'cancel'), result: path.join(userData, 'Updates', 'last-result.json'),
+    stdoutLog: path.join(folder,'installer.stdout.log'), stderrLog: path.join(folder,'installer.stderr.log') };
   const scriptFile = path.join(folder, 'install.ps1');
   await fs.writeFile(scriptFile, await fs.readFile(helper), { flag: 'wx', mode: 0o600 });
   const planFile = path.join(folder, 'plan.json');
@@ -54,22 +55,14 @@ export async function prepareInstaller({ file, asset, folder }, target, { userDa
 }
 export async function armInstaller({ plan, planFile, powershell, scriptFile }) {
   await verifyPackage(plan.file, plan);
-  const logFile=path.join(path.dirname(planFile),'installer.log');
-  const log=await fs.open(logFile,'a',0o600);
-  let child;
-  try { child = spawn(powershell, ['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',scriptFile,'-Plan',planFile], { detached: true, stdio: ['ignore',log.fd,log.fd], windowsHide: true }); }
-  finally { await log.close(); }
-  let failure; child.once('error', e => { failure = e; }); child.once('exit', code => { if (code !== null) failure = new Error(`The update installer exited before it was ready (${code})`); });
-  child.unref();
+  await execute(powershell, ['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',scriptFile,'-Plan',planFile,'-Launch'], { windowsHide:true, timeout:15_000, maxBuffer:1024*1024 });
   for (let i = 0; i < 150; i++) {
-    if (failure) {
-      const detail=await fs.readFile(logFile,'utf8').catch(()=>'');
-      throw new Error(failure.message+(detail?'\n'+detail.slice(-4000):''));
-    }
-    try { await fs.access(plan.ready); return { go: () => fs.writeFile(plan.go, 'install', { flag: 'wx' }), cancel: async () => { await fs.writeFile(plan.cancel, 'cancel').catch(()=>{}); if (child.exitCode === null) child.kill(); } }; } catch {}
+    try { await fs.access(plan.ready); return { go: () => fs.writeFile(plan.go, 'install', { flag: 'wx' }), cancel: () => fs.writeFile(plan.cancel, 'cancel') }; } catch {}
     await delay(100);
   }
-  await fs.writeFile(plan.cancel, 'cancel'); throw new Error('The update installer did not become ready');
+  await fs.writeFile(plan.cancel, 'cancel');
+  const detail=await fs.readFile(plan.stderrLog,'utf8').catch(()=>'');
+  throw new Error('The update installer did not become ready'+(detail?'\n'+detail.slice(-4000):''));
 }
 
 export async function discardPrepared(prepared) { if (prepared?.plan) await fs.rm(prepared.plan.stage,{recursive:true,force:true}); }

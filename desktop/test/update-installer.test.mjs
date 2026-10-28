@@ -23,9 +23,12 @@ async function executable(destination,marker){
 async function asset(file,kind){const bytes=await fs.readFile(file);return {kind,size:bytes.length,sha256:createHash('sha256').update(bytes).digest('hex')};}
 async function waitFile(file){for(let i=0;i<400;i++){try{return await fs.readFile(file,'utf8');}catch{}await new Promise(r=>setTimeout(r,50));}throw new Error('Helper result timed out');}
 async function commit(prepared){
- // An isolated short-lived process stands in for the application being quit.
- const child=spawn(process.execPath,['-e','setTimeout(()=>{},1000)'],{stdio:'ignore',windowsHide:true});prepared.plan.pid=child.pid;
- await fs.writeFile(prepared.planFile,JSON.stringify(prepared.plan));const handoff=await armInstaller(prepared);await handoff.go();return JSON.parse(await waitFile(prepared.plan.result));
+ // The actual launching Node process exits. This catches Windows job/console
+ // bugs that a fake parent PID cannot detect while the test process stays alive.
+ const code=`import fs from 'node:fs/promises';import {armInstaller} from ${JSON.stringify(new URL('../src/update-installer.mjs',import.meta.url).href)};const p=JSON.parse(await fs.readFile(process.argv[1],'utf8'));p.plan.pid=process.pid;await fs.writeFile(p.planFile,JSON.stringify(p.plan));const handoff=await armInstaller(p);await handoff.go();`;
+ const input=path.join(path.dirname(prepared.planFile),'test-handoff.json');await fs.writeFile(input,JSON.stringify(prepared));
+ await execute(process.execPath,['--input-type=module','-e',code,input],{windowsHide:true,timeout:30000});
+ return JSON.parse(await waitFile(prepared.plan.result));
 }
 test('Windows NSIS helper waits for the saved application to exit and preserves the installation path',{skip:!windows,timeout:90000},async t=>{
  const f=await fixture(t),target=path.join(f.root,'Installed TheAll 中文'),file=path.join(f.folder,'setup.exe'),marker=path.join(f.root,'installer-command');
