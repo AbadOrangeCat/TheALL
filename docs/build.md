@@ -139,7 +139,7 @@ target 也使用同一证书，独立启用 hardened runtime，不注入调试 e
    ```
 
    脚本检查签名、identity、arm64、动态 gettext、许可证和源码包，阻止测试文件或本地配置混入。将 app、LICENSE、ThirdPartyLicenses 和安装说明打包为 `TheAll-0.1.6-macos-arm64.dmg` / `.zip`。与 `TheAll-0.1.6-third-party-sources.tar.gz` 一起生成 `SHA256SUMS.txt`。
-5. 提交代码，给对应提交打 `v0.1.6` annotated tag，用 `gh release create --verify-tag --notes-file <发布说明>` 上传二进制、对应源码和校验文件。发布说明必须明确未公证、Apple Silicon/macOS 14 要求，以及 Claude Code/Codex 需另行安装。
+5. 提交代码，给对应提交打 `v0.1.6` annotated tag，用 `gh release create --verify-tag --notes-file <发布说明>` 上传二进制、对应源码和校验文件。发布说明必须明确未公证、Apple Silicon/macOS 14 要求，以及 Claude Code/Codex 需另行安装。发布说明采用双语：完整的 `## English` 部分在前，`## 中文` 部分在后，不要按段落中英混排。
 6. 核对远端提交、tag、发布页及安装包下载校验和一致。不要在发布验证时重新启动用户正在使用的开发版。
 
 ### 未来的 Developer ID / 公证发布
