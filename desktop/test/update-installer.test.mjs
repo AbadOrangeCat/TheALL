@@ -40,7 +40,7 @@ test('Windows NSIS helper waits for the saved application to exit and preserves 
  prepared.plan.pid=child.pid;await fs.writeFile(prepared.planFile,JSON.stringify(prepared.plan));
  const handoff=await armInstaller(prepared);await handoff.go();await new Promise(r=>setTimeout(r,150));
  await assert.rejects(fs.access(marker));child.stdin.end();
- const result=JSON.parse(await waitFile(prepared.plan.result));assert.equal(result.ok,true);
+ const result=JSON.parse(await waitFile(prepared.plan.result));assert.equal(result.ok,true,result.error);
  const command=await waitFile(marker);assert(command.includes('/S --updated --force-run /D='+target));
  assert.equal(await fs.readFile(path.join(f.userData,'history.json'),'utf8'),'preserved');
 });
@@ -49,7 +49,7 @@ test('Windows portable helper waits for exit, replaces the outer executable and 
  await executable(target,path.join(f.root,'old-started'));const original=await fs.readFile(target);await executable(next,marker);
  await fs.writeFile(path.join(f.userData,'history.json'),'preserved');
  const prepared=await prepareInstaller({file:next,asset:await asset(next,'portable'),folder:f.folder},{kind:'portable',target},{userData:f.userData});
- const result=await commit(prepared);assert.equal(result.ok,true);await waitFile(marker);
+ const result=await commit(prepared);assert.equal(result.ok,true,result.error);await waitFile(marker);
  assert.deepEqual(await fs.readFile(prepared.plan.backup),original);assert.equal(await fs.readFile(path.join(f.userData,'history.json'),'utf8'),'preserved');
 });
 test('Windows ZIP helper swaps a dedicated app directory and rejects unsafe archive paths',{skip:!windows,timeout:90000},async t=>{
@@ -58,7 +58,7 @@ test('Windows ZIP helper swaps a dedicated app directory and rejects unsafe arch
  await executable(path.join(target,'TheAll.exe'),path.join(f.root,'old-started'));await executable(path.join(source,'TheAll.exe'),path.join(f.root,'new-started'));
  await powershell(`Add-Type -AssemblyName System.IO.Compression.FileSystem; [IO.Compression.ZipFile]::CreateFromDirectory(${quote(source)},${quote(file)})`);
  const prepared=await prepareInstaller({file,asset:await asset(file,'zip'),folder:f.folder},{kind:'zip',target},{userData:f.userData});
- assert.equal((await commit(prepared)).ok,true);await waitFile(path.join(f.root,'new-started'));
+ const result=await commit(prepared);assert.equal(result.ok,true,result.error);await waitFile(path.join(f.root,'new-started'));
  for(const name of ['../escape','/absolute','C:/drive','folder/../escape','file:stream','CON.txt','dir./file']){
    const another=await fs.mkdtemp(path.join(path.dirname(f.folder),'bad-')),bad=path.join(another,'bad.zip');
    await powershell(`Add-Type -AssemblyName System.IO.Compression.FileSystem; $z=[IO.Compression.ZipFile]::Open(${quote(bad)},[IO.Compression.ZipArchiveMode]::Create);$e=$z.CreateEntry(${quote(name)});$z.Dispose()`);
