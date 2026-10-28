@@ -45,7 +45,7 @@ export async function prepareInstaller({ file, asset, folder }, target, { userDa
   await fs.writeFile(scriptFile, await fs.readFile(helper), { flag: 'wx', mode: 0o600 });
   const planFile = path.join(folder, 'plan.json');
   await fs.writeFile(planFile, JSON.stringify(plan), { flag: 'wx', mode: 0o600 });
-  try { await execute(powershell, ['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',scriptFile,'-Plan',planFile,'-Prepare'], { windowsHide: true, timeout: 180_000, maxBuffer: 1024 * 1024 }); }
+  try { await execute(powershell, ['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',scriptFile,'-Plan',planFile,'-Prepare'], { cwd: path.dirname(plan.result), windowsHide: true, timeout: 180_000, maxBuffer: 1024 * 1024 }); }
   catch(error) { await fs.rm(plan.stage,{recursive:true,force:true}).catch(()=>{}); throw error; }
   if (target.kind === 'zip') {
     plan.manifestHash = createHash('sha256').update(await fs.readFile(plan.manifest)).digest('hex');
@@ -55,7 +55,9 @@ export async function prepareInstaller({ file, asset, folder }, target, { userDa
 }
 export async function armInstaller({ plan, planFile, powershell, scriptFile }) {
   await verifyPackage(plan.file, plan);
-  await execute(powershell, ['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',scriptFile,'-Plan',planFile,'-Launch'], { windowsHide:true, timeout:15_000, maxBuffer:1024*1024 });
+  // A helper must not hold the installation directory open as its working
+  // directory, or Windows cannot rename a ZIP installation after app exit.
+  await execute(powershell, ['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',scriptFile,'-Plan',planFile,'-Launch'], { cwd:path.dirname(plan.result), windowsHide:true, timeout:15_000, maxBuffer:1024*1024 });
   for (let i = 0; i < 150; i++) {
     try { await fs.access(plan.ready); return { go: () => fs.writeFile(plan.go, 'install', { flag: 'wx' }), cancel: () => fs.writeFile(plan.cancel, 'cancel') }; } catch {}
     await delay(100);

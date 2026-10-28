@@ -9,7 +9,7 @@ if ($Launch) {
   # this launcher and the application. Arguments are native argv, not shell code.
   if ($PSCommandPath -match '["\r\n]' -or $Plan -match '["\r\n]') { throw 'Invalid installer location' }
   $arguments = '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + $PSCommandPath + '" -Plan "' + $Plan + '"'
-  $child = Start-Process -FilePath (Join-Path $PSHOME 'powershell.exe') -ArgumentList $arguments -WindowStyle Hidden -RedirectStandardOutput $p.stdoutLog -RedirectStandardError $p.stderrLog -PassThru
+  $child = Start-Process -FilePath (Join-Path $PSHOME 'powershell.exe') -ArgumentList $arguments -WorkingDirectory ([IO.Path]::GetDirectoryName($p.result)) -WindowStyle Hidden -RedirectStandardOutput $p.stdoutLog -RedirectStandardError $p.stderrLog -PassThru
   exit 0
 }
 function Get-SHA256([string]$File) {

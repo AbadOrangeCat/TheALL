@@ -27,7 +27,7 @@ async function commit(prepared){
  // bugs that a fake parent PID cannot detect while the test process stays alive.
  const code=`import fs from 'node:fs/promises';import {armInstaller} from ${JSON.stringify(new URL('../src/update-installer.mjs',import.meta.url).href)};const p=JSON.parse(await fs.readFile(process.argv[1],'utf8'));p.plan.pid=process.pid;await fs.writeFile(p.planFile,JSON.stringify(p.plan));const handoff=await armInstaller(p);await handoff.go();`;
  const input=path.join(path.dirname(prepared.planFile),'test-handoff.json');await fs.writeFile(input,JSON.stringify(prepared));
- await execute(process.execPath,['--input-type=module','-e',code,input],{windowsHide:true,timeout:30000});
+ await execute(process.execPath,['--input-type=module','-e',code,input],{cwd:prepared.plan.kind==='zip'?prepared.plan.target:undefined,windowsHide:true,timeout:30000});
  return JSON.parse(await waitFile(prepared.plan.result));
 }
 test('Windows NSIS helper waits for the saved application to exit and preserves the installation path',{skip:!windows,timeout:90000},async t=>{
