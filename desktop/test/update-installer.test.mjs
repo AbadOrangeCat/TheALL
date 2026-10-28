@@ -61,7 +61,7 @@ test('Windows ZIP helper swaps a dedicated app directory and rejects unsafe arch
  const result=await commit(prepared);assert.equal(result.ok,true,result.error);await waitFile(path.join(f.root,'new-started'));
  for(const name of ['../escape','/absolute','C:/drive','folder/../escape','file:stream','CON.txt','dir./file']){
    const another=await fs.mkdtemp(path.join(path.dirname(f.folder),'bad-')),bad=path.join(another,'bad.zip');
-   await powershell(`Add-Type -AssemblyName System.IO.Compression.FileSystem; $z=[IO.Compression.ZipFile]::Open(${quote(bad)},[IO.Compression.ZipArchiveMode]::Create);$e=$z.CreateEntry(${quote(name)});$z.Dispose()`);
+   await powershell(`Add-Type -AssemblyName System.IO.Compression; Add-Type -AssemblyName System.IO.Compression.FileSystem; $z=[IO.Compression.ZipFile]::Open(${quote(bad)},[IO.Compression.ZipArchiveMode]::Create);$e=$z.CreateEntry(${quote(name)});$z.Dispose()`);
    await assert.rejects(prepareInstaller({file:bad,asset:await asset(bad,'zip'),folder:another},{kind:'zip',target},{userData:f.userData}));
  }
  assert.equal(await fs.readFile(path.join(target,'resources','app.asar'),'utf8'),'fixture');
