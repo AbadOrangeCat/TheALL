@@ -52,6 +52,15 @@ function Assert-Staged {
     if ($item.Length -ne $record.size -or (Get-SHA256 $file) -ne $record.sha256) { throw 'Prepared update files changed' }
   }
 }
+function Get-ManifestRecords([string]$Root, [string]$Prefix = '') {
+  # Windows TEMP can use an 8.3 path while FileInfo expands its ancestors.
+  # Build relative names from directory entries, never by trimming that path.
+  foreach ($item in Get-ChildItem -LiteralPath $Root -Force) {
+    $name = if ($Prefix) { $Prefix + '\' + $item.Name } else { $item.Name }
+    if ($item.PSIsContainer) { Get-ManifestRecords $item.FullName $name }
+    else { @{ name=$name; size=$item.Length; sha256=(Get-SHA256 $item.FullName) } }
+  }
+}
 Assert-Package
 if ($Prepare) {
   if ($p.kind -eq 'zip') {
@@ -77,9 +86,7 @@ if ($Prepare) {
       }
     } finally { $archive.Dispose() }
     Assert-ApplicationFolder $p.stage
-    $manifest = @(Get-ChildItem -LiteralPath $p.stage -File -Recurse -Force | ForEach-Object {
-      @{ name=$_.FullName.Substring($p.stage.Length+1); size=$_.Length; sha256=(Get-SHA256 $_.FullName) }
-    })
+    $manifest = @(Get-ManifestRecords $p.stage)
     ConvertTo-Json -InputObject $manifest -Depth 3 -Compress | Set-Content -LiteralPath $p.manifest -Encoding UTF8
   }
   exit 0
