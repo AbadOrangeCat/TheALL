@@ -184,14 +184,14 @@ TheAll/
 | 接入新的 ghostty C API | `Ghostty/GhosttyBridge.swift`，需同步更新 `docs/ghostty-integration.md` |
 | 改自动更新 UI / 行为 | `TheAll/Update/UpdateStore.swift`, `TheAll/Update/UpdateUserDriver.swift`, `TheAll/Settings/Sections/UpdateSectionView.swift`, `TheAll/Sidebar/SidebarView.swift`（footer） |
 | 改发布流水线 / appcast 格式 | `.github/workflows/release.yml`, `.github/scripts/render-appcast.sh`, `docs/build.md` |
-| 发新版本 | 改 `project.yml` 的 `MARKETING_VERSION` → `./scripts/sync-landing-version.sh` 同步 landing → commit；仅在用户授权发版后手动运行 Release workflow（详见 `docs/build.md#release-流程`） |
-| 同步 landing 版本号 | `./scripts/sync-landing-version.sh`（`--check` 为只读校验，CI drift check 会调用） |
+| 发新版本 | `./scripts/sync-version.py <新版本>`（改 `project.yml` 版本并把 build 号 +1，同步 Xcode 工程、`desktop/package.json`、README、网站与分享卡片）→ 按需更新标有 `version:keep` 的版本亮点 → commit；仅在用户授权发版后手动运行 Release workflow（详见 `docs/build.md#版本号`） |
+| 同步版本号 | `./scripts/sync-version.py`（按 `project.yml` 同步；`--check` 为只读校验，CI drift check 会调用；重新渲染网站 PNG 需要 Chrome） |
 | 新增设置项 | `Settings/Sections/<对应>.swift`, `Settings/SettingsConfigStore.swift`（默认值/校验）, `docs/settings-reference.md` |
 | 新增终端状态来源 | `Models/HookMessage.swift` → `Models/HookSocketListener.swift` → `Models/TerminalStatusStore.swift`，展示在 `Theme/TerminalStatusIconView.swift` |
 | 侧边栏 / Tab 的 rename / delete / reorder 交互 | `Sidebar/SidebarView.swift`, `Sidebar/WorkspaceListView.swift`, `Bridge/SidebarListBridge.swift`, `TabContent/TabBarView.swift`, `TabContent/TabContentView.swift`, `Models/WorkspaceStore.swift` |
 | 跑测试 | `./scripts/test-local.sh` |
 | 重新生成 Xcode 工程 | `xcodegen generate`（修改 `project.yml` 后执行）|
-| 检查文档漂移 | `./scripts/check-doc-drift.sh`（对比 Directory Structure 与真实 `TheAll/` 目录；同时校验 landing 版本号与 `project.yml` 一致） |
+| 检查文档漂移 | `./scripts/check-doc-drift.sh`（对比 Directory Structure 与真实 `TheAll/` 目录；同时校验各处版本号与 `project.yml` 一致） |
 | 新增文案 / 支持新语言 | `TheAll/Localization/Localizable.xcstrings`, `TheAll/Localization/L10n.swift`, `TheAllTests/L10nSmokeTests.swift`, `docs/i18n.md` |
 | 修改 tab 自动命名行为（auto title 来源 / 锁定语义） | `Models/TerminalSessionTitleStore.swift`, `Models/Workspace.swift`（displayTitle）, `Models/HookDispatcher.swift`（路由）, `Resources/agent-hooks/agent-hook.py`（claude/codex 来源）, `Resources/agent-hooks/opencode-plugin/theall-status.js`（opencode 来源） |
 

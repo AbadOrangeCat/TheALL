@@ -13,6 +13,7 @@ import { AISession } from './ai.mjs';
 import { RelayClient } from './relay.mjs';
 import { loadLANIdentity } from './tls.mjs';
 import { PushNotifications } from './web-push.mjs';
+import { APP_VERSION } from './version.mjs';
 
 const BODY_LIMIT = 3 * 1024 * 1024;
 const execute = promisify(execFile);
@@ -63,7 +64,7 @@ function directory(value) {
 }
 
 export async function createRuntime({ dataDir, webRoot, desktopRoot, encrypt, decrypt, selectDirectory,
-  normalizeImage, pushSender, Session = AISession, Relay = RelayClient, networkInterfaces = os.networkInterfaces, version = '0.1.6' }) {
+  normalizeImage, pushSender, Session = AISession, Relay = RelayClient, networkInterfaces = os.networkInterfaces, version = APP_VERSION }) {
   const store = new Store(dataDir, { encrypt, decrypt }), state = store.state;
   const sessions = new Map(), starting = new Map(), receipts = new Map(), pending = new Set(), events = new Set();
   const metadataCache = new Map(), relayTransitions = new Set();

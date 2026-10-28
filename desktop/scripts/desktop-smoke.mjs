@@ -7,6 +7,7 @@ import os from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { _electron } from 'playwright';
 import electronPath from 'electron';
+import { APP_VERSION } from '../src/version.mjs';
 
 const root=fileURLToPath(new URL('..',import.meta.url));
 const temporary=await fs.mkdtemp(path.join(os.tmpdir(),'TheAll isolated desktop '));
@@ -29,7 +30,7 @@ await fs.chmod(cli,0o700);
 // frame. The Proxy forwards real Electron frame properties; it does not forge
 // origins, IDs or permissions. This instrumentation exists only in the test app.
 const harness=path.join(temporary,'harness');await fs.mkdir(harness);
-await fs.writeFile(path.join(harness,'package.json'),JSON.stringify({name:'theall-isolated-smoke',version:'0.1.6',main:'main.cjs'}));
+await fs.writeFile(path.join(harness,'package.json'),JSON.stringify({name:'theall-isolated-smoke',version:APP_VERSION,main:'main.cjs'}));
 await fs.writeFile(path.join(harness,'main.cjs'),`
 const {ipcMain}=require('electron');
 const handle=ipcMain.handle.bind(ipcMain);

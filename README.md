@@ -62,7 +62,7 @@ Both platforms need an API connection and the [Claude Code CLI](https://code.cla
 
 **Execution behavior:** coding-agent tools run automatically, including file changes, deletion, dependency installation, and Git pushes. Use a project and API connection you intend the agent to operate. Questions that require your answer still pause for input.
 
-## New in v0.1.6
+## New in v0.1.6 <!-- version:keep -->
 
 - **Windows preview:** local Claude Code/Codex, workspaces, tabs, split panes, saved conversations and phone access.
 - **Reasoning effort beside the model:** choices come from the selected model's reported capabilities. Claude settings are read back before every message; a mismatch stops submission and keeps your draft. The completion footer distinguishes CLI-confirmed effort from Codex's requested effort. A model's own description of its internal budget is not a settings readback.
@@ -75,7 +75,7 @@ The sidebar **Connect phone** button still provides automatic QR pairing on trus
 
 Use the photo button, drag images into the desktop chat, or paste with **⌘V** (**Ctrl+V** on Windows). Send photos with text or on their own. Desktop imports accept up to 20 MiB per source and create smaller copies with orientation corrected and original metadata removed; the originals stay unchanged. Mobile uploads are compressed before sending. Failed sends preserve draft attachments.
 
-Chats containing photos use a newer history format: keep v0.1.4 or later to reopen them. If you use a self-hosted relay, update its code alongside the desktop app for photo uploads. See [photo details](docs/ai-terminals.md#photos).
+Chats containing photos use a newer history format: keep v0.1.4 or later to reopen them. If you use a self-hosted relay, update its code alongside the desktop app for photo uploads. See [photo details](docs/ai-terminals.md#photos). <!-- version:keep -->
 
 ## Your computer, reachable from your phone
 

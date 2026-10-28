@@ -7,6 +7,7 @@ import os from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { StringDecoder } from 'node:string_decoder';
 import { modelCapabilities, mergeModelCatalog, selectedReasoningEffort } from './models.mjs';
+import { APP_VERSION } from './version.mjs';
 
 const MAX_FRAME = 16 * 1024 * 1024;
 const MAX_QUEUED = 32 * 1024 * 1024;
@@ -195,7 +196,7 @@ export class AISession extends EventEmitter {
         if (!this.models.length) this.models = ['default', 'sonnet', 'opus', 'haiku'].map(id => ({ id: id === 'default' ? '' : id, title: id === 'default' ? 'Default' : id, reasoningEfforts: [] }));
         this.appliedReasoningEffort = undefined;
       } else {
-        await this.rpc('initialize', { clientInfo: { name: 'theall', title: 'TheAll', version: '0.1.6' } });
+        await this.rpc('initialize', { clientInfo: { name: 'theall', title: 'TheAll', version: APP_VERSION } });
         await this.write({ method: 'initialized' });
         try {
           const list = await this.rpc('model/list', { limit: 100 });
