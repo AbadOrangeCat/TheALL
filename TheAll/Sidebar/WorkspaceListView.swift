@@ -40,9 +40,9 @@ final class WorkspaceListView: NSView {
     fileprivate var draggingId: UUID?
     fileprivate var previewInsertionIndex: Int?
 
-    static let baseRowHeight: CGFloat = 44
+    static let baseRowHeight: CGFloat = 48
     static let rowHeight: CGFloat = baseRowHeight
-    static let rowSpacing: CGFloat = 3
+    static let rowSpacing: CGFloat = DT.Space.xs
     static let outerHorizontalInset: CGFloat = DT.Space.sm
 
     override init(frame: NSRect) {
@@ -390,7 +390,7 @@ private final class WorkspaceRowItemView: NSView, NSTextFieldDelegate, NSDraggin
         wantsLayer = true
 
         backgroundLayerView.wantsLayer = true
-        backgroundLayerView.layer?.cornerRadius = DT.Radius.row
+        backgroundLayerView.layer?.cornerRadius = DT.Radius.window
         backgroundLayerView.layer?.masksToBounds = true
         addSubview(backgroundLayerView)
 
@@ -443,7 +443,7 @@ private final class WorkspaceRowItemView: NSView, NSTextFieldDelegate, NSDraggin
         backgroundLayerView.frame = bounds
 
         let hPad = DT.Space.md
-        let topPad = DT.Space.xs
+        let topPad = DT.Space.sm
         let titleH = ceil(titleLabel.intrinsicContentSize.height)
         let branchH = ceil(branchLabel.intrinsicContentSize.height)
 
@@ -509,7 +509,7 @@ private final class WorkspaceRowItemView: NSView, NSTextFieldDelegate, NSDraggin
         let commandH = commandLabelHeight(forWidth: contentWidth)
         return max(
             WorkspaceListView.baseRowHeight,
-            DT.Space.xs + titleH + DT.Space.xs + commandH)
+            DT.Space.sm * 2 + titleH + DT.Space.xs + commandH)
     }
 
     private func commandLabelHeight(forWidth width: CGFloat) -> CGFloat {
@@ -741,10 +741,12 @@ private final class WorkspaceRowItemView: NSView, NSTextFieldDelegate, NSDraggin
     }
 
     fileprivate func updateStyle() {
+        backgroundLayerView.layer?.borderWidth = isSelected ? DT.Stroke.hairline : 0
+        backgroundLayerView.layer?.borderColor = theme.borderStrong.withAlphaComponent(backgroundOpacity).cgColor
         if isSelected {
             backgroundLayerView.layer?.backgroundColor = theme.border.withAlphaComponent(backgroundOpacity).cgColor
             titleLabel.textColor = theme.textPrimary
-            titleLabel.font = DT.Font.body
+            titleLabel.font = DT.Font.bodyB
         } else if isHovered {
             backgroundLayerView.layer?.backgroundColor = theme.border.withAlphaComponent(backgroundOpacity).cgColor
             titleLabel.textColor = theme.textSecondary

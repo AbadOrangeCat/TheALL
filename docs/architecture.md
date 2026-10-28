@@ -310,6 +310,8 @@ User click ──► SparkleBridge.{checkForUpdates | downloadAndInstall | skipV
 
 `AIChatHistoryStore` 将每个 terminal UUID 的提供商、模型、工作目录、草稿、消息（含折叠标记）和后端 conversation ID 原子保存到 Application Support/<bundleID>/ChatHistory/<UUID>.json。串行后台队列每 300ms 合并写入，退出和窗口解绑时同步 flush；目录 0700、文件 0600。快照不保存连接或 API Key。恢复先展示本地记录，再读取 Keychain 并以 Claude `--resume` / Codex `thread/resume` 接续同一后端上下文；凭据缺失和恢复失败都保留记录，不自动创建空白会话。旧版没有 terminal 映射，`AIChatLegacyHistory` 只读扫描本应用 Claude 目录，用户在选择页或空白 Claude 聊天的“恢复旧版 Claude 对话”中明确选择导入；导入前停止空会话并保留草稿/模型，随后按当前终端 UUID 保存，以后重开直接续接。
 
+聊天视觉尺寸集中在 `DT.Chat`：内容列最大宽度 880pt、控件行 32pt、输入区 96pt，使用既有 AppTheme 颜色。输入工具栏宽度不足时把照片/目录与模型/强度/发送拆成两行；桌面 Web 使用对应尺寸，手机保留更大的触摸目标。主题、强调色和自定义配色不受这层布局规则影响。
+
 `AIChatComposer.Editor` 在首个视觉行的 ↑ / 最后视觉行的 ↓ 上浏览当前会话的用户消息；按一次浏览冻结历史，恢复原草稿与光标，临时编辑不改写消息。多行、软换行、选区、修饰键和输入法组合文本保留 AppKit 行为。会话身份或外部草稿变化清理浏览与独立 undo 状态；撤销/重做后的文本作为新草稿，防止历史编辑错位。
 
 `AIChatImage.swift` 提供 `AIChatImage` 元数据和 `AIChatImageStore`。照片独立存储在 ChatHistory/Attachments，快照只保留附件引用和图片草稿，旧版无附件字段的 JSON 仍可读取。ImageIO 检查输入、校正方向、去除 EXIF/GPS 并缩小到最长边 2048；原始文件不修改。每条最多 4 张，桌面原文件最多 20 MB，存储副本最多 2 MB。Claude 使用 base64 image content blocks，Codex 使用 app-server `localImage` 持久本地路径；图片发送失败保留草稿。

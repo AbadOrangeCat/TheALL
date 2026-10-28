@@ -820,3 +820,63 @@ dialog>p {
 .notification-actions button { padding:10px 14px; border:1px solid var(--border); border-radius:9px }
 #notification-status { padding:12px; background:var(--raised); border-radius:9px; line-height:1.6 }
 .message-timing { display:flex; flex-wrap:wrap; gap:6px 14px; margin-top:12px; color:var(--muted); font-size:11px; line-height:1.5; font-variant-numeric:tabular-nums }
+
+/* Precise spacing and control alignment, with the existing palette unchanged. */
+.application { min-width:0; }
+.sidebar-heading { min-height:40px; padding-left:12px; }
+.workspace-name { padding:8px 12px; line-height:20px; }
+.conversation { min-height:44px; padding:10px 12px; border:1px solid transparent; }
+.conversation[aria-current=true] { border-color:var(--border); box-shadow:inset 2px 0 var(--accent); }
+.chat-heading h1 { line-height:22px; margin-bottom:4px; }
+.chat-heading .small { line-height:16px; }
+.transcript { padding-top:24px; padding-bottom:24px; scrollbar-gutter:stable; }
+.turn { margin-bottom:24px; padding-bottom:24px; }
+.message { margin-bottom:24px; }
+.message .author { margin-bottom:8px; line-height:16px; font-weight:600; letter-spacing:.3px; }
+.message.user { margin-left:0; padding:16px; border-radius:12px; }
+.message-body { line-height:1.75; }
+.message-body pre { padding:16px; border-radius:10px; }
+.progress { margin:16px 0 24px; padding:0 12px; border:1px solid var(--border); border-radius:8px; }
+.progress>summary { min-height:40px; padding:10px 0; line-height:20px; }
+.progress>summary::marker { color:var(--muted); }
+.progress .message { margin:8px 0 16px; }
+.message-timing { gap:4px 12px; padding-top:12px; margin-top:16px; border-top:1px solid var(--border); line-height:18px; font-variant-numeric:tabular-nums; }
+.composer { padding-top:16px; }
+.composer textarea { border:1px solid var(--border); border-radius:12px; padding:12px; min-height:96px; }
+.composer textarea:focus { border-color:var(--accent); }
+.composer-actions { gap:8px; padding-top:12px; flex-wrap:wrap; }
+.composer .directory { min-height:32px; line-height:32px; min-width:0; }
+.send-actions { gap:8px; max-width:100%; }
+.send-actions select { min-height:36px; height:36px; border-radius:8px; padding-top:7px; padding-bottom:7px; text-overflow:ellipsis; }
+.send-actions #effort { max-width:128px; }
+.send-actions .send,.send-actions .stop { min-height:36px; height:36px; padding:7px 14px; border-radius:8px; white-space:nowrap; }
+.photo-add { min-height:36px; height:36px; padding:7px 10px; border-radius:8px; }
+.jump-bottom { display:grid; place-items:center; line-height:1; border-radius:12px; }
+.question-card { padding:16px; border-radius:12px; }
+.question-option { min-height:40px; padding:10px 12px; }
+.connection { line-height:16px; }
+@media(max-width:760px) {
+  .transcript { padding:20px 16px; }
+  .message.user { margin-left:0; padding:14px; }
+  .chat-header { padding-right:16px; }
+  .composer { padding:12px 16px calc(12px + var(--safe-bottom)); }
+}
+@media(max-width:600px) {
+  .composer-actions { display:grid; grid-template-columns:auto minmax(0,1fr); gap:8px; }
+  .composer-actions .directory { max-width:none; width:100%; min-width:0; }
+  .composer-actions .send-actions { grid-column:1/-1; margin:0; display:flex; width:100%; gap:8px; }
+  .send-actions #model { flex:1 1 0; min-width:0; width:0; max-width:none; }
+  .send-actions #effort { flex:0 1 112px; min-width:0; width:112px; }
+  .send-actions .send,.send-actions .stop { flex-shrink:0; }
+  .send-actions select,.send-actions .send,.send-actions .stop,.photo-add { height:40px; min-height:40px; }
+}
+@media(max-width:360px) {
+  .composer,.transcript { padding-left:12px; padding-right:12px; }
+  .send-actions #effort { flex-basis:96px; width:96px; }
+  .send-actions .send,.send-actions .stop { padding-left:10px; padding-right:10px; }
+  .chat-header { gap:4px; padding-left:8px; padding-right:8px; }
+  .connection { max-width:30%; }
+}
+@media(prefers-reduced-motion:reduce) {
+  *,*::before,*::after { animation:none!important; transition:none!important; scroll-behavior:auto!important; }
+}
