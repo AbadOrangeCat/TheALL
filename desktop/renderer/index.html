@@ -3,20 +3,25 @@
 <body>
   <div class="app-shell">
     <aside class="desktop-sidebar">
-      <header class="sidebar-tools"><button id="toggle-sidebar" class="icon-button" aria-label="Toggle sidebar">▥</button><span></span><button id="new-workspace" class="icon-button" title="New workspace">＋</button></header>
       <nav id="desktop-workspaces" aria-label="Workspaces"></nav>
-      <button id="update-shortcut" class="update-shortcut" hidden aria-live="polite"><span aria-hidden="true">↓</span><span><strong id="update-title"></strong><small id="update-detail"></small></span></button>
-      <button id="phone-shortcut" class="phone-shortcut"><span aria-hidden="true">▦</span><span data-text="connectPhone">Connect phone</span></button>
-      <footer class="brand-footer"><button id="version-button">TheAll <span id="app-version"></span></button><button id="settings-button" class="icon-button" title="Settings">⚙</button></footer>
+      <button id="update-shortcut" class="update-shortcut" hidden aria-live="polite"><span class="icon" data-icon="arrow.down.circle"></span><span><strong id="update-title"></strong><small id="update-detail"></small></span></button>
+      <button id="phone-shortcut" class="phone-shortcut" data-title="mobile.lan.quickPair"><span class="icon" data-icon="qrcode.viewfinder"></span><span data-text="connectPhone">Connect phone</span></button>
+      <footer class="brand-footer"><button id="version-button" data-title="sidebar.checkForUpdates"><span class="brand-name">TheAll</span><span id="app-version"></span></button><button id="settings-button" class="icon-button" data-icon="gearshape" data-title="sidebar.settings"></button></footer>
     </aside>
     <main class="content-card">
-      <div id="workspace-content"><header class="desktop-tabbar"><nav id="desktop-tabs" aria-label="Tabs"></nav><button id="new-tab" class="icon-button" title="New tab">＋</button></header><div id="pane-container"></div><div id="empty-workspace" hidden><img src="/icons/icon-192.png" alt="TheAll" width="64"><p data-text="welcome">A workspace for your next idea.</p><button id="empty-new" data-text="newWorkspace">New workspace</button></div></div>
-      <section id="settings-panel" hidden><header class="desktop-tabbar"><nav id="settings-tabs"></nav><button id="close-settings" class="icon-button" title="Close">×</button></header><div id="settings-content"></div></section>
+      <div id="workspace-content"><header class="desktop-tabbar"><nav id="desktop-tabs" aria-label="Tabs"></nav><button id="new-tab" class="icon-button" data-icon="plus" data-title="tab.newTab"></button></header><div id="pane-container"></div><div id="empty-workspace" hidden><img src="/icons/icon-192.png" alt="TheAll" width="64"><p data-text="welcome">A workspace for your next idea.</p><button id="empty-new" data-text="newWorkspace">New workspace</button></div></div>
+      <section id="settings-panel" hidden><header class="desktop-tabbar"><nav id="settings-tabs"></nav><button id="close-settings" class="icon-button" data-icon="xmark" data-title="settings.close"></button></header><div id="settings-content"></div></section>
       <p id="desktop-error" class="desktop-error" role="alert" hidden></p>
     </main>
   </div>
+  <header class="window-controls">
+    <button id="collapsed-brand" class="collapsed-only" data-title="sidebar.checkForUpdates">TheAll</button>
+    <button id="new-workspace" class="icon-button expanded-only" data-icon="plus" data-title="sidebar.newWorkspace"></button>
+    <button id="collapsed-settings" class="icon-button collapsed-only" data-icon="gearshape" data-title="sidebar.settings"></button>
+    <button id="toggle-sidebar" class="icon-button" data-icon="sidebar.left"></button>
+  </header>
   <dialog id="edit-dialog"><form id="edit-form"><h2 id="edit-title"></h2><label id="edit-label" for="edit-value"></label><input id="edit-value" autocomplete="off" required maxlength="120"><div class="dialog-buttons"><button id="edit-cancel" type="button" data-text="cancel">Cancel</button><button class="primary" type="submit" data-text="save">Save</button></div></form></dialog>
   <dialog id="confirm-dialog"><form method="dialog"><h2 id="confirm-title"></h2><p id="confirm-description"></p><div class="dialog-buttons"><button value="cancel" data-text="cancel">Cancel</button><button value="confirm" class="danger" data-text="delete">Delete</button></div></form></dialog>
-  <dialog id="phone-dialog"><div class="dialog-heading"><h2 data-text="connectPhone">Connect phone</h2><button class="icon-button" id="close-phone" aria-label="Close">×</button></div><div id="phone-content"></div></dialog>
+  <dialog id="phone-dialog"><div class="dialog-heading"><h2 data-text="connectPhone">Connect phone</h2><button class="icon-button" id="close-phone" data-icon="xmark" aria-label="Close"></button></div><div id="phone-content"></div></dialog>
   <menu id="context-menu" hidden></menu>
 </body></html>

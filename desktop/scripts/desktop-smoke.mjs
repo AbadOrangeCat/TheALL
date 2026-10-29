@@ -87,6 +87,8 @@ async function launch(){
  return page;
 }
 async function ipc(method,payload={}){return page.evaluate(([m,p])=>window.theallDesktop.invoke(m,p),[method,payload]);}
+// Optional UI review images. Windows CI uploads them so the native rendering can be checked.
+async function shot(name){const directory=process.env.THEALL_SMOKE_SCREENSHOTS;if(!directory)return;await fs.mkdir(directory,{recursive:true});await page.waitForTimeout(400);await page.screenshot({path:path.join(directory,`${name}.png`)});}
 async function paneFor(id){
  await page.waitForFunction(id=>[...document.querySelectorAll('iframe')].some(f=>f.src.includes(id)),id);
  const pane=page.frames().find(f=>f.url().includes(`/chat.html?id=${id}`));assert(pane);
@@ -111,8 +113,10 @@ try{
  // Choose the provider and save the first connection through the actual pane UI.
  // Only the native folder dialog result is stubbed to avoid opening user UI.
  await application.evaluate(({dialog},directory)=>{dialog.showOpenDialog=async()=>({canceled:false,filePaths:[directory]});},working);
+ await pane.locator('#native-setup').waitFor({state:'visible'});await shot('1-provider-chooser');
  await pane.locator('#native-setup .setup-directory button').click();
  await pane.locator('#native-setup .provider-options button').filter({hasText:'Claude Code'}).click();
+ await pane.locator('#native-setup input[type=password]').waitFor({state:'visible'});await shot('2-connection-form');
  await pane.locator('#native-setup input[type=password]').fill('fake-desktop-smoke-key');
  await pane.locator('#native-setup input[type=url]').fill('http://127.0.0.1:9');
  await pane.locator('#native-setup button[type=submit]').click();
@@ -131,6 +135,7 @@ try{
  await pane.waitForFunction(()=>document.querySelectorAll('.file-download').length===1 && document.querySelectorAll('#file-previews .file-chip').length===0);
  assert.equal(await pane.locator('.file-download').getAttribute('download'),'中文报告.pdf');
  await pane.waitForFunction(()=>document.querySelector('.message-timing'));
+ await shot('3-conversation');
  await pane.locator('#effort').waitFor({state:'visible'});
  await pane.locator('#effort').selectOption('high');
  assert(await pane.locator('details.progress').count()>0);
@@ -150,7 +155,7 @@ try{
  assert(before.chats[terminalId].conversationID);assert.equal(before.chats[terminalId].draft.text,'Keep this unsent draft');assert.equal(before.chats[terminalId].draft.reasoningEffort,'high');
  const connectionBytes=await fs.readFile(path.join(dataDir,'Credentials/claude.bin'));assert(!connectionBytes.includes(Buffer.from('fake-desktop-smoke-key')));
  const split=await ipc('pane.split',{workspaceId,tabId,terminalId,direction:'horizontal'});
- await page.evaluate(()=>window.theallDesktop.changed());await paneFor(split.terminalId);pane=await paneFor(terminalId);
+ await page.evaluate(()=>window.theallDesktop.changed());await paneFor(split.terminalId);pane=await paneFor(terminalId);await shot('4-split');
   assert.equal(await page.locator('.pane iframe:visible').count(),2);
  const screenshot=process.env.THEALL_SMOKE_SCREENSHOT;
  if(screenshot)await page.screenshot({path:screenshot});
@@ -192,7 +197,7 @@ try{
  assert.equal(apiAfter.canSteer,false);
  assert(apiAfter.messages.some(m=>m.role==='user' && m.text==='Use only source files.' && m.isSteering));
  assert.equal(await pane.locator('#composer-hint').textContent(),'Ctrl+↵ Send ↑');
- await page.locator('#settings-button').click();assert.equal(await page.locator('#settings-tabs button').count(),8);
+ await page.locator('#settings-button').click();assert.equal(await page.locator('#settings-tabs button').count(),8);await shot('5-settings');
  assert.equal((await ipc('update.status')).phase,'disabled');
  assert.equal(await page.locator('#update-shortcut').isVisible(),false);
  // Instrument the updater class in the isolated harness only. Production builds
@@ -204,7 +209,7 @@ try{
    DesktopUpdater.prototype.status=function(){return {...globalThis.theallUpdateFixture};};
    DesktopUpdater.prototype.install=function(){globalThis.theallUpdateFixture.phase='downloading';globalThis.theallUpdateFixture.progress=.5;return this.status();};
  });
- await page.locator('#update-shortcut').waitFor({state:'visible'});
+ await page.locator('#update-shortcut').waitFor({state:'visible'});await shot('6-update');
  assert(await page.evaluate(()=>!!(document.getElementById('update-shortcut').compareDocumentPosition(document.getElementById('phone-shortcut'))&Node.DOCUMENT_POSITION_FOLLOWING)));
  if(process.env.THEALL_TEST_UPDATE_SCREENSHOT){await page.locator('#close-settings').click();await page.screenshot({path:process.env.THEALL_TEST_UPDATE_SCREENSHOT});}
  await page.locator('#update-shortcut').click();await page.waitForFunction(()=>document.getElementById('update-detail').textContent.includes('50%'));
