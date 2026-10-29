@@ -65,7 +65,8 @@ ipcMain.handle=(channel,listener)=>handle(channel,channel==='theall:desktop'?(ev
 import(${JSON.stringify(pathToFileURL(path.join(root,'src/updater.mjs')).href)}).then(({DesktopUpdater})=>{globalThis.theallUpdaterClass=DesktopUpdater;return import(${JSON.stringify(pathToFileURL(path.join(root,'src/main.mjs')).href)});});
 `);
 let application,page;const errors=[];
-const env={...process.env,THEALL_TEST_DATA_DIR:dataDir,THEALL_TEST_HIDE_WINDOW:'1'};delete env.ELECTRON_RUN_AS_NODE;delete env.NODE_PATH;delete env.NODE_OPTIONS;
+// A hidden window stops painting on Windows, so screenshot runs keep it visible.
+const env={...process.env,THEALL_TEST_DATA_DIR:dataDir,...(process.env.THEALL_SMOKE_SCREENSHOTS?{}:{THEALL_TEST_HIDE_WINDOW:'1'})};delete env.ELECTRON_RUN_AS_NODE;delete env.NODE_PATH;delete env.NODE_OPTIONS;
 async function launch(){
  application=await _electron.launch({executablePath:packagedExecutable||electronPath,args:packagedExecutable?[]:[archive||harness],cwd:temporary,env,timeout:45000});
  if(archive){
@@ -88,7 +89,7 @@ async function launch(){
 }
 async function ipc(method,payload={}){return page.evaluate(([m,p])=>window.theallDesktop.invoke(m,p),[method,payload]);}
 // Optional UI review images. Windows CI uploads them so the native rendering can be checked.
-async function shot(name){const directory=process.env.THEALL_SMOKE_SCREENSHOTS;if(!directory)return;await fs.mkdir(directory,{recursive:true});await page.waitForTimeout(400);await page.screenshot({path:path.join(directory,`${name}.png`)});}
+async function shot(name){const directory=process.env.THEALL_SMOKE_SCREENSHOTS;if(!directory)return;try{await fs.mkdir(directory,{recursive:true});await page.waitForTimeout(400);await page.screenshot({path:path.join(directory,`${name}.png`),timeout:10000});}catch(e){console.warn(`Screenshot ${name} skipped: ${e.message}`);}}
 async function paneFor(id){
  await page.waitForFunction(id=>[...document.querySelectorAll('iframe')].some(f=>f.src.includes(id)),id);
  const pane=page.frames().find(f=>f.url().includes(`/chat.html?id=${id}`));assert(pane);
