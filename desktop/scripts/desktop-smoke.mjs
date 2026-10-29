@@ -10,7 +10,27 @@ import electronPath from 'electron';
 import { APP_VERSION } from '../src/version.mjs';
 
 const root=fileURLToPath(new URL('..',import.meta.url));
+const args=process.argv.slice(2);
+assert(args.length===0 || (args.length===4 && args[0]==='--package-dir' && args[2]==='--arch' && ['x64','arm64'].includes(args[3])), 'Use --package-dir DIR --arch x64|arm64');
+const packageDir=args.length?path.resolve(args[1]):null;
+const nativePackage=!!packageDir && process.platform==='win32' && process.arch===args[3];
 const temporary=await fs.mkdtemp(path.join(os.tmpdir(),'TheAll isolated desktop '));
+// A package under desktop/dist could accidentally resolve missing modules from
+// desktop/node_modules. Copy outside the checkout before launching any artifact.
+let archive,packagedExecutable;
+if(packageDir){
+ const isolated=path.join(temporary,'application');
+ if(nativePackage){
+  await fs.cp(packageDir,isolated,{recursive:true});
+  packagedExecutable=path.join(isolated,'TheAll.exe');
+ }else{
+  await fs.mkdir(path.join(isolated,'resources'),{recursive:true});
+  await fs.copyFile(path.join(packageDir,'resources/app.asar'),path.join(isolated,'resources/app.asar'));
+  const unpacked=path.join(packageDir,'resources/app.asar.unpacked');
+  try{await fs.cp(unpacked,path.join(isolated,'resources/app.asar.unpacked'),{recursive:true});}catch(error){if(error.code!=='ENOENT')throw error;}
+ }
+ archive=path.join(isolated,'resources/app.asar');
+}
 const dataDir=path.join(temporary,'profile'),working=path.join(temporary,'project');
 await fs.mkdir(working);
 const cli=path.join(temporary,'fake-claude.mjs');
@@ -45,9 +65,14 @@ ipcMain.handle=(channel,listener)=>handle(channel,channel==='theall:desktop'?(ev
 import(${JSON.stringify(pathToFileURL(path.join(root,'src/updater.mjs')).href)}).then(({DesktopUpdater})=>{globalThis.theallUpdaterClass=DesktopUpdater;return import(${JSON.stringify(pathToFileURL(path.join(root,'src/main.mjs')).href)});});
 `);
 let application,page;const errors=[];
-const env={...process.env,THEALL_TEST_DATA_DIR:dataDir,THEALL_TEST_HIDE_WINDOW:'1'};delete env.ELECTRON_RUN_AS_NODE;
+const env={...process.env,THEALL_TEST_DATA_DIR:dataDir,THEALL_TEST_HIDE_WINDOW:'1'};delete env.ELECTRON_RUN_AS_NODE;delete env.NODE_PATH;delete env.NODE_OPTIONS;
 async function launch(){
- application=await _electron.launch({executablePath:electronPath,args:[harness],env,timeout:45000});
+ application=await _electron.launch({executablePath:packagedExecutable||electronPath,args:packagedExecutable?[]:[archive||harness],cwd:temporary,env,timeout:45000});
+ if(archive){
+  const identity=await application.evaluate(({app})=>({path:app.getAppPath(),packaged:app.isPackaged}));
+  assert.equal(path.resolve(identity.path),archive);
+  assert.equal(identity.packaged,nativePackage);
+ }
  page=await application.firstWindow();page.on('pageerror',e=>errors.push(e.message));
  page.setDefaultTimeout(20000);console.log('Opened isolated desktop');
  await page.waitForFunction(()=>!!window.theallDesktop?.settings.version,{timeout:30000});
@@ -172,6 +197,7 @@ try{
  assert.equal(await page.locator('#update-shortcut').isVisible(),false);
  // Instrument the updater class in the isolated harness only. Production builds
  // have no test URL, fixture switch or renderer-controlled install destination.
+ if(!packageDir){
  await application.evaluate(() => {
    const DesktopUpdater=globalThis.theallUpdaterClass;
    globalThis.theallUpdateFixture={phase:'available',version:'9.0.0',currentVersion:'0.1.6'};
@@ -188,9 +214,11 @@ try{
  for(const language of ['zh-Hans','fr','ja','ko','en']){await page.evaluate(()=>window.theallDesktop.openSettings('appearance'));await page.locator('#settings-content select:has(option[value="zh-Hans"])').selectOption(language);await page.waitForFunction(value=>document.documentElement.lang===value,language);await page.evaluate(()=>window.theallDesktop.openSettings('update'));assert(await page.locator('#update-settings').isVisible());}
  await application.evaluate(()=>{globalThis.theallUpdateFixture={phase:'upToDate',currentVersion:'0.1.6'};});
  await page.locator('#update-shortcut').waitFor({state:'hidden'});
+ }
  assert.deepEqual(errors,[]);
- console.log('PASS: isolated Electron main-frame wrapper authorization, actual provider/key/folder UI, quit-time draft saving, sandbox/IPC, native-style desktop panes, CLI send, progress folding, prompt history, encrypted credentials, drafts/history/layout across restart, and resumed chat. '+(process.platform==='win32'?'Windows DPAPI verified.':'Host UI verified; Windows DPAPI requires the Windows CI job.'));
+ if(packageDir)console.log(`PASS: isolated ${nativePackage?'packaged Windows executable':'production ASAR on host Electron'} startup, UI, attachments, Steer, credentials and history after Quit/reopen`);
+ else console.log('PASS: isolated Electron main-frame wrapper authorization, actual provider/key/folder UI, quit-time draft saving, sandbox/IPC, native-style desktop panes, CLI send, progress folding, prompt history, encrypted credentials, drafts/history/layout across restart, and resumed chat. '+(process.platform==='win32'?'Windows DPAPI verified.':'Host UI verified; Windows DPAPI requires the Windows CI job.'));
 }catch(error){
  if(page)try{console.error('Desktop errors:',errors);console.error('Visible error:',await page.locator('#desktop-error').textContent());await page.screenshot({path:process.env.THEALL_SMOKE_SCREENSHOT||path.join(temporary,'failure.png')});}catch{}
  throw error;
-}finally{await close();await fs.rm(temporary,{recursive:true,force:true});}
+}finally{try{await close();}finally{await fs.rm(temporary,{recursive:true,force:true});}}

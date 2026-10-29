@@ -160,8 +160,8 @@ targets:
         ENABLE_HARDENED_RUNTIME: YES
         PRODUCT_NAME: TheAll
         PRODUCT_MODULE_NAME: TheAll
-        MARKETING_VERSION: "0.1.7"
-        CURRENT_PROJECT_VERSION: "7"
+        MARKETING_VERSION: "0.1.8"
+        CURRENT_PROJECT_VERSION: "8"
       configs:
         # Debug 构建用独立 bundle id + display name，让 TCC / LaunchServices /
         # UserDefaults / Sparkle 都按 bundle id 分家，开发实例跟 /Applications
