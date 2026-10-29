@@ -129,10 +129,15 @@ struct AIChatView: View {
                             chat.draftImages.removeAll { $0.id == image.id }
                         })
                 }
+                if !chat.draftFiles.isEmpty {
+                    AIChatFiles(files: chat.draftFiles, store: chat.fileStore, theme: theme, onRemove: { file in
+                        chat.draftFiles.removeAll { $0.id == file.id }
+                    })
+                }
                 if importingPhotos {
                     HStack(spacing: 6) {
                         ProgressView().controlSize(.small)
-                        Text(L10n.string("ai.images.preparing")).font(.caption)
+                        Text(L10n.string("ai.files.preparing")).font(.caption)
                     }
                 }
                 if let photoError {
@@ -151,13 +156,17 @@ struct AIChatView: View {
                     HStack(spacing: DT.Space.sm) {
                         directoryControls
                         Spacer(minLength: DT.Space.md)
-                        modelControls
+                        modelControls(showsStop: true)
                     }
                     VStack(alignment: .leading, spacing: DT.Space.sm) {
-                        directoryControls
+                        HStack(spacing: DT.Space.sm) {
+                            directoryControls
+                            Spacer(minLength: 0)
+                            if chat.isBusy { stopButton }
+                        }
                         HStack(spacing: DT.Space.sm) {
                             Spacer(minLength: 0)
-                            modelControls
+                            modelControls(showsStop: false)
                         }
                     }
                 }
@@ -168,7 +177,7 @@ struct AIChatView: View {
                         Text(L10n.string("ai.chat.modelHint"))
                     }
                     Spacer(minLength: 8)
-                    Text("⌘↩ " + L10n.string("ai.chat.send"))
+                    Text("⌘↩ " + L10n.string(chat.isBusy ? "ai.chat.steer" : "ai.chat.send"))
                 }.font(.caption2).foregroundStyle(Color(nsColor: theme.textSecondary))
                 if let error = session.modelError {
                     Text(error).font(.caption).foregroundStyle(Color(nsColor: theme.danger))
@@ -191,16 +200,16 @@ struct AIChatView: View {
                     RoundedRectangle(cornerRadius: 10).fill(Color(nsColor: theme.accentMuted).opacity(0.8))
                     RoundedRectangle(cornerRadius: 10)
                         .strokeBorder(Color(nsColor: theme.accent), style: StrokeStyle(lineWidth: 2, dash: [8, 5]))
-                    Label(L10n.string("ai.images.drop"), systemImage: "photo.badge.plus")
+                    Label(L10n.string("ai.files.drop"), systemImage: "paperclip")
                         .font(.headline).padding(16)
                         .background(Color(nsColor: theme.sidebar), in: RoundedRectangle(cornerRadius: 8))
                 }.padding(6).allowsHitTesting(false)
             }
         }
         .onAppear { if chat.catalogModels.isEmpty, !session.isLoadingModels { session.refreshModels() } }
-        .fileImporter(isPresented: $showsPhotoPicker, allowedContentTypes: [.image], allowsMultipleSelection: true) { result in
+        .fileImporter(isPresented: $showsPhotoPicker, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
             switch result {
-            case .success(let urls): attachPhotos(urls.map(AIChatPhotoImport.file))
+            case .success(let urls): attachPhotos(urls.map(AIChatAttachmentImport.file))
             case .failure: photoError = L10n.string("ai.images.unavailable")
             }
         }
@@ -212,13 +221,13 @@ struct AIChatView: View {
     private var directoryControls: some View {
         HStack(spacing: DT.Space.sm) {
             Button { showsPhotoPicker = true } label: {
-                Image(systemName: "photo.badge.plus")
+                Image(systemName: "paperclip")
                     .frame(width: DT.Chat.controlHeight, height: DT.Chat.controlHeight)
             }
             .buttonStyle(.borderless)
-            .disabled(importingPhotos || chat.draftImages.count >= AIChatImageStore.maximumCount)
-            .help(L10n.string("ai.images.add"))
-            .accessibilityLabel(L10n.string("ai.images.add"))
+            .disabled(importingPhotos || (chat.draftImages.count >= AIChatImageStore.maximumCount && chat.draftFiles.count >= AIChatFileStore.maximumCount))
+            .help(L10n.string("ai.files.add"))
+            .accessibilityLabel(L10n.string("ai.files.add"))
             .accessibilityIdentifier("chat-add-photos")
             Button(action: onChooseDirectory) {
                 Label(chat.directory, systemImage: "folder")
@@ -234,7 +243,7 @@ struct AIChatView: View {
         }
     }
 
-    private var modelControls: some View {
+    private func modelControls(showsStop: Bool) -> some View {
         HStack(spacing: DT.Space.sm) {
             AIModelPicker(session: session, selection: Binding(get: { chat.model }, set: { session.selectModel($0) }), showsRefresh: false)
             Picker(L10n.string("ai.effort.title"), selection: $chat.reasoningEffort) {
@@ -250,19 +259,26 @@ struct AIChatView: View {
             .help(L10n.string(chat.supportedReasoningEfforts.isEmpty ? "ai.effort.unavailable" : "ai.effort.title"))
             .accessibilityLabel(L10n.string("ai.effort.title"))
             .accessibilityIdentifier("chat-reasoning-effort")
-            Group {
-                if chat.isBusy {
-                    Button(L10n.string("ai.chat.stop")) { chat.interrupt() }
-                        .disabled(!chat.canInterrupt)
-                } else {
-                    Button(L10n.string("ai.chat.send"), action: send)
-                        .buttonStyle(.borderedProminent)
-                        .disabled(!chat.canSend || importingPhotos)
-                }
-            }
-            .controlSize(.large).fixedSize()
+            Button(L10n.string(chat.isBusy ? "ai.chat.steer" : "ai.chat.send"), action: send)
+                .buttonStyle(.borderedProminent)
+                .disabled(!chat.canSend || importingPhotos)
+                .controlSize(.large).fixedSize()
+                .accessibilityIdentifier("chat-submit")
+            if chat.isBusy && showsStop { stopButton }
         }
         .frame(minHeight: DT.Chat.controlHeight)
+    }
+
+    private var stopButton: some View {
+        Button { chat.interrupt() } label: {
+            Image(systemName: "stop.fill")
+                .frame(width: DT.Chat.controlHeight, height: DT.Chat.controlHeight)
+        }
+        .buttonStyle(.borderless)
+        .disabled(!chat.canInterrupt)
+        .help(L10n.string("ai.chat.stop"))
+        .accessibilityLabel(L10n.string("ai.chat.stop"))
+        .accessibilityIdentifier("chat-stop")
     }
 
     private var transcript: some View {
@@ -282,7 +298,7 @@ struct AIChatView: View {
                             }.padding(.vertical, 24)
                         }
                         ForEach(Array(chat.visibleMessages.enumerated()), id: \.element.id) { index, message in
-                            if message.role == .user, index > 0 {
+                            if message.role == .user, !message.isSteering, index > 0 {
                                 Rectangle().fill(Color(nsColor: theme.borderStrong))
                                     .frame(height: 2).padding(.vertical, 12)
                                     .accessibilityHidden(true)
@@ -310,11 +326,18 @@ struct AIChatView: View {
                                         AIChatPhotos(images: message.images, store: chat.imageStore, theme: theme,
                                             onOpen: { previewPhoto = $0 })
                                     }
+                                    if !message.files.isEmpty {
+                                        AIChatFiles(files: message.files, store: chat.fileStore, theme: theme)
+                                    }
                                     if !message.text.isEmpty {
                                     Text(message.role == .user ? AttributedString(message.text) :
                                         (try? AttributedString(markdown: message.text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(message.text))
                                         .textSelection(.enabled).font(.system(size: 14)).lineSpacing(4)
                                         .frame(maxWidth: .infinity, alignment: .leading)
+                                    }
+                                    if message.isSteering && message.isError {
+                                        Text(L10n.string("ai.chat.steerNotApplied"))
+                                            .font(.caption).foregroundStyle(Color(nsColor: theme.danger))
                                     }
                                     if let timing = AIChatCompletionLabel.text(for: message, locale: session.locale) {
                                         Text(timing).font(.system(size: 11, design: .monospaced)).monospacedDigit()
@@ -388,9 +411,9 @@ struct AIChatView: View {
     }
 
     private func pastePhotos(_ pasteboard: NSPasteboard) -> Bool {
-        guard AIChatPhotoImport.containsImages(pasteboard) else { return false }
-        guard let photos = AIChatPhotoImport.read(pasteboard), !photos.isEmpty else {
-            photoError = L10n.string("ai.images.invalid")
+        guard AIChatAttachmentImport.containsAttachments(pasteboard) else { return false }
+        guard let photos = AIChatAttachmentImport.read(pasteboard), !photos.isEmpty else {
+            photoError = L10n.string("ai.files.invalid")
             return true
         }
         attachPhotos(photos)
@@ -399,41 +422,44 @@ struct AIChatView: View {
 
     private func dropPhotos(_ providers: [NSItemProvider]) -> Bool {
         guard !providers.isEmpty, !importingPhotos else { return false }
-        importPhotos(count: providers.count) { store in
-            try await AIChatPhotoImport.importProviders(providers, store: store)
+        importPhotos(count: providers.count) { imageStore, fileStore in
+            try await AIChatAttachmentImport.importProviders(providers, imageStore: imageStore, fileStore: fileStore)
         }
         return true
     }
 
-    private func attachPhotos(_ sources: [AIChatPhotoImport]) {
+    private func attachPhotos(_ sources: [AIChatAttachmentImport]) {
         guard !sources.isEmpty else { return }
-        importPhotos(count: sources.count) { store in
+        importPhotos(count: sources.count) { imageStore, fileStore in
             try await Task.detached(priority: .userInitiated) {
-                try AIChatPhotoImport.importBatch(sources, store: store)
+                try AIChatAttachmentImport.importBatch(sources, imageStore: imageStore, fileStore: fileStore)
             }.value
         }
     }
 
-    private func importPhotos(count: Int, operation: @escaping (AIChatImageStore) async throws -> [AIChatImage]) {
+    private func importPhotos(count: Int, operation: @escaping (AIChatImageStore, AIChatFileStore) async throws -> AIChatAttachmentImport.Batch) {
         guard !importingPhotos else { return }
-        guard chat.draftImages.count + count <= AIChatImageStore.maximumCount else {
-            photoError = L10n.string("ai.images.tooMany")
+        guard count <= AIChatImageStore.maximumCount + AIChatFileStore.maximumCount else {
+            photoError = L10n.string("ai.files.tooMany")
             return
         }
+        let target = chat
+        guard target.beginAttachmentImport() else { return }
         importingPhotos = true
         photoError = nil
-        let target = chat
-        let imageStore = target.imageStore
         Task { @MainActor in
-            defer { importingPhotos = false }
+            defer { importingPhotos = false; target.endAttachmentImport() }
             do {
-                let images = try await operation(imageStore)
-                guard target.draftImages.count + images.count <= AIChatImageStore.maximumCount else {
-                    for image in images { try? target.imageStore.remove(image) }
-                    photoError = L10n.string("ai.images.tooMany")
-                    return
+                let batch = try await operation(target.imageStore, target.fileStore)
+                do {
+                    guard target.draftImages.count + batch.images.count <= AIChatImageStore.maximumCount else { throw AIChatImageStore.ImageError.tooMany }
+                    try AIChatFileStore.validate(target.draftFiles + batch.files)
+                } catch {
+                    batch.discard(imageStore: target.imageStore, fileStore: target.fileStore)
+                    throw error
                 }
-                target.draftImages.append(contentsOf: images)
+                target.draftImages.append(contentsOf: batch.images)
+                target.draftFiles.append(contentsOf: batch.files)
             } catch { photoError = error.localizedDescription }
         }
     }
@@ -659,13 +685,13 @@ struct AIChatComposer: NSViewRepresentable {
             super.readablePasteboardTypes + AIChatPhotoImport.draggedTypes
         }
         override func readSelection(from pasteboard: NSPasteboard, type: NSPasteboard.PasteboardType) -> Bool {
-            if onPasteImages != nil, AIChatPhotoImport.containsImages(pasteboard) {
+            if onPasteImages != nil, AIChatAttachmentImport.containsAttachments(pasteboard) {
                 return onPasteImages?(pasteboard) ?? false
             }
             return super.readSelection(from: pasteboard, type: type)
         }
         override func dragOperation(for dragInfo: NSDraggingInfo, type: NSPasteboard.PasteboardType) -> NSDragOperation {
-            if onPasteImages != nil, AIChatPhotoImport.containsImages(dragInfo.draggingPasteboard) {
+            if onPasteImages != nil, AIChatAttachmentImport.containsAttachments(dragInfo.draggingPasteboard) {
                 let accepts = acceptsPhotoDrops && dragInfo.draggingSourceOperationMask.contains(.copy)
                 onPhotoDragTargeted?(accepts)
                 return accepts ? .copy : []
@@ -678,7 +704,7 @@ struct AIChatComposer: NSViewRepresentable {
             super.cleanUpAfterDragOperation()
         }
         override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
-            if onPasteImages != nil, AIChatPhotoImport.containsImages(sender.draggingPasteboard) {
+            if onPasteImages != nil, AIChatAttachmentImport.containsAttachments(sender.draggingPasteboard) {
                 defer { cleanUpAfterDragOperation() }
                 guard acceptsPhotoDrops, sender.draggingSourceOperationMask.contains(.copy) else { return false }
                 return onPasteImages?(sender.draggingPasteboard) ?? false

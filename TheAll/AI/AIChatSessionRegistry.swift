@@ -9,6 +9,16 @@ final class AIChatSessionRegistry {
     let history: AIChatHistoryStore
     private(set) var sessions: [UUID: AITerminalSession] = [:]
     @ObservationIgnored var onTurnCompleted: ((UUID, UUID) -> Void)?
+    private var attachmentImports = 0
+    var hasPendingWorkForUpdate: Bool {
+        attachmentImports > 0 || sessions.values.contains { $0.chat?.hasPendingWorkForUpdate == true }
+    }
+    func beginAttachmentImport() -> Bool {
+        guard !UpdateStore.shared.blocksNewMessages else { return false }
+        attachmentImports += 1
+        return true
+    }
+    func endAttachmentImport() { attachmentImports = max(0, attachmentImports - 1) }
     private let makeSession: () -> AITerminalSession
     private let makeTransport: () -> any AIChatTransport
 

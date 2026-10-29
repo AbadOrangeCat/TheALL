@@ -2,7 +2,7 @@
 
 The Windows desktop app runs Claude Code and Codex **on the Windows computer itself**. It does not require a Mac, WSL, a browser extension, or a separately hosted server. The desktop layout follows the Mac app: workspaces on the left, conversation tabs and split panes on the right, with the model and working folder beside the composer. Windows supplies its own window controls and font rendering.
 
-The Windows implementation is in `desktop/`. The existing SwiftUI/AppKit macOS app remains in `TheAll/`. The [v0.1.6 release](https://github.com/AbadOrangeCat/TheALL/releases/tag/v0.1.6) includes unsigned Windows preview packages for x64 and ARM64, alongside the Mac release. The Windows workflow validates and builds packages; publishing remains a separate step.
+The Windows implementation is in `desktop/`. The existing SwiftUI/AppKit macOS app remains in `TheAll/`. The [v0.1.7 release](https://github.com/AbadOrangeCat/TheALL/releases/tag/v0.1.7) includes unsigned Windows preview packages for x64 and ARM64, alongside the Mac release. The Windows workflow validates and builds packages; publishing remains a separate step.
 
 ## Requirements
 
@@ -45,7 +45,7 @@ TheAll uses its saved API connection, with optional custom Base URL. A separate 
 
 ## Run or install TheAll
 
-Open the [release page](https://github.com/AbadOrangeCat/TheALL/releases/tag/v0.1.6), choose your CPU architecture, and download one of these packages. The release provides a combined `SHA256SUMS.txt`; CI artifacts also contain per-architecture checksums:
+Open the [release page](https://github.com/AbadOrangeCat/TheALL/releases/tag/v0.1.7), choose your CPU architecture, and download one of these packages. The release provides a combined `SHA256SUMS.txt`; CI artifacts also contain per-architecture checksums:
 
 | File | Use |
 | --- | --- |
@@ -67,9 +67,9 @@ Open TheAll, choose a workspace and AI provider, and save your API Key. Select a
 | Desktop navigation | Workspace sidebar, tabs, horizontal/vertical split panes, rename, close, reorder and persisted selection/layout |
 | AI providers | Local Claude Code and Codex processes; official or custom API endpoint; saved provider credentials |
 | Models and folders | Model catalog/dropdown, per-conversation working folder, model switch without resetting the provider session |
-| Conversation history | Persisted messages, provider conversation IDs, drafts and photo references; reopen to resume the same provider context |
+| Conversation history | Persisted messages, provider conversation IDs, drafts and file/photo references; reopen to resume the same provider context |
 | Chat presentation | Distinct user styling, round separators, intermediate thinking/progress collapse, jump-to-bottom when scrolled away |
-| Composer | Prior-prompt recall with arrow keys, photo picker, image paste/drop, previews and removal before sending |
+| Composer | Prior-prompt recall with arrow keys, unified file/photo picker, mixed paste/drop, previews/removal, and Steer during active tasks |
 | Language and appearance | English, Simplified Chinese, French, Japanese and Korean; all 502 bundled Mac themes, palette matching, font/opacity/padding settings |
 | Phone connection | Same-computer workspaces/history on iOS/Android; LAN QR pairing, optional certificate HTTPS and self-hosted remote relay |
 | Device access | Workspace scoping, read-only or writable access, device revocation, live changes and reconnect behavior |
@@ -185,4 +185,4 @@ Windows 版直接在本机运行 Claude Code / Codex，不需要 Mac 或 WSL。�
 
 安装版历史固定保存在 `%APPDATA%\TheAll`，源码开发版使用 `%APPDATA%\TheAll Development`；升级不会因为版本号改变而换数据目录。API Key 使用当前 Windows 账户的系统加密保存。手机与电脑连接同一可信 Wi-Fi 后，点击侧栏「连接手机」并扫码。
 
-v0.1.6 提供未签名的 Windows 预览包。发布需通过 Windows x64 CI；安装升级、真实 CLI 和手机连接仍待实机验收，ARM64 交叉构建尚未在 ARM64 设备运行验证。
+v0.1.7 提供未签名的 Windows 预览包。发布需通过 Windows x64 CI；安装升级、真实 CLI 和手机连接仍待实机验收，ARM64 交叉构建尚未在 ARM64 设备运行验证。

@@ -38,9 +38,7 @@ final class SparkleBridge: NSObject, SPUUpdaterDelegate {
         guard isActive, updater == nil else { return }
         let driver = UpdateUserDriver(store: store, canInstall: { [weak self] in self?.canInstall == true },
             isBusy: {
-                TheAllRuntime.shared.chats.sessions.values.contains {
-                    $0.chat?.hasPendingWorkForUpdate == true
-                }
+                TheAllRuntime.shared.chats.hasPendingWorkForUpdate
             }, flush: {
                 try TheAllRuntime.shared.chats.flushForUpdate()
                 try TheAllRuntime.shared.workspaces.flushForUpdate()

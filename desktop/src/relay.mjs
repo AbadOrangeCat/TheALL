@@ -2,9 +2,9 @@ import { createPrivateKey, createPublicKey, sign, timingSafeEqual } from 'node:c
 import { WebSocket } from 'ws';
 
 export const RELAY_LIMITS = Object.freeze({
-  requestBytes: 3 * 1024 * 1024, responseBytes: 16 * 1024 * 1024,
-  headerBytes: 16 * 1024, frameBytes: 24 * 1024 * 1024,
-  pending: 8, bufferedBytes: 8 * 1024 * 1024, events: 16,
+  requestBytes: 32 * 1024 * 1024, responseBytes: 16 * 1024 * 1024,
+  headerBytes: 16 * 1024, frameBytes: 48 * 1024 * 1024,
+  pending: 8, bufferedBytes: 64 * 1024 * 1024, events: 16,
   eventBytes: 8192, bufferedEventBytes: 65536, targetBytes: 4096,
 });
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

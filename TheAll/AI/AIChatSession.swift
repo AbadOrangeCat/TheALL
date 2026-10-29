@@ -11,22 +11,24 @@ struct AIChatMessage: Identifiable, Codable {
     /// Set only after a successful reply identifies this as turn progress.
     /// Keep the original role/text so expanding it restores the full content.
     var isIntermediate = false
+    var isSteering = false
     var images: [AIChatImage] = []
+    var files: [AIChatFile] = []
     var completedAt: String?
     var durationMs: Double?
     var completionStatus: String?
     var reasoningEffort: String?
     var reasoningEffortVerified = false
     var isVisibleInTranscript: Bool {
-        (role != .tool || isError) && (!text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !images.isEmpty)
+        (role != .tool || isError) && (!text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !images.isEmpty || !files.isEmpty)
     }
 
-    private enum CodingKeys: String, CodingKey { case id, role, text, model, isError, isIntermediate, images, completedAt, durationMs, completionStatus, reasoningEffort, reasoningEffortVerified }
+    private enum CodingKeys: String, CodingKey { case id, role, text, model, isError, isIntermediate, isSteering, images, files, completedAt, durationMs, completionStatus, reasoningEffort, reasoningEffortVerified }
 
     init(id: String, role: Role, text: String, model: String = "", isError: Bool = false,
-         isIntermediate: Bool = false, images: [AIChatImage] = [], completedAt: String? = nil, durationMs: Double? = nil, completionStatus: String? = nil) {
+         isIntermediate: Bool = false, isSteering: Bool = false, images: [AIChatImage] = [], files: [AIChatFile] = [], completedAt: String? = nil, durationMs: Double? = nil, completionStatus: String? = nil) {
         self.id = id; self.role = role; self.text = text; self.model = model
-        self.isError = isError; self.isIntermediate = isIntermediate; self.images = images
+        self.isError = isError; self.isIntermediate = isIntermediate; self.isSteering = isSteering; self.images = images; self.files = files
         self.completedAt = completedAt; self.durationMs = durationMs; self.completionStatus = completionStatus
     }
 
@@ -38,7 +40,9 @@ struct AIChatMessage: Identifiable, Codable {
         model = try values.decodeIfPresent(String.self, forKey: .model) ?? ""
         isError = try values.decodeIfPresent(Bool.self, forKey: .isError) ?? false
         isIntermediate = try values.decodeIfPresent(Bool.self, forKey: .isIntermediate) ?? false
+        isSteering = try values.decodeIfPresent(Bool.self, forKey: .isSteering) ?? false
         images = try values.decodeIfPresent([AIChatImage].self, forKey: .images) ?? []
+        files = try values.decodeIfPresent([AIChatFile].self, forKey: .files) ?? []
         completedAt = try values.decodeIfPresent(String.self, forKey: .completedAt)
         completionStatus = try values.decodeIfPresent(String.self, forKey: .completionStatus)
         durationMs = try values.decodeIfPresent(Double.self, forKey: .durationMs)
@@ -71,6 +75,8 @@ final class AIChatSession {
     var input = "" { didSet { onStateChanged?() } }
     var draftImages: [AIChatImage] = [] { didSet { onStateChanged?() } }
     let imageStore: AIChatImageStore
+    var draftFiles: [AIChatFile] = [] { didSet { onStateChanged?() } }
+    let fileStore: AIChatFileStore
     var model: String {
         didSet { if model != oldValue { showsModelChangeHint = true; if !reasoningEffort.isEmpty && !reasoningEfforts(for: model).contains(reasoningEffort) { reasoningEffort = "" }; onStateChanged?() } }
     }
@@ -116,15 +122,30 @@ final class AIChatSession {
     var canChangeDirectory: Bool { !isBusy && approvals.isEmpty && responses.isEmpty }
     @ObservationIgnored private var isStartingForUpdate = false
     var hasPendingWorkForUpdate: Bool {
-        isBusy || remoteSubmission != nil || !responses.isEmpty || !approvals.isEmpty
+        isBusy || attachmentImports > 0 || steering != nil || remoteSubmission != nil || !responses.isEmpty || !approvals.isEmpty
             || pendingClaudeWrite || (isStartingForUpdate && errorMessage == nil)
     }
+    private var attachmentImports = 0
+    func beginAttachmentImport() -> Bool {
+        guard !UpdateStore.shared.blocksNewMessages, !stopped else { return false }
+        attachmentImports += 1
+        return true
+    }
+    func endAttachmentImport() { attachmentImports = max(0, attachmentImports - 1) }
+    private var taskToken: String?
+    var steerToken: String? { isBusy ? taskToken : nil }
+    var canSteer: Bool {
+        !UpdateStore.shared.blocksNewMessages && isReady && isBusy && canInterrupt && !turnWasInterrupted
+            && approvals.isEmpty && steering == nil && !steeringUncertain && remoteSubmission == nil
+            && !pendingClaudeWrite && taskToken != nil && completionToken != nil
+            && (provider == .claude ? claudeSupportsSteering : turnID != nil)
+    }
     var canSend: Bool {
-        !UpdateStore.shared.blocksNewMessages && isReady && !isBusy && approvals.isEmpty &&
-        (!input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !draftImages.isEmpty)
+        !UpdateStore.shared.blocksNewMessages && isReady && (isBusy ? canSteer : steering == nil) && approvals.isEmpty &&
+        (!input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !draftImages.isEmpty || !draftFiles.isEmpty)
     }
     var needsConfirmClose: Bool {
-        isBusy || !input.isEmpty || !draftImages.isEmpty || !messages.isEmpty || !approvals.isEmpty
+        isBusy || !input.isEmpty || !draftImages.isEmpty || !draftFiles.isEmpty || !messages.isEmpty || !approvals.isEmpty
     }
     @ObservationIgnored private let transport: any AIChatTransport
     @ObservationIgnored private var responses: [String: (Result<[String: Any], Error>) -> Void] = [:]
@@ -156,13 +177,14 @@ final class AIChatSession {
 
     init(provider: AIProvider, model: String, directory: String,
          transport: any AIChatTransport = AIChatProcess(), restoring snapshot: AIChatSnapshot? = nil,
-         imageStore: AIChatImageStore = .shared) {
+         imageStore: AIChatImageStore = .shared, fileStore: AIChatFileStore? = nil) {
         self.provider = provider
         self.model = model
         self.appliedClaudeModel = model
         self.directory = directory
         self.transport = transport
         self.imageStore = imageStore
+        self.fileStore = fileStore ?? AIChatFileStore(directory: imageStore.directory.deletingLastPathComponent().appendingPathComponent("FileAttachments"))
         if let snapshot, snapshot.provider == provider {
             self.directory = snapshot.directory
             self.model = snapshot.model
@@ -171,6 +193,7 @@ final class AIChatSession {
             self.codexAppliedReasoningEffort = snapshot.codexAppliedReasoningEffort ?? (provider == .openai && !snapshot.reasoningEffort.isEmpty ? snapshot.reasoningEffort : nil)
             self.input = snapshot.input
             self.draftImages = snapshot.draftImages
+            self.draftFiles = snapshot.draftFiles
             self.messages = snapshot.messages
             self.conversationID = snapshot.conversationID
             self.hasSubmittedFirstMessage = snapshot.messages.contains { $0.role == .user }
@@ -180,7 +203,7 @@ final class AIChatSession {
 
     private var rawSnapshot: AIChatSnapshot {
         AIChatSnapshot(provider: provider, directory: directory, model: model, input: input,
-                       messages: messages, conversationID: conversationID, draftImages: draftImages, reasoningEffort: reasoningEffort, codexAppliedReasoningEffort: codexAppliedReasoningEffort)
+                       messages: messages, conversationID: conversationID, draftImages: draftImages, draftFiles: draftFiles, reasoningEffort: reasoningEffort, codexAppliedReasoningEffort: codexAppliedReasoningEffort)
     }
 
     var snapshot: AIChatSnapshot { rawSnapshot.redacting(secrets) }
@@ -192,9 +215,12 @@ final class AIChatSession {
     }
 
     func start(_ configuration: AILaunchConfiguration, resuming sessionID: String? = nil) {
+        if let pending = steering { finishSteering(pending, result: pending.written ? .uncertain : .rejected) }
         completeRemoteSubmission(remoteRequestWasWritten ? .uncertain : .rejected)
         transportGeneration = UUID()
         clearPendingClaudeWrite()
+        claudeSupportsSteering = false
+        claudeInitialUserID = nil
         responses.removeAll()
         clearApprovals()
         finishTurn()
@@ -221,6 +247,7 @@ final class AIChatSession {
         transport.onMessage = { [weak self] in self?.receive($0) }
         transport.onExit = { [weak self] status in
             guard let self, !self.stopped else { return }
+            if let pending = self.steering { self.finishSteering(pending, result: pending.written ? .uncertain : .rejected) }
             self.transportGeneration = UUID()
             self.clearPendingClaudeWrite()
             self.isReady = false
@@ -325,16 +352,20 @@ final class AIChatSession {
 
     func send() {
         guard remoteSubmission == nil else { return }
-        _ = submit(input, images: draftImages, clearsComposer: true)
+        if isBusy {
+            _ = steer(input, images: draftImages, files: draftFiles, expectedToken: steerToken, clearsComposer: true)
+            return
+        }
+        _ = submit(input, images: draftImages, files: draftFiles, clearsComposer: true)
     }
 
     /// Remote clients own their drafts. Never overwrite or clear the Mac composer.
     @discardableResult
-    func sendRemote(_ prompt: String, images: [AIChatImage] = [], model selectedModel: String? = nil, reasoningEffort selectedEffort: String? = nil,
+    func sendRemote(_ prompt: String, images: [AIChatImage] = [], files: [AIChatFile] = [], model selectedModel: String? = nil, reasoningEffort selectedEffort: String? = nil,
                     stillAuthorized: @escaping () -> Bool = { true },
                     completion: @escaping (RemoteSubmissionResult) -> Void = { _ in }) -> Bool {
-        guard !UpdateStore.shared.blocksNewMessages, stillAuthorized(), remoteSubmission == nil, isReady, !isBusy, approvals.isEmpty,
-              (!prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !images.isEmpty)
+        guard !UpdateStore.shared.blocksNewMessages, stillAuthorized(), remoteSubmission == nil, isReady, !isBusy, steering == nil, approvals.isEmpty,
+              (!prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !images.isEmpty || !files.isEmpty)
         else { completion(.rejected); return false }
         let nextModel = selectedModel ?? model
         let nextEffort = selectedEffort ?? (nextModel == model ? reasoningEffort : "")
@@ -343,19 +374,20 @@ final class AIChatSession {
         remoteSubmission = completion
         if let selectedModel { model = selectedModel }
         reasoningEffort = nextEffort
-        return submit(prompt, images: images, clearsComposer: false, stillAuthorized: stillAuthorized)
+        return submit(prompt, images: images, files: files, clearsComposer: false, stillAuthorized: stillAuthorized)
     }
 
     @discardableResult
-    private func submit(_ prompt: String, images: [AIChatImage], clearsComposer: Bool,
+    private func submit(_ prompt: String, images: [AIChatImage], files: [AIChatFile], clearsComposer: Bool,
                         stillAuthorized: @escaping () -> Bool = { true }) -> Bool {
-        guard !UpdateStore.shared.blocksNewMessages, isReady, !isBusy, approvals.isEmpty,
-              (!prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !images.isEmpty) else { return false }
+        guard !UpdateStore.shared.blocksNewMessages, isReady, !isBusy, steering == nil, approvals.isEmpty,
+              (!prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !images.isEmpty || !files.isEmpty) else { return false }
         guard reasoningEffort.isEmpty || supportedReasoningEfforts.contains(reasoningEffort) else {
             errorMessage = L10n.string("ai.effort.unsupported")
             completeRemoteSubmission(.rejected)
             return false
         }
+        taskToken = UUID().uuidString
         turnModel = model
         turnReasoningEffort = reasoningEffort
         turnAppliedReasoningEffort = nil
@@ -365,6 +397,28 @@ final class AIChatSession {
         thinkingStartIndex = messages.count
         isBusy = true
         errorMessage = nil
+        if !files.isEmpty {
+            let generation = transportGeneration
+            let store = fileStore
+            Task { @MainActor [weak self] in
+                do {
+                    let providerPrompt = try await Task.detached(priority: .userInitiated) { try store.prompt(prompt, files: files) }.value
+                    guard let self, !self.stopped, self.transportGeneration == generation else { return }
+                    guard stillAuthorized() else { self.finishTurn(); self.completeRemoteSubmission(.rejected); return }
+                    _ = self.writeSubmission(prompt, providerPrompt: providerPrompt, images: images, files: files,
+                        clearsComposer: clearsComposer, stillAuthorized: stillAuthorized)
+                } catch {
+                    guard let self, !self.stopped, self.transportGeneration == generation else { return }
+                    self.fail(error)
+                }
+            }
+            return true
+        }
+        return writeSubmission(prompt, providerPrompt: prompt, images: images, files: [], clearsComposer: clearsComposer, stillAuthorized: stillAuthorized)
+    }
+
+    private func writeSubmission(_ prompt: String, providerPrompt: String, images: [AIChatImage], files: [AIChatFile],
+                                 clearsComposer: Bool, stillAuthorized: @escaping () -> Bool) -> Bool {
         do {
             guard images.count <= AIChatImageStore.maximumCount else { throw AIChatImageStore.ImageError.tooMany }
             guard Set(images.map(\.id)).count == images.count else { throw AIChatImageStore.ImageError.invalid }
@@ -396,20 +450,22 @@ final class AIChatSession {
                             return
                         }
                         var content = imageInputs
-                        if !prompt.isEmpty { content.insert(["type": "text", "text": prompt], at: 0) }
-                        let payload: Any = images.isEmpty ? prompt as Any : content
+                        if !providerPrompt.isEmpty { content.insert(["type": "text", "text": providerPrompt], at: 0) }
+                        let payload: Any = images.isEmpty ? providerPrompt as Any : content
                         // The pipe writer is asynchronous for large photos. Do
                         // not clear the draft or acknowledge a remote send until
                         // the complete JSON line has actually been written.
                         if self.remoteSubmission != nil { self.remoteRequestWasWritten = true }
                         self.pendingClaudeWrite = true
                         do {
-                            try self.transport.send(["type": "user", "message": ["role": "user", "content": payload],
+                            let messageID = UUID().uuidString
+                            self.claudeInitialUserID = messageID
+                            try self.transport.send(["type": "user", "uuid": messageID, "message": ["role": "user", "content": payload],
                                 "parent_tool_use_id": NSNull(), "session_id": self.conversationID ?? ""]) { [weak self] result in
                                 guard let self, !self.stopped, self.transportGeneration == generation else { return }
                                 switch result {
                                 case .success:
-                                    self.didSubmit(prompt, images: images, clearsComposer: clearsComposer)
+                                    self.didSubmit(prompt, images: images, files: files, clearsComposer: clearsComposer)
                                     self.canInterrupt = true
                                     self.completeRemoteSubmission(.accepted)
                                     let queued = self.deferredClaudeMessages
@@ -481,7 +537,7 @@ final class AIChatSession {
                 }
                 guard let conversationID else { throw ChatError.protocolError }
                 var content = imageInputs
-                if !prompt.isEmpty { content.insert(["type": "text", "text": prompt], at: 0) }
+                if !providerPrompt.isEmpty { content.insert(["type": "text", "text": providerPrompt], at: 0) }
                 var params: [String: Any] = ["threadId": conversationID, "cwd": directory,
                     "approvalPolicy": "never", "sandboxPolicy": ["type": "dangerFullAccess"],
                     "input": content]
@@ -511,7 +567,7 @@ final class AIChatSession {
                         self.acceptSubmittedTurn()
                         if let applied = params["effort"] as? String { self.codexAppliedReasoningEffort = applied }
                         self.onStateChanged?()
-                        self.notifyFirstMessage(prompt, images: images)
+                        self.notifyFirstMessage(prompt, images: images, files: files)
                         self.completeRemoteSubmission(.accepted)
                     } catch {
                         if case ChatError.backend = error {
@@ -523,6 +579,8 @@ final class AIChatSession {
                             if self.input.isEmpty { self.input = prompt }
                             let present = Set(self.draftImages.map(\.id))
                             self.draftImages = images.filter { !present.contains($0.id) } + self.draftImages
+                            let presentFiles = Set(self.draftFiles.map(\.id))
+                            self.draftFiles = files.filter { !presentFiles.contains($0.id) } + self.draftFiles
                         }
                         self.fail(error)
                     }
@@ -532,32 +590,164 @@ final class AIChatSession {
                 // A written Codex request may execute even if its reply is lost.
                 // A synchronous reply may already have completed the submission.
                 if remoteSubmission != nil { remoteRequestWasWritten = true }
-                didSubmit(prompt, images: images, clearsComposer: clearsComposer)
+                didSubmit(prompt, images: images, files: files, clearsComposer: clearsComposer)
             }
         } catch { fail(error); return false }
         return true
     }
 
-    private func didSubmit(_ prompt: String, images: [AIChatImage], clearsComposer: Bool) {
+    private func didSubmit(_ prompt: String, images: [AIChatImage], files: [AIChatFile], clearsComposer: Bool) {
         if provider == .claude { acceptSubmittedTurn() }
-        messages.append(AIChatMessage(id: UUID().uuidString, role: .user, text: prompt, images: images))
+        messages.append(AIChatMessage(id: UUID().uuidString, role: .user, text: prompt, images: images, files: files))
         if clearsComposer, input == prompt { input = "" }
         if clearsComposer {
             let submitted = Set(images.map(\.id))
             draftImages.removeAll { submitted.contains($0.id) }
+            let submittedFiles = Set(files.map(\.id))
+            draftFiles.removeAll { submittedFiles.contains($0.id) }
         }
         // A newer selection made while waiting for the previous model's
         // acknowledgement still applies to the following message.
         if model == turnModel { showsModelChangeHint = false }
         revision += 1
-        if provider == .claude { notifyFirstMessage(prompt, images: images) }
+        if provider == .claude { notifyFirstMessage(prompt, images: images, files: files) }
     }
 
-    private func notifyFirstMessage(_ prompt: String, images: [AIChatImage] = []) {
+    private final class SteeringSubmission {
+        let id = UUID().uuidString
+        let token: String
+        let prompt: String
+        let images: [AIChatImage]
+        let files: [AIChatFile]
+        let clearsComposer: Bool
+        let completion: (RemoteSubmissionResult) -> Void
+        var written = false
+        init(token: String, prompt: String, images: [AIChatImage], files: [AIChatFile], clearsComposer: Bool,
+             completion: @escaping (RemoteSubmissionResult) -> Void) {
+            self.token = token; self.prompt = prompt; self.images = images; self.files = files
+            self.clearsComposer = clearsComposer; self.completion = completion
+        }
+    }
+    private var steering: SteeringSubmission?
+    private var steeringUncertain = false
+    private var claudeSupportsSteering = false
+    @ObservationIgnored private var claudeInitialUserID: String?
+    private var claudeSteerIDs = Set<String>()
+    @ObservationIgnored private var deferredSteerResults: [[String: Any]] = []
+    @ObservationIgnored private var claudeResultBeforeSteer: [String: Any]?
+
+    @discardableResult
+    func steerRemote(_ prompt: String, images: [AIChatImage] = [], files: [AIChatFile] = [], expectedToken: String,
+                     stillAuthorized: @escaping () -> Bool = { true },
+                     completion: @escaping (RemoteSubmissionResult) -> Void = { _ in }) -> Bool {
+        steer(prompt, images: images, files: files, expectedToken: expectedToken, clearsComposer: false,
+              stillAuthorized: stillAuthorized, completion: completion)
+    }
+
+    @discardableResult
+    private func steer(_ prompt: String, images: [AIChatImage], files: [AIChatFile], expectedToken: String?,
+                       clearsComposer: Bool, stillAuthorized: @escaping () -> Bool = { true },
+                       completion: @escaping (RemoteSubmissionResult) -> Void = { _ in }) -> Bool {
+        guard canSteer, let expectedToken, expectedToken == taskToken, stillAuthorized(),
+              !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !images.isEmpty || !files.isEmpty
+        else { completion(.rejected); return false }
+        let pending = SteeringSubmission(token: expectedToken, prompt: prompt, images: images, files: files,
+                                         clearsComposer: clearsComposer, completion: completion)
+        steering = pending
+        errorMessage = nil
+        let generation = transportGeneration
+        let imageStore = imageStore, fileStore = fileStore, provider = provider
+        Task { @MainActor [weak self] in
+            do {
+                let content = try await Task.detached(priority: .userInitiated) {
+                    let text = try fileStore.prompt(prompt, files: files)
+                    guard images.count <= AIChatImageStore.maximumCount, Set(images.map(\.id)).count == images.count
+                    else { throw AIChatImageStore.ImageError.invalid }
+                    var content: [[String: Any]] = text.isEmpty ? [] : [["type": "text", "text": text]]
+                    for image in images {
+                        let data = try imageStore.data(for: image)
+                        if provider == .claude {
+                            content.append(["type": "image", "source": ["type": "base64", "media_type": image.mimeType, "data": data.base64EncodedString()]])
+                        } else { content.append(["type": "localImage", "path": try imageStore.url(for: image).path]) }
+                    }
+                    return content
+                }.value
+                guard let self, self.steering === pending, self.transportGeneration == generation else { return }
+                guard !self.stopped, self.isReady, self.isBusy, self.taskToken == pending.token,
+                      !self.turnWasInterrupted, self.approvals.isEmpty, stillAuthorized(), !UpdateStore.shared.blocksNewMessages
+                else { self.finishSteering(pending, result: .rejected, error: ChatError.backend(L10n.string("ai.chat.steerUnavailable"))); return }
+                self.messages.append(AIChatMessage(id: pending.id, role: .user, text: prompt, isSteering: true, images: images, files: files))
+                self.revision += 1
+                pending.written = true
+                if provider == .claude {
+                    self.claudeSteerIDs.insert(pending.id)
+                    // Default priority lets Claude consume the new input at its
+                    // next safe boundary without interrupting an executing tool.
+                    try self.transport.send(["type": "user", "uuid": pending.id,
+                        "message": ["role": "user", "content": content], "parent_tool_use_id": NSNull(),
+                        "session_id": self.conversationID ?? ""]) { [weak self] result in
+                        guard let self, self.steering === pending else { return }
+                        if case .failure(let error) = result { self.finishSteering(pending, result: .uncertain, error: error) }
+                    }
+                } else {
+                    guard let threadID = self.conversationID, let turnID = self.turnID else { throw ChatError.protocolError }
+                    self.responses[pending.id] = { [weak self] result in
+                        guard let self, self.steering === pending else { return }
+                        switch result {
+                        case .success(let value):
+                            guard value["turnId"] as? String == turnID else {
+                                self.finishSteering(pending, result: .uncertain, error: ChatError.protocolError); return
+                            }
+                            self.finishSteering(pending, result: .accepted)
+                        case .failure(let error):
+                            let outcome: RemoteSubmissionResult
+                            if case ChatError.backend = error { outcome = .rejected } else { outcome = .uncertain }
+                            self.finishSteering(pending, result: outcome, error: error)
+                        }
+                    }
+                    try self.transport.send(["id": pending.id, "method": "turn/steer", "params": [
+                        "threadId": threadID, "expectedTurnId": turnID, "input": content, "clientUserMessageId": pending.id]])
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 30) { [weak self] in
+                    guard let self, self.steering === pending else { return }
+                    self.finishSteering(pending, result: .uncertain, error: ChatError.timeout)
+                }
+            } catch {
+                guard let self, self.steering === pending else { return }
+                // Synchronous transport throws prove that no write was queued.
+                self.finishSteering(pending, result: .rejected, error: error)
+            }
+        }
+        return true
+    }
+
+    private func finishSteering(_ pending: SteeringSubmission, result: RemoteSubmissionResult, error: Error? = nil) {
+        guard steering === pending else { return }
+        steering = nil
+        responses[pending.id] = nil
+        if result == .rejected {
+            messages.removeAll { $0.id == pending.id }
+            claudeSteerIDs.remove(pending.id)
+        } else if result == .accepted, pending.clearsComposer {
+            if input == pending.prompt { input = "" }
+            let images = Set(pending.images.map(\.id)), files = Set(pending.files.map(\.id))
+            draftImages.removeAll { images.contains($0.id) }
+            draftFiles.removeAll { files.contains($0.id) }
+        }
+        if result == .uncertain { steeringUncertain = true }
+        if let error { errorMessage = result == .uncertain ? L10n.string("ai.chat.steerUncertain") : sanitized(error.localizedDescription) }
+        revision += 1
+        pending.completion(result)
+        let results = deferredSteerResults
+        deferredSteerResults.removeAll()
+        results.forEach { receive($0) }
+    }
+
+    private func notifyFirstMessage(_ prompt: String, images: [AIChatImage] = [], files: [AIChatFile] = []) {
         guard !hasSubmittedFirstMessage else { return }
         hasSubmittedFirstMessage = true
-        onFirstMessageSubmitted?(prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !images.isEmpty
-            ? L10n.string("ai.images.defaultName") : prompt)
+        onFirstMessageSubmitted?(prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && (!images.isEmpty || !files.isEmpty)
+            ? (files.first?.name ?? L10n.string("ai.images.defaultName")) : prompt)
     }
 
     @discardableResult
@@ -566,8 +756,13 @@ final class AIChatSession {
         turnWasInterrupted = true
         do {
             if provider == .claude {
-                try control("interrupt") { [weak self] result in
-                    if case .failure(let error) = result { self?.errorMessage = error.localizedDescription }
+                try control("interrupt", fields: ["cancel_queued": true]) { [weak self] result in
+                    guard let self else { return }
+                    switch result {
+                    case .success(let value):
+                        for id in value["cancelled"] as? [String] ?? [] { self.cancelClaudeSteer(id) }
+                    case .failure(let error): self.errorMessage = error.localizedDescription
+                    }
                 }
             } else if let conversationID, let turnID {
                 try rpc("turn/interrupt", params: ["threadId": conversationID, "turnId": turnID]) { [weak self] result in
@@ -591,6 +786,7 @@ final class AIChatSession {
 
     func stop() {
         if isBusy { turnWasInterrupted = true }
+        if let pending = steering { finishSteering(pending, result: pending.written ? .uncertain : .rejected) }
         transportGeneration = UUID()
         clearPendingClaudeWrite()
         completeRemoteSubmission(remoteRequestWasWritten ? .uncertain : .rejected)
@@ -607,12 +803,13 @@ final class AIChatSession {
         messages = saved.messages
         input = saved.input
         draftImages = saved.draftImages
+        draftFiles = saved.draftFiles
         secrets.removeAll()
         isStartingForUpdate = false
         configuration = nil
     }
 
-    deinit { remoteSubmission?(remoteRequestWasWritten ? .uncertain : .rejected); transport.stop() }
+    deinit { if let pending = steering { pending.completion(pending.written ? .uncertain : .rejected) }; remoteSubmission?(remoteRequestWasWritten ? .uncertain : .rejected); transport.stop() }
 
     private func completeRemoteSubmission(_ result: RemoteSubmissionResult) {
         let completion = remoteSubmission
@@ -687,6 +884,11 @@ final class AIChatSession {
         isBusy = false
         canInterrupt = false
         turnID = nil
+        taskToken = nil
+        steeringUncertain = false
+        claudeSteerIDs.removeAll()
+        claudeResultBeforeSteer = nil
+        if let pending = steering, !pending.written { finishSteering(pending, result: .rejected) }
     }
 
     private var currentTurnRange: Range<Int> {
@@ -815,6 +1017,17 @@ final class AIChatSession {
             deferredClaudeMessages.append(message)
             return
         }
+        if let pending = steering, pending.written,
+           (provider == .claude && message["type"] as? String == "result"
+            || provider == .openai && message["method"] as? String == "turn/completed") {
+            if provider == .claude,
+               ((message["user_message_uuids"] as? [String] ?? []).contains(pending.id) || message["user_message_uuid"] as? String == pending.id) {
+                finishSteering(pending, result: .accepted)
+            } else if deferredSteerResults.count < 16 {
+                deferredSteerResults.append(message)
+                return
+            } else { finishSteering(pending, result: .uncertain, error: ChatError.protocolError) }
+        }
         if provider == .claude { receiveClaude(message) } else { receiveCodex(message) }
     }
 
@@ -824,8 +1037,34 @@ final class AIChatSession {
         deferredClaudeBytes = 0
     }
 
+    private func cancelClaudeSteer(_ id: String) {
+        guard claudeSteerIDs.remove(id) != nil else { return }
+        if let pending = steering, pending.id == id {
+            finishSteering(pending, result: .rejected,
+                error: turnWasInterrupted ? nil : ChatError.backend(L10n.string("ai.chat.steerUnavailable")))
+        } else {
+            if let index = messages.firstIndex(where: { $0.id == id }) { messages[index].isError = true; revision += 1 }
+            if !turnWasInterrupted { errorMessage = L10n.string("ai.chat.steerUnavailable") }
+        }
+        if claudeSteerIDs.isEmpty, let result = claudeResultBeforeSteer {
+            claudeResultBeforeSteer = nil
+            _ = completeClaudeReply(result)
+            finishTurn()
+        }
+    }
+
     private func receiveClaude(_ message: [String: Any]) {
         switch message["type"] as? String {
+        case "command_lifecycle":
+            guard let id = message["command_uuid"] as? String, let state = message["state"] as? String else { return }
+            if id == claudeInitialUserID, ["queued", "started", "completed"].contains(state) { claudeSupportsSteering = true }
+            guard claudeSteerIDs.contains(id) else { return }
+            if ["queued", "started", "completed"].contains(state), let pending = steering, pending.id == id {
+                finishSteering(pending, result: .accepted)
+            }
+            if ["refused", "cancelled", "discarded"].contains(state) {
+                cancelClaudeSteer(id)
+            }
         case "control_response":
             guard let response = message["response"] as? [String: Any], let id = response["request_id"] as? String,
                   let callback = responses.removeValue(forKey: id) else { return }
@@ -920,6 +1159,9 @@ final class AIChatSession {
                 }
             }
         case "user":
+            if let pending = steering, message["uuid"] as? String == pending.id {
+                finishSteering(pending, result: .accepted)
+            }
             guard let body = message["message"] as? [String: Any], let blocks = body["content"] as? [[String: Any]] else { return }
             for block in blocks where block["type"] as? String == "tool_result" {
                 guard let id = block["tool_use_id"] as? String else { continue }
@@ -941,6 +1183,13 @@ final class AIChatSession {
                     ?? message["result"] as? String ?? L10n.string("ai.chat.failed"))
             }
             guard isBusy, awaitingSubmittedTurn else { return }
+            let consumed = Set((message["user_message_uuids"] as? [String] ?? []) + [message["user_message_uuid"] as? String].compactMap { $0 })
+            claudeSteerIDs.subtract(consumed)
+            if !claudeSteerIDs.isEmpty {
+                claudeResultBeforeSteer = message
+                return
+            }
+            claudeResultBeforeSteer = nil
             let success = completeClaudeReply(message)
             recordTurnCompletion(success: success)
             finishTurn()

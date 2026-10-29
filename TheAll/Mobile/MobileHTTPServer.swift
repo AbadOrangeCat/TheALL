@@ -45,7 +45,7 @@ struct MobileHTTPResponse {
 /// One bounded request per connection; no chunked requests or HTTP pipelining.
 /// LAN HTTP requires an explicit opt-in and a private, locally bound listener.
 final class MobileHTTPServer {
-    static let maximumBody = 3 * 1024 * 1024
+    static let maximumBody = 32 * 1024 * 1024
     private let queue = DispatchQueue.main
     private var listener: NWListener?
     private var clients: [UUID: NWConnection] = [:]
@@ -115,19 +115,21 @@ final class MobileHTTPServer {
         let id = UUID()
         clients[id] = connection
         connection.start(queue: queue)
-        queue.asyncAfter(deadline: .now() + 60) { [weak self, weak connection] in
+        queue.asyncAfter(deadline: .now() + 180) { [weak self, weak connection] in
             guard self?.eventPeers[id] == nil else { return }
             connection?.cancel(); self?.clients[id] = nil
         }
-        receive(connection, id: id, data: Data())
+        receive(connection, id: id, buffer: RequestBuffer())
     }
 
-    private func receive(_ connection: NWConnection, id: UUID, data: Data) {
+    private final class RequestBuffer { var data = Data() }
+
+    private func receive(_ connection: NWConnection, id: UUID, buffer: RequestBuffer) {
         connection.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) { [weak self] chunk, _, complete, error in
             guard let self, self.clients[id] != nil else { return }
-            let accumulated = data + (chunk ?? Data())
+            if let chunk { buffer.data.append(chunk) }
             do {
-                if let request = try Self.parse(accumulated) {
+                if let request = try Self.parse(buffer.data) {
                     let current = self.generation
                     Task { @MainActor [weak self] in
                         guard let self, self.generation == current, self.clients[id] != nil else { return }
@@ -157,7 +159,7 @@ final class MobileHTTPServer {
                     }
                 } else if complete || error != nil {
                     self.respond(.error("Incomplete request", status: 400), connection: connection, id: id)
-                } else { self.receive(connection, id: id, data: accumulated) }
+                } else { self.receive(connection, id: id, buffer: buffer) }
             } catch {
                 self.respond(.error("Invalid request", status: 400), connection: connection, id: id)
             }

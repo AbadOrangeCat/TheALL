@@ -880,3 +880,22 @@ dialog>p {
 @media(prefers-reduced-motion:reduce) {
   *,*::before,*::after { animation:none!important; transition:none!important; scroll-behavior:auto!important; }
 }
+
+/* Attachments share the existing theme and remain usable in narrow panes. */
+.file-previews,.message-files { display:flex; flex-wrap:wrap; gap:8px; margin:8px 0; min-width:0; }
+.file-chip { display:flex; align-items:center; gap:8px; max-width:100%; min-width:0; padding:8px 10px; border:1px solid var(--border); border-radius:8px; background:var(--raised); color:var(--text); font-size:12px; text-decoration:none; }
+.file-name { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.file-symbol { flex:none; color:var(--accent); }
+.file-size { flex:none; color:var(--muted); font-variant-numeric:tabular-nums; font-size:11px; }
+.file-remove { flex:none; width:28px; height:28px; min-height:28px; padding:0; line-height:1; font-size:20px; border-radius:6px; color:var(--muted); }
+.file-download:hover { border-color:var(--accent); }
+.attachment-drop-target::after { content:attr(data-drop-label); position:fixed; z-index:50; inset:6px; display:grid; place-items:center; border:2px dashed var(--accent); border-radius:8px; color:var(--accent); background:var(--accent-muted); pointer-events:none; font-size:16px; }
+
+/* Keep Stop independent and reachable beside mid-task instructions. */
+.send-actions #stop { width:40px; min-width:40px; padding-left:0; padding-right:0; }
+@media(max-width:360px) {
+  .steering .send-actions #model { min-width:64px; }
+  .steering .send-actions #effort { flex-basis:80px; width:80px; }
+}
+
+.message .steer-status { margin:8px 0 0; }

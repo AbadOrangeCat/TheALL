@@ -11,20 +11,22 @@ struct AIChatSnapshot: Codable {
     var messages: [AIChatMessage]
     var conversationID: String?
     var draftImages: [AIChatImage] = []
+    var draftFiles: [AIChatFile] = []
     var reasoningEffort: String = ""
     var codexAppliedReasoningEffort: String?
 
     private enum CodingKeys: String, CodingKey {
-        case version, provider, directory, model, input, messages, conversationID, draftImages, reasoningEffort, codexAppliedReasoningEffort
+        case version, provider, directory, model, input, messages, conversationID, draftImages, draftFiles, reasoningEffort, codexAppliedReasoningEffort
     }
 
     init(version: Int = 1, provider: AIProvider, directory: String, model: String, input: String,
-         messages: [AIChatMessage], conversationID: String?, draftImages: [AIChatImage] = [], reasoningEffort: String = "", codexAppliedReasoningEffort: String? = nil) {
-        self.version = version == 1 && (!draftImages.isEmpty || messages.contains { !$0.images.isEmpty }) ? 2 : version
+         messages: [AIChatMessage], conversationID: String?, draftImages: [AIChatImage] = [], draftFiles: [AIChatFile] = [], reasoningEffort: String = "", codexAppliedReasoningEffort: String? = nil) {
+        self.version = !draftFiles.isEmpty || messages.contains { !$0.files.isEmpty } ? max(3, version) :
+            (version == 1 && (!draftImages.isEmpty || messages.contains { !$0.images.isEmpty }) ? 2 : version)
         self.provider = provider; self.directory = directory; self.model = model
         self.reasoningEffort = reasoningEffort
         self.codexAppliedReasoningEffort = codexAppliedReasoningEffort
-        self.input = input; self.messages = messages; self.conversationID = conversationID; self.draftImages = draftImages
+        self.input = input; self.messages = messages; self.conversationID = conversationID; self.draftImages = draftImages; self.draftFiles = draftFiles
     }
 
     init(from decoder: Decoder) throws {
@@ -37,6 +39,7 @@ struct AIChatSnapshot: Codable {
         messages = try values.decode([AIChatMessage].self, forKey: .messages)
         conversationID = try values.decodeIfPresent(String.self, forKey: .conversationID)
         draftImages = try values.decodeIfPresent([AIChatImage].self, forKey: .draftImages) ?? []
+        draftFiles = try values.decodeIfPresent([AIChatFile].self, forKey: .draftFiles) ?? []
         reasoningEffort = try values.decodeIfPresent(String.self, forKey: .reasoningEffort) ?? ""
         codexAppliedReasoningEffort = try values.decodeIfPresent(String.self, forKey: .codexAppliedReasoningEffort)
     }
@@ -63,6 +66,7 @@ final class AIChatHistoryStore {
     static let shared = AIChatHistoryStore()
     let directory: URL
     let imageStore: AIChatImageStore
+    let fileStore: AIChatFileStore
     private let queue = DispatchQueue(label: "com.theall.chat-history", qos: .utility)
     private let queueKey = DispatchSpecificKey<Bool>()
     private var pending: [UUID: (AIChatSnapshot, [String], ((Bool) -> Void)?)] = [:]
@@ -75,6 +79,7 @@ final class AIChatHistoryStore {
         .appendingPathComponent("ChatHistory"), notifications: NotificationCenter = .default) {
         self.directory = directory
         self.imageStore = AIChatImageStore(directory: directory.appendingPathComponent("Attachments"))
+        self.fileStore = AIChatFileStore(directory: directory.appendingPathComponent("FileAttachments"))
         self.notifications = notifications
         queue.setSpecific(key: queueKey, value: true)
         terminationObserver = notifications.addObserver(
@@ -88,7 +93,7 @@ final class AIChatHistoryStore {
             let url = file(for: terminalID)
             guard FileManager.default.fileExists(atPath: url.path) else { return nil }
             let snapshot = try JSONDecoder().decode(AIChatSnapshot.self, from: Data(contentsOf: url))
-            guard snapshot.version == 1 || snapshot.version == 2 else { throw HistoryError.unsupportedVersion }
+            guard (1...3).contains(snapshot.version) else { throw HistoryError.unsupportedVersion }
             return snapshot
         }
     }
@@ -142,6 +147,7 @@ final class AIChatHistoryStore {
                 if saved.version == 1, !saved.draftImages.isEmpty || saved.messages.contains(where: { !$0.images.isEmpty }) {
                     saved.version = 2
                 }
+                if saved.version < 3, !saved.draftFiles.isEmpty || saved.messages.contains(where: { !$0.files.isEmpty }) { saved.version = 3 }
                 let data = try JSONEncoder().encode(saved)
                 try data.write(to: file(for: id), options: .atomic)
                 try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file(for: id).path)

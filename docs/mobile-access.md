@@ -161,10 +161,14 @@ Xcode 的 `MobileAccessTests` 验证配对/撤销、请求校验、共享会话�
 
 桌面：**设置 → 外观 → 语言**，选择跟随系统、中文（简体）、English、Français、日本語或한국어。选择立即生效并保存。手机登录页和主界面均有语言下拉框，支持同样的五种语言；手机语言独立保存，切换时不清除未发送草稿。
 
-## 发送和查看照片
+## 发送和查看附件
 
-手机聊天输入框的照片按钮可选择最多 4 张图片，发送前可预览或移除，也可不输入文字直接发送。手机浏览器将每张处理为不超过 512 KiB 的 JPEG（最长边 2048），Mac 再次校验后保存。浏览器无法解码的照片需先转换为 JPEG/PNG。草稿附件仅在当前浏览器会话内、按对话分别保留；网络重试使用原请求，不自动重发。
+手机聊天输入框使用统一“添加照片或文件”按钮，也支持拖入。每条消息可选择最多 4 张图片，发送前可预览或移除，也可不输入文字直接发送。手机浏览器将每张处理为不超过 512 KiB 的 JPEG（最长边 2048），Mac 再次校验后保存。浏览器无法解码的照片需先转换为 JPEG/PNG。草稿附件仅在当前浏览器会话内、按对话分别保留；网络重试使用原请求，不自动重发。
 
 历史只返回附件名称/尺寸/UUID，图片通过 `/api/chats/<chatID>/images/<imageID>` 单独读取。接口验证配对、工作区范围和照片确实属于该聊天；没有任意文件下载能力。照片响应与 Service Worker 均不缓存私人图片。只读设备可以查看授权历史，不能上传发送。
 
-含照片的请求上限为 3 MiB；使用外网中继时，Mac 与中继需同时更新到支持照片的代码，以匹配上传限额。Mac 原有文本及照片草稿不受手机发送影响。
+普通文件每条最多 5 个，单个不超过 10 MiB、总计不超过 20 MiB；允许空文件、图片和文件混合发送。文件按原字节保存，模型通过桌面本地文件工具读取。历史使用 `/api/chats/<chatID>/files/<fileID>` 下载授权会话中的附件，不内联执行 HTML/SVG 等内容。HTTP 请求上限为 32 MiB，中继帧上限 48 MiB；中继接收上传最多 120 秒，网页文件发送及原生连接有 180 秒总时限。使用外网中继时，桌面与中继需同时更新以匹配限额。Mac 原有文字、照片及文件草稿不受手机发送影响。
+
+### Steering a running task
+
+Chat snapshots include `canSteer` and an opaque `steerToken`. `POST /api/chats/:id/steer` accepts `text`, optional `images`/`files`, the current `steerToken`, `requestId` and `bootID`. It applies only to the running task and never starts/resumes a session. The token and authorization are rechecked after attachment preparation; repeated request IDs replay the original response. Model and effort changes are reserved for ordinary `/send` requests. The phone and Windows chat show Steer beside Stop while running, and preserve the draft on explicit rejection. Messages marked `isSteering` remain within the original round; later refused/cancelled messages have `isError` and a not-applied caption.

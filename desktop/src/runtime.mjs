@@ -14,8 +14,9 @@ import { RelayClient } from './relay.mjs';
 import { loadLANIdentity } from './tls.mjs';
 import { PushNotifications } from './web-push.mjs';
 import { APP_VERSION } from './version.mjs';
+import { FileAttachments, fileMetadata } from './attachments.mjs';
 
-const BODY_LIMIT = 3 * 1024 * 1024;
+const BODY_LIMIT = 32 * 1024 * 1024;
 const execute = promisify(execFile);
 const hash = value => createHash('sha256').update(value).digest('hex');
 const token = () => randomBytes(32).toString('hex');
@@ -32,10 +33,10 @@ function cookie(headers, name) {
   const matches = String(headers.cookie || '').split(';').map(s => s.trim()).filter(s => s.startsWith(`${name}=`));
   return matches.length === 1 ? matches[0].slice(name.length + 1) : null;
 }
-const visible = chat => chat.messages.filter(m => (m.role !== 'tool' || m.isError) && (m.text.trim() || m.images?.length));
+const visible = chat => chat.messages.filter(m => (m.role !== 'tool' || m.isError) && (m.text.trim() || m.images?.length || m.files?.length));
 const cleanImage = image => Object.fromEntries(['id','name','mimeType','width','height'].map(k => [k, image[k]]));
 const cleanMessage = m => ({ id: m.id, role: m.role, text: m.text, model: m.model || '', isError: !!m.isError,
-  isIntermediate: !!m.isIntermediate, images: (m.images || []).map(cleanImage),
+  isIntermediate: !!m.isIntermediate, isSteering: m.isSteering === true, images: (m.images || []).map(cleanImage), files: (m.files || []).map(fileMetadata),
   ...(m.completedAt ? { completedAt: m.completedAt, durationMs: m.durationMs, completionStatus: m.completionStatus } : {}),
   ...(m.reasoningEffort ? { reasoningEffort: m.reasoningEffort, reasoningEffortVerified: m.reasoningEffortVerified === true } : {}) });
 const mime = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8',
@@ -66,6 +67,7 @@ function directory(value) {
 export async function createRuntime({ dataDir, webRoot, desktopRoot, encrypt, decrypt, selectDirectory,
   normalizeImage, pushSender, Session = AISession, Relay = RelayClient, networkInterfaces = os.networkInterfaces, version = APP_VERSION }) {
   const store = new Store(dataDir, { encrypt, decrypt }), state = store.state;
+  const attachments = new FileAttachments(store.directory);
   const sessions = new Map(), starting = new Map(), receipts = new Map(), pending = new Set(), events = new Set();
   const metadataCache = new Map(), relayTransitions = new Set();
   const providerGenerations = new Map(), changingProviders = new Set(), sessionGenerations = new WeakMap();
@@ -176,7 +178,7 @@ export async function createRuntime({ dataDir, webRoot, desktopRoot, encrypt, de
     const limit = Math.min(Math.max(Number(search.get('limit') ?? 100), 1), 250), start = Math.max(end - limit, 0);
     return { id: chat.id, workspaceId: store.owner(chat.id).id, access: device.access, provider: chat.provider || '',
       model: chat.model || '', reasoningEffort: chat.reasoningEffort || '', directory: chat.directory, messages: messages.slice(start,end).map(cleanMessage), start, total: messages.length,
-      isReady: !!session?.isReady, isBusy: !!session?.isBusy, canInterrupt: device.access.writable && !!session?.canInterrupt,
+      isReady: !!session?.isReady, isBusy: !!session?.isBusy, canInterrupt: device.access.writable && !!session?.canInterrupt, canSteer: device.access.writable && !!session?.canSteer, steerToken: device.access.writable ? session?.steerToken ?? null : null,
       canResume: device.access.writable && !!chat.provider && !session?.isReady,
       models: modelCatalog(chat), defaultModel: session?.defaultModel || '',
       questions: session?.questions || [], bootID, ...(storageError || session?.error ? { error: storageError || session.error } : {}) };
@@ -277,13 +279,20 @@ export async function createRuntime({ dataDir, webRoot, desktopRoot, encrypt, de
         const stat = fs.lstatSync(file); demand(stat.isFile() && stat.size <= 2 * 1024 * 1024,'Photo not found',404);
         return { status:200, headers:{'content-type':image.mimeType,'content-disposition':'inline'},body:fs.readFileSync(file) };
       }
+      if (method === 'GET' && parts.length === 5 && parts[0] === 'api' && parts[1] === 'chats' && parts[3] === 'files') {
+        const chat = getChat(parts[2],device), file = visible(chat).flatMap(m => m.files || []).find(file => file.id === parts[4]);
+        demand(file, 'File not found', 404);
+        let data; try { data = attachments.read(file); } catch { throw new APIError(404,'File is unavailable'); }
+        const name = encodeURIComponent(file.name).replace(/[!'()*]/g, c => '%' + c.charCodeAt(0).toString(16).toUpperCase());
+        return {status:200,headers:{'content-type':'application/octet-stream','content-disposition':`attachment; filename="attachment"; filename*=UTF-8''${name}`,'x-content-type-options':'nosniff','cache-control':'no-store'},body:data};
+      }
       demand(method === 'POST','Not found',404); demand(!updateInstalling,'TheAll is installing an update',503); demand(device.access.writable,'This device has read-only access',403);
       demand(typeof input.requestId === 'string' && UUID.test(input.requestId), 'Invalid request identity');
       demand(input.bootID === bootID,'TheAll restarted. Review the conversation before trying again.',409);
       if (route === '/api/chats') {
         if (device.access.workspaceId) demand(input.workspaceId === device.access.workspaceId,'Workspace access denied',403);
         if (input.workspaceId) demand(state.workspaces.some(w => w.id === input.workspaceId && allowed(device,w.id)),'Workspace not found',404);
-      } else { demand(parts.length === 4 && parts[1] === 'chats' && ['send','answer','interrupt'].includes(parts[3]),'Not found',404); getChat(parts[2],device); }
+      } else { demand(parts.length === 4 && parts[1] === 'chats' && ['send','steer','answer','interrupt'].includes(parts[3]),'Not found',404); getChat(parts[2],device); }
       const key = `${device.id}:${input.requestId}`, fingerprint = hash(route + JSON.stringify(canonical(input)));
       if (receipts.has(key)) { const saved = receipts.get(key); demand(saved.fingerprint === fingerprint,'Request ID was already used for another action',409); return saved.response; }
       if (pending.has(key)) throw new APIError(409,'This request is still running','request_pending');
@@ -306,23 +315,27 @@ export async function createRuntime({ dataDir, webRoot, desktopRoot, encrypt, de
           save(); changed(); response=json({id:chat.id,workspaceId:workspace.id,access:device.access},201);
         } else {
           const chat = getChat(parts[2],device), action = parts[3];
-          if (action === 'send') {
+          if (action === 'send' || action === 'steer') {
             demand(typeof input.text === 'string' && Buffer.byteLength(input.text) <= 128*1024,'Message is too long');
-            demand(input.text.trim() || input.images?.length,'Enter a message or attach a photo'); selectedModel(input.model);
-            const session = await ensureSession(chat); stillAuthorized(); getChat(chat.id,device);
+            demand(input.text.trim() || input.images?.length || input.files?.length,'Enter a message or attach a file or photo'); selectedModel(input.model);
+            const steering = action === 'steer';
+            if (steering) demand(input.model === undefined && input.reasoningEffort === undefined,'A steering message uses the running task’s model and thinking level');
+            const session = steering ? sessions.get(chat.id) : await ensureSession(chat); stillAuthorized(); getChat(chat.id,device);
+            demand(session && (!steering || (session.canSteer && typeof input.steerToken === 'string' && input.steerToken === session.steerToken)),'This task is not ready for a steering message',409);
             session.models = mergeModelCatalog(state.settings.models?.[chat.provider] || [], session.models || state.settings.modelCapabilities?.[chat.provider] || []);
-            demand(!session.isBusy && !session.questions?.length,'Wait for the current reply',409);
-            const images = await imagesFrom(input); let retain=false;
+            if (!steering) demand(!session.isBusy && !session.questions?.length,'Wait for the current reply',409);
+            const images = await imagesFrom(input); let files = [], retain=false;
             try {
+              files = attachments.import(input.files).files;
               stillAuthorized(); getChat(chat.id,device);
-              await session.send({text:input.text,images,model:input.model ?? chat.model,reasoningEffort:input.reasoningEffort ?? chat.reasoningEffort ?? '',stillAuthorized:()=>{
+              await session[steering ? 'steer' : 'send']({text:input.text,images,files,steerToken:input.steerToken,...(!steering ? {model:input.model ?? chat.model,reasoningEffort:input.reasoningEffort ?? chat.reasoningEffort ?? ''} : {}),stillAuthorized:()=>{
                 try { stillAuthorized();getChat(chat.id,device);return sessions.get(chat.id)===session&&!changingProviders.has(chat.provider)&&sessionGenerations.get(session)===(providerGenerations.get(chat.provider)||0); } catch { return false; }
               }}); retain=true;actionAccepted=true;
               const owner=store.owner(chat.id);
-              if(owner?.needsAutomaticName) { owner.name=(input.text.trim().split(/\r?\n/)[0] || 'Photos').slice(0,48); owner.needsAutomaticName=false; }
+              if(owner?.needsAutomaticName) { owner.name=(input.text.trim().split(/\r?\n/)[0] || files[0]?.name || 'Photos').slice(0,48); owner.needsAutomaticName=false; }
               save(); changed();
-            } catch(e) { retain=e.code==='submission_uncertain' || chat.messages.some(m=>m.images?.some(i=>images.some(v=>v.id===i.id))); throw e; }
-            finally { if(!retain) for(const i of images) try{fs.unlinkSync(i.path);}catch{} }
+            } catch(e) { retain=e.code==='submission_uncertain' || chat.messages.some(m=>m.images?.some(i=>images.some(v=>v.id===i.id)) || m.files?.some(i=>files.some(v=>v.id===i.id))); throw e; }
+            finally { if(!retain) { for(const i of images) try{fs.unlinkSync(i.path);}catch{} try{attachments.remove(files);}catch{} } }
           } else {
             const session=sessions.get(chat.id); demand(session,'Conversation is not running',409); stillAuthorized();
             if(action==='interrupt') await session.interrupt();
@@ -358,7 +371,7 @@ export async function createRuntime({ dataDir, webRoot, desktopRoot, encrypt, de
   async function listen(address,port,entry,identity) {
     let origin;
     const sockets=new Set();
-    const server=(identity?https:http).createServer({...(identity?{key:identity.key,cert:identity.cert,minVersion:'TLSv1.2'}:{}),maxHeaderSize:16384,requestTimeout:20000,headersTimeout:15000},async(req,res)=>{
+    const server=(identity?https:http).createServer({...(identity?{key:identity.key,cert:identity.cert,minVersion:'TLSv1.2'}:{}),maxHeaderSize:16384,requestTimeout:180000,headersTimeout:15000},async(req,res)=>{
       const response=(r)=>{if(!res.destroyed){res.writeHead(r.status,{...securityHeaders(origin),...r.headers,'content-length':r.body.length});res.end(r.body);}};
       try {
         demand(req.rawHeaders.filter((_,i)=>i%2===0&&req.rawHeaders[i].toLowerCase()==='host').length===1,'Invalid host',403);
@@ -498,12 +511,18 @@ export async function createRuntime({ dataDir, webRoot, desktopRoot, encrypt, de
         const reasoningEffort = selectedReasoningEffort(catalog,model,payload.reasoningEffort ?? (!changingProvider && target?.reasoningEfforts?.includes(previousEffort) ? previousEffort : ''),defaultModel);
         await stopChat(chat.id);if(payload.provider!==undefined)chat.provider=payload.provider;chat.directory=dir;
         if(chat.draft?.model===chat.model)chat.draft.model=model;chat.model=model;chat.reasoningEffort=reasoningEffort;save();notify();return{ok:true};}
-      case 'draft.get':return store.chat(payload.id).draft||{text:'',images:[],model:'',reasoningEffort:''};
+      case 'draft.get':{const draft=store.chat(payload.id).draft||{text:'',images:[],model:'',reasoningEffort:''};return {...draft,...(draft.files?{files:attachments.hydrate(draft.files)}:{})};}
       case 'draft.save':{const chat=store.chat(payload.id);demand(typeof payload.text==='string'&&Buffer.byteLength(payload.text)<=128*1024,'Draft is too long');
-        const images=payload.images||[];demand(Array.isArray(images)&&images.length<=4&&JSON.stringify(images).length<=BODY_LIMIT,'Draft images are too large');
+        const images=payload.images||[];demand(Array.isArray(images)&&images.length<=4&&JSON.stringify(images).length<=3*1024*1024,'Draft images are too large');
         const model=selectedModel(payload.model),reasoningEffort=payload.reasoningEffort ?? '';
         demand(typeof reasoningEffort==='string' && (reasoningEffort==='' || /^[a-z][a-z0-9_-]{0,31}$/.test(reasoningEffort)), 'Invalid reasoning effort');
-        chat.draft={text:payload.text,images,model,reasoningEffort};save();return{ok:true};}
+        const previous=chat.draft;
+        const imported=payload.files===undefined?{files:previous?.files,created:[]}:attachments.import(payload.files,previous?.files||[],{allowReferences:true});
+        chat.draft={text:payload.text,images,model,reasoningEffort,...(imported.files?{files:imported.files}:{})};
+        try{save();}catch(error){chat.draft=previous;try{attachments.remove(imported.created);}catch{}throw error;}
+        const referenced=new Set(Object.values(state.chats).flatMap(c=>[...(c.draft?.files||[]),...c.messages.flatMap(m=>m.files||[])]).map(file=>file.id));
+        try{attachments.remove((previous?.files||[]).filter(file=>!referenced.has(file.id)));}catch{}
+        return{ok:true};}
       case 'mobile.enable':return enableLAN(payload);
       case 'mobile.info':return{mode:state.settings.lanMode||'quick',url:lanServer?.origin||null,addresses:lanAddresses(networkInterfaces()),fingerprint:lanServer?.identity?.fingerprint||null};
       case 'mobile.certificate':{demand(lanServer?.identity,'Enable encrypted HTTPS mode first',409);return{pem:lanServer.identity.ca,fingerprint:lanServer.identity.fingerprint};}

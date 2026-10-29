@@ -54,7 +54,7 @@ test('configuration requires a root HTTPS origin or loopback development and a c
   for (const value of ['http://localhost:8080', 'http://127.0.0.1:8080', 'http://[::1]:8080']) assert.equal(parseConfig({ ...env, PUBLIC_ORIGIN: value }).origin, value);
   assert.throws(() => parseConfig({ ...env, THEALL_MAC_PUBLIC_KEY: 'short' }));
   assert.throws(() => decodeBase64('YQ', 16)); assert.throws(() => decodeBase64('YQ==\n', 16));
-  assert.equal(LIMITS.requestBytes, 3145728); assert.equal(LIMITS.responseBytes, 16777216);
+  assert.equal(LIMITS.requestBytes, 32 * 1024 * 1024); assert.equal(LIMITS.responseBytes, 16777216);
   assert.equal(LIMITS.pending, 8); assert.equal(LIMITS.unverifiedHosts, 4);
 });
 test('offline returns explicit uncached 503 and never retries requests', async t => {
@@ -276,4 +276,22 @@ test('buffer admission includes the entire new frame instead of only previous qu
   const { port } = await fixture(t, { bufferedHostBytes: 1024 }); await authenticate(port);
   const response = await httpCall(port, { method: 'POST', target: '/api/chats/c/send', headers: postHeaders, body: JSON.stringify({ image: 'x'.repeat(2048) }) });
   assert.equal(response.status, 503); assert.match(response.body, /busy/);
+});
+
+
+test('forwards full file selections and bounded private downloads through the authenticated host', async t => {
+  const { port } = await fixture(t); const ws = await authenticate(port);
+  const file = Buffer.alloc(10 * 1024 * 1024, 37);
+  const body = JSON.stringify({ text: 'inspect', files: [{name:'报告.pdf',data:file.toString('base64')},{name:'second.bin',data:file.toString('base64')}],
+    images: Array.from({length:4},()=>({name:'photo.jpg',data:Buffer.alloc(512*1024,17).toString('base64')})) });
+  const pending = httpCall(port, { method:'POST', target:'/api/chats/c/send', headers:postHeaders, body });
+  const forwarded = await ws.next();
+  assert.equal(Buffer.from(forwarded.body,'base64').toString('utf8'), body);
+  assert(Buffer.byteLength(JSON.stringify(forwarded)) < LIMITS.webSocketBytes);
+  respond(ws,forwarded,'{}',{'Content-Type':'application/json'}); assert.equal((await pending).status,200);
+  const read = httpCall(port,{target:'/api/chats/c/files/12345678-1234-1234-1234-123456789012'});
+  respond(ws,await ws.next(),file,{'Content-Type':'application/octet-stream','Content-Disposition':'attachment; filename="report.pdf"'});
+  const result = await read; assert.deepEqual(result.bytes,file);
+  assert.equal(result.headers['cache-control'],'no-store'); assert.equal(result.headers['x-content-type-options'],'nosniff');
+  assert.match(result.headers['content-disposition'],/^attachment/);
 });

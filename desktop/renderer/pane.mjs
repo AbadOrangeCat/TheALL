@@ -2,23 +2,34 @@ import { desktopChat as chat, desktopHooks as hooks } from '/app.js';
 import { t, setLocale } from './localization.mjs';
 import { applyTheme } from './theme.mjs';
 import { PromptHistory } from './history.mjs';
-import { setLanguage } from '/i18n.js';
-import { preparePhoto, validatePhotoSelection } from '/photos.js';
+import { setLanguage, t as chatText } from '/i18n.js';
 const shell=window.parent!==window&&window.parent.location.origin===location.origin?window.parent.theallDesktop:null;
 if(!shell)throw new Error('The chat pane requires the desktop host');
 const $=id=>document.getElementById(id);
 const id=new URL(location.href).searchParams.get('id');
 const css=document.createElement('link');css.rel='stylesheet';css.href='/desktop/pane.css';document.head.append(css);
-let loaded=false,restoreCounter=0,saveTimer,lastSaved='',saveTail=Promise.resolve(),setupProvider=null,setupDirectory='',importing=false;
+let loaded=false,restoreCounter=0,saveTimer,lastSaved='',lastFilesSaved='',saveTail=Promise.resolve(),setupProvider=null,setupDirectory='';
 const history=new PromptHistory();
 function node(tag,cls,text){const el=document.createElement(tag);if(cls)el.className=cls;if(text!==undefined)el.textContent=text;return el;}
 function report(error){shell.reportError(error);}
-function snapshot(){return{id:chat.selected,text:$('draft').value,images:(chat.imageDrafts.get(chat.selected)||[]).map(({id,name,data})=>({id,name,data,mimeType:'image/jpeg'})),model:chat.models.get(chat.selected)??chat.selectedChat?.model??'',reasoningEffort:chat.efforts.get(chat.selected)??chat.selectedChat?.reasoningEffort??''};}
-async function saveDraft(){clearTimeout(saveTimer);if(!loaded||!chat.selected)return;const payload=snapshot(),encoded=JSON.stringify(payload);if(encoded===lastSaved)return saveTail;lastSaved=encoded;saveTail=saveTail.catch(()=>{}).then(()=>shell.invoke('draft.save',payload)).catch(e=>{lastSaved='';report(e);throw e;});return saveTail;}
+function snapshot(){return{id:chat.selected,text:$('draft').value,images:(chat.imageDrafts.get(chat.selected)||[]).map(({id,name,data})=>({id,name,data,mimeType:'image/jpeg'})),files:(chat.fileDrafts.get(chat.selected)||[]).map(({id,name,data,byteCount,mimeType,sha256,unavailable})=>({id,name,data,byteCount,mimeType,sha256,...(unavailable?{unavailable:true}:{})})),model:chat.models.get(chat.selected)??chat.selectedChat?.model??'',reasoningEffort:chat.efforts.get(chat.selected)??chat.selectedChat?.reasoningEffort??''};}
+function fileSignature(files) { return JSON.stringify(files.map(({id,name,byteCount,unavailable})=>({id,name,byteCount,unavailable}))); }
+async function saveDraft(){
+ clearTimeout(saveTimer);if(!loaded||!chat.selected)return;
+ await chat.flushAttachments();
+ const payload=snapshot(),fileState=fileSignature(payload.files);
+ const encoded=JSON.stringify({...payload,files:fileState});if(encoded===lastSaved)return saveTail;
+ const fileValues=payload.files;delete payload.files;lastSaved=encoded;
+ saveTail=saveTail.catch(()=>{}).then(async()=>{
+   if(fileState!==lastFilesSaved)payload.files=fileValues;
+   await shell.invoke('draft.save',payload);lastFilesSaved=fileState;
+ }).catch(e=>{lastSaved='';report(e);throw e;});return saveTail;
+}
 window.theallFlushDrafts=saveDraft;
-hooks.beforeSelect=async target=>{const generation=++restoreCounter;await saveDraft();loaded=false;const saved=await shell.invoke('draft.get',{id:target});if(generation!==restoreCounter)return false;chat.setDraft(target,saved);loaded=true;history.reset();lastSaved='';};
-hooks.onComposer=()=>{if(!loaded)return;clearTimeout(saveTimer);saveTimer=setTimeout(()=>saveDraft().catch(()=>{}),200);showSetupIfNeeded();};
-function applySettings(){const settings=shell.settings;setLocale(shell.locale);setLanguage(shell.locale);applyTheme(document,settings);document.documentElement.lang=shell.locale;chat.translate?.();document.body.dataset.dropLabel=t('dropPhotos');const hint=$('composer-hint');if(hint)hint.textContent=`Ctrl+↵ ${t('send')}`;showSetupIfNeeded(true);}
+hooks.beforeSelect=async target=>{const generation=++restoreCounter;await saveDraft();loaded=false;const saved=await shell.invoke('draft.get',{id:target});if(generation!==restoreCounter)return false;chat.setDraft(target,saved);loaded=true;history.reset();lastSaved='';lastFilesSaved=fileSignature(chat.fileDrafts.get(target)||[]);};
+function updateComposerHint(){const hint=$('composer-hint');if(hint)hint.textContent=`Ctrl+↵ ${chatText(chat.selectedChat?.isBusy?'steer':'send')}`;}
+hooks.onComposer=()=>{updateComposerHint();if(!loaded)return;clearTimeout(saveTimer);saveTimer=setTimeout(()=>saveDraft().catch(()=>{}),200);showSetupIfNeeded();};
+function applySettings(){const settings=shell.settings;setLocale(shell.locale);setLanguage(shell.locale);applyTheme(document,settings);document.documentElement.lang=shell.locale;chat.translate?.();updateComposerHint();showSetupIfNeeded(true);}
 window.addEventListener('theall:settings',applySettings);window.addEventListener('theall:connection',()=>{showSetupIfNeeded(true);chat.refresh();});
 const hint=node('p','composer-hint');hint.id='composer-hint';$('composer').append(hint);
 $('directory').role='button';$('directory').tabIndex=0;
@@ -50,13 +61,6 @@ $('draft').addEventListener('keydown',event=>{
  if(result){event.preventDefault();input.value=result.text;input.setSelectionRange(result.start,result.end);input.dispatchEvent(new Event('input',{bubbles:true}));}
 });
 document.addEventListener('keydown',event=>{if(event.target!==$('draft'))shell.keyboard(event);});
-async function importPhotos(files){if(!files.length||importing||chat.pending)return;const target=chat.selected;if(!target)return;try{validatePhotoSelection(files,(chat.imageDrafts.get(target)||[]).length);importing=true;const prepared=[];for(const file of files)prepared.push(await preparePhoto(file));const current=chat.imageDrafts.get(target)||[];validatePhotoSelection([],current.length+prepared.length);chat.imageDrafts.set(target,[...current,...prepared]);chat.update();await saveDraft();}catch(e){$('photo-error').textContent=e.key?e.key:e.message;$('photo-error').hidden=false;}finally{importing=false;document.body.classList.remove('photo-drop-target');}}
-let dragDepth=0;
-document.addEventListener('dragenter',e=>{if([...e.dataTransfer?.types||[]].includes('Files')){e.preventDefault();dragDepth++;document.body.classList.add('photo-drop-target');}});
-document.addEventListener('dragover',e=>{if([...e.dataTransfer?.types||[]].includes('Files')){e.preventDefault();e.dataTransfer.dropEffect='copy';}});
-document.addEventListener('dragleave',()=>{if(--dragDepth<=0){dragDepth=0;document.body.classList.remove('photo-drop-target');}});
-document.addEventListener('drop',e=>{if(!e.dataTransfer?.files?.length)return;e.preventDefault();dragDepth=0;document.body.classList.remove('photo-drop-target');importPhotos([...e.dataTransfer.files]).catch(report);});
-$('draft').addEventListener('paste',e=>{const files=[...e.clipboardData?.items||[]].filter(item=>item.kind==='file'&&item.type.startsWith('image/')).map(item=>item.getAsFile()).filter(Boolean);if(files.length){e.preventDefault();importPhotos(files).catch(report);}});
 applySettings();
 for(let attempt=0;attempt<100&&!chat.authenticated;attempt++)await new Promise(resolve=>setTimeout(resolve,100));
 if(chat.authenticated)await chat.select(id);else throw new Error('The local chat service could not be reached');

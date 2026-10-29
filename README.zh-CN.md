@@ -6,14 +6,14 @@
 <p align="center"><strong>把 Claude Code 和 Codex，放进同一个 Mac 与 Windows 工作台。</strong><br />项目、AI 对话和模型集中管理。离开电脑，也能在手机上继续。</p>
 
 <p align="center">
-  <a href="https://github.com/AbadOrangeCat/TheALL/releases/tag/v0.1.6"><img alt="版本 v0.1.6" src="https://img.shields.io/badge/release-v0.1.6-176B68?style=flat-square" /></a>
+  <a href="https://github.com/AbadOrangeCat/TheALL/releases/tag/v0.1.7"><img alt="版本 v0.1.7" src="https://img.shields.io/badge/release-v0.1.7-176B68?style=flat-square" /></a>
   <img alt="macOS 14 及以上，Apple Silicon" src="https://img.shields.io/badge/macOS-14%2B_%C2%B7_Apple_Silicon-263C3B?style=flat-square" />
   <img alt="Windows 预览版：Windows 10 1809 及以上与 Windows 11，x64 和 ARM64" src="https://img.shields.io/badge/Windows_preview-10%2B_%C2%B7_x64_%26_ARM64-263C3B?style=flat-square" />
   <img alt="支持 iOS 和 Android 手机 Web App" src="https://img.shields.io/badge/mobile-iOS_%26_Android-263C3B?style=flat-square" />
 </p>
 
 <p align="center">
-  <a href="https://github.com/AbadOrangeCat/TheALL/releases/tag/v0.1.6"><strong>下载 macOS 与 Windows 版</strong></a> ·
+  <a href="https://github.com/AbadOrangeCat/TheALL/releases/tag/v0.1.7"><strong>下载 macOS 与 Windows 版</strong></a> ·
   <a href="docs/windows.md">Windows 说明</a> ·
   <a href="https://abadorangecat.github.io/TheALL/">项目主页</a> ·
   <a href="docs/mobile-access.md">手机连接</a> ·
@@ -32,7 +32,8 @@
 | **有序管理项目** | 工作区、标签页和分屏；工作区根据首次提问自动命名。 |
 | **换模型，保留对话** | 下拉选择模型，保留聊天历史和未发送草稿；支持官方 API 与兼容的自定义 Base URL。 |
 | **接着上次继续** | 恢复已保存的对话、工作目录、模型和桌面草稿；↑ / ↓ 可调取之前发送的问题。 |
-| **把图片交给 AI** | 电脑与手机每条可添加最多 4 张照片；桌面支持直接拖入图片或粘贴截图，可预览，并随聊天记录保存。需使用支持图片的模型。 |
+| **上传文件和照片** | 共用一个附件按钮，支持混合选择、拖入和粘贴；每条最多 5 个文件和 4 张照片，随草稿和历史保存。图片需使用支持图片的模型。 |
+| **执行中调整任务** | 运行时发送补充指令，可附带文件和照片，保留任务上下文，并提供独立停止按钮。 |
 | **清楚阅读回答** | 提问使用独立颜色，每轮对话有分界线；完成后的思考与进度自动折叠，可随时跳到最新消息。 |
 | **在手机上继续** | iOS / Android Web App 支持查看历史、回复、新建对话和停止 Mac 或 Windows 电脑上的任务。 |
 | **使用熟悉的语言** | 桌面和手机支持简体中文、English、Français、日本語和한국어。 |
@@ -45,7 +46,7 @@ API 连接在 Mac 上通过 macOS Keychain 保存，在 Windows 上使用系统�
 | --- | --- | --- |
 | **系统** | macOS 14 及以上 | Windows 10 1809 及以上，或 Windows 11（推荐） |
 | **处理器** | Apple Silicon（arm64） | x64；另提供 ARM64 |
-| **v0.1.6 下载** | [DMG](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.6/TheAll-0.1.6-macos-arm64.dmg) · [ZIP](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.6/TheAll-0.1.6-macos-arm64.zip) | x64：[安装包](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.6/TheAll-0.1.6-windows-x64-nsis.exe) · [便携 EXE](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.6/TheAll-0.1.6-windows-x64-portable.exe) · [ZIP](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.6/TheAll-0.1.6-windows-x64-zip.zip)<br />ARM64：[安装包](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.6/TheAll-0.1.6-windows-arm64-nsis.exe) · [便携 EXE](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.6/TheAll-0.1.6-windows-arm64-portable.exe) · [ZIP](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.6/TheAll-0.1.6-windows-arm64-zip.zip) |
+| **v0.1.7 下载** | [DMG](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.7/TheAll-0.1.7-macos-arm64.dmg) · [ZIP](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.7/TheAll-0.1.7-macos-arm64.zip) | x64：[安装包](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.7/TheAll-0.1.7-windows-x64-nsis.exe) · [便携 EXE](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.7/TheAll-0.1.7-windows-x64-portable.exe) · [ZIP](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.7/TheAll-0.1.7-windows-x64-zip.zip)<br />ARM64：[安装包](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.7/TheAll-0.1.7-windows-arm64-nsis.exe) · [便携 EXE](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.7/TheAll-0.1.7-windows-arm64-portable.exe) · [ZIP](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.7/TheAll-0.1.7-windows-arm64-zip.zip) |
 
 两个平台都需要可用的 API 连接，以及在同一台电脑上单独安装对应提供商的 [Claude Code CLI](https://code.claude.com/docs/en/setup) 或 [Codex CLI](https://developers.openai.com/codex/cli)。Windows 版直接在本机运行 Claude Code / Codex，不需要 Mac 或 WSL；CLI 安装方法见 [Windows 说明](docs/windows.md)。
 
@@ -56,26 +57,24 @@ API 连接在 Mac 上通过 macOS Keychain 保存，在 Windows 上使用系统�
 
 **本版安装说明：**
 
-- **macOS：** v0.1.6 使用本地开发证书签名，**尚未经过 Apple 公证**。macOS 可能阻止首次打开；核对下载并确认信任后，可按 [Apple 官方说明](https://support.apple.com/en-us/102445)，使用系统提供的「系统设置 → 隐私与安全性 → 仍要打开」。请保留系统安全保护。Mac 版仅提供 arm64 构建。
+- **macOS：** v0.1.7 使用本地开发证书签名，**尚未经过 Apple 公证**。macOS 可能阻止首次打开；核对下载并确认信任后，可按 [Apple 官方说明](https://support.apple.com/en-us/102445)，使用系统提供的「系统设置 → 隐私与安全性 → 仍要打开」。请保留系统安全保护。Mac 版仅提供 arm64 构建。
 - **Windows：** 预览安装包**未签名**，Windows 可能显示 SmartScreen 提示，组织策略也可能阻止运行。ARM64 为交叉构建、尚未实机测试；Windows CI 验证 x64 运行、凭据和历史恢复，安装升级、真实 CLI 与手机/手表仍需实机验收。
-- [SHA-256 校验文件](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.6/SHA256SUMS.txt)涵盖两个平台。暂未配置自动更新。
+- [SHA-256 校验文件](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.7/SHA256SUMS.txt)涵盖两个平台。已加入自动检查更新与下载/安装按钮，位于「连接手机」上方。旧版用户需先手动安装 v0.1.7，之后可在应用内更新；安装前会等待任务完成并保存草稿。
 
 **执行方式：** 编程 Agent 的工具操作会自动执行，包括修改和删除文件、安装依赖及 Git 推送。请选用你准备让 Agent 操作的项目与 API 连接；需要用户回答的问题仍会暂停等待输入。
 
-## v0.1.6 新功能 <!-- version:keep -->
+## v0.1.7 新功能 <!-- version:keep -->
 
-- **Windows 预览版：** 在 Windows 本机使用 Claude Code / Codex，支持工作区、标签页、分屏、历史与手机连接。
-- **模型旁选择思考强度：** 选项取自当前模型报告的能力。Claude 每次发送前读取 CLI 实际设置，不一致时停止发送并保留草稿；回答底部区分「CLI 已确认强度」和 Codex 的「请求强度」。模型在聊天中自述的内部数值不作为设置证据。
-- **回合完成信息：** 显示完成时间及使用时长，随聊天历史保存。
-- **手机与手表提醒：** HTTPS 下可开启任务完成 Web Push；iOS 需添加为主屏幕 Web App，兼容手表通过手机系统转发通知。实体设备投递仍待验证；局域网 HTTP 快捷连接支持聊天，但无法接收后台推送。
+- **文件和照片统一上传：** 共用一个附件按钮，支持混合选择、拖入和粘贴。普通文件每条最多 5 个，单个 10 MiB、合计 20 MiB，副本随草稿与聊天记录保存。
+- **任务中 Steer：** Claude Code / Codex 执行中可发送补充指令，支持照片和文件，保留当前模型、计时及上下文。停止时一并取消 Claude 尚未处理的补充指令。
+- **应用内更新：** Mac 和 Windows 自动检查新版本，点击「连接手机」上方的更新按钮即可下载并安装；安装前等待任务完成和草稿保存。Mac 使用签名 Sparkle 更新源，Windows 校验发布资产摘要。
+- **界面对齐：** 改善间距、控件及阅读区域，保留现有主题与颜色。
 
-侧边栏 **连接手机** 仍支持可信 Wi-Fi 下自动扫码配对；高级设置提供 HTTPS 与自建中继。
+## 上传文件和照片
 
-## 让对话支持照片
+点击附件按钮、直接拖入文件或图片，或用 **⌘V**（Windows 为 **Ctrl+V**）粘贴。每条消息可附带 5 个普通文件（单个 10 MiB、合计 20 MiB）和 4 张照片，也可只发送附件。桌面原图每张最多 20 MiB，导入时校正方向、缩小尺寸并去除原始元数据；原文件保持不变，发送失败时保留草稿。
 
-点击照片按钮、将图片拖入桌面聊天区，或用 **⌘V**（Windows 为 **Ctrl+V**）粘贴截图，即可发送图文或仅图片消息。桌面原图每张最多 20 MiB，导入时会校正方向、缩小尺寸并去除原始元数据，不修改原文件；手机上传前会压缩。发送失败时保留草稿附件。
-
-含照片的聊天使用新的历史格式，请保留 v0.1.4 或更新版本以再次打开。使用自建中继时，请与桌面应用同步更新中继代码以支持照片上传。详见[照片功能说明](docs/ai-terminals.md#photos)。 <!-- version:keep -->
+含普通文件的聊天需要 v0.1.7 或更新版本。自建中继请同步更新，以支持更大的上传请求。详见[附件说明](docs/ai-terminals.md#files-and-photos)和[任务中补充指令](docs/ai-terminals.md#additional-instructions-during-a-task)。 <!-- version:keep -->
 
 ## 手机连上你的电脑
 
@@ -94,7 +93,7 @@ TheAll Mobile 可在 **iPhone、iPad 和 Android** 的浏览器中使用；HTTPS
 
 | 按键 | 操作 |
 | --- | --- |
-| **⌘ Return**（Windows：**Ctrl Enter**） | 发送当前消息。 |
+| **⌘ Return**（Windows：**Ctrl Enter**） | 发送当前消息，或向运行中的任务补充指令。 |
 | **Return**（Windows：**Enter**） | 输入换行。 |
 | 首个视觉行按 **↑** | 调取当前对话中较早的问题。 |
 | 最后视觉行按 **↓** | 返回较新的问题，最后恢复未发送草稿。 |

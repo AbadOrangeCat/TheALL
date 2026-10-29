@@ -66,13 +66,14 @@
         <form id="composer" class="composer">
           <div id="mutation-error" class="mutation-error" role="alert" hidden><span></span><button id="retry-operation" class="text-button" type="button" data-i18n="retry">Retry same request</button><button id="discard-operation" class="text-button" type="button" data-i18n="discardRetry">Keep draft; stop retrying</button></div>
           <p id="setup-notice" class="small muted" hidden data-i18n="setupNotice">Configure this AI connection in TheAll on your Mac before sending messages.</p>
+          <div id="file-previews" class="file-previews" hidden></div>
           <div id="photo-previews" class="photo-previews" hidden></div>
-          <p id="photo-loading" class="small muted" role="status" hidden data-i18n="photosPreparing">Preparing photos…</p>
+          <p id="photo-loading" class="small muted" role="status" hidden data-i18n="filesPreparing">Preparing attachments…</p>
           <p id="photo-error" class="small error" role="alert" hidden></p>
-          <input id="photo-files" type="file" accept="image/*" multiple hidden>
+          <input id="photo-files" type="file" multiple hidden>
           <label class="sr-only" for="draft" data-i18n="message">Message</label>
           <textarea id="draft" rows="2" data-i18n-placeholder="messagePlaceholder" placeholder="Continue the conversation…"></textarea>
-          <div class="composer-actions"><button id="add-photos" class="photo-add" type="button" data-i18n="photosAdd">Add photos</button><span id="directory" class="directory" title="Working directory"></span><div class="send-actions"><label class="sr-only" for="model" data-i18n="model">Model</label><select id="model"></select><label class="sr-only" for="effort" data-i18n="reasoningEffort">Reasoning effort</label><select id="effort" hidden></select><button id="send" class="primary send" type="submit" data-i18n="send">Send ↑</button><button id="stop" class="stop" type="button" hidden data-i18n="stop">Stop ■</button></div></div>
+          <div class="composer-actions"><button id="add-photos" class="photo-add attachment-add" type="button" data-i18n="filesAdd">Add attachments</button><span id="directory" class="directory" title="Working directory"></span><div class="send-actions"><label class="sr-only" for="model" data-i18n="model">Model</label><select id="model"></select><label class="sr-only" for="effort" data-i18n="reasoningEffort">Reasoning effort</label><select id="effort" hidden></select><button id="send" class="primary send" type="submit" data-i18n="send">Send ↑</button><button id="stop" class="stop" type="button" hidden data-i18n="stop">Stop ■</button></div></div>
           <p id="model-notice" class="small muted" hidden data-i18n="modelNotice">The selected model applies to your next message. Chat history is kept.</p>
         </form>
       </section>

@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { randomUUID } from 'node:crypto';
+import { validateFileList } from './attachments.mjs';
 import { validateNotificationRecords } from './web-push.mjs';
 
 export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -57,7 +58,7 @@ function validateLayout(node, ids, depth = 0) {
   } else throw new Error('Invalid workspace layout');
 }
 function validateState(state) {
-  if (state.version !== 1 || !Array.isArray(state.workspaces) || !Array.isArray(state.devices)
+  if (![1,2].includes(state.version) || !Array.isArray(state.workspaces) || !Array.isArray(state.devices)
       || !state.settings || !state.chats || typeof state.chats !== 'object' || Array.isArray(state.chats)) throw new Error('Unsupported or damaged workspace store');
   if (state.notifications !== undefined) validateNotificationRecords(state.notifications);
   const ids = new Set(), workspaceIDs = new Set(), tabs = new Set();
@@ -78,7 +79,9 @@ function validateState(state) {
         || (chat.provider !== null && !providers.has(chat.provider))) throw new Error('Invalid conversation');
     if (chat.codexAppliedReasoningEffort !== undefined && (typeof chat.codexAppliedReasoningEffort !== 'string' || chat.codexAppliedReasoningEffort.length > 32)) throw new Error('Invalid saved provider thinking level');
     if (chat.reasoningEffort !== undefined && (typeof chat.reasoningEffort !== 'string' || chat.reasoningEffort.length > 32)) throw new Error('Invalid thinking level');
+    if(chat.draft?.files !== undefined) validateFileList(chat.draft.files);
     for (const msg of chat.messages) {
+      if(msg.files !== undefined) validateFileList(msg.files);
       if (typeof msg.id !== 'string' || !['user','assistant','thinking','tool'].includes(msg.role)
           || typeof msg.text !== 'string' || (msg.images && !Array.isArray(msg.images))) throw new Error('Invalid transcript');
       if (msg.completedAt !== undefined && (typeof msg.completedAt !== 'string' || !Number.isFinite(Date.parse(msg.completedAt))
@@ -105,6 +108,7 @@ export class Store {
   }
   save() {
     validateState(this.state);
+    if (Object.values(this.state.chats).some(c => c.draft?.files?.length || c.messages.some(m => m.files?.length))) this.state.version = 2;
     const encoded = JSON.stringify(this.state);
     if (Buffer.byteLength(encoded) > 64 * 1024 * 1024) throw new Error('Conversation storage is full. Existing saved history was preserved.');
     atomicWrite(this.file, encoded);

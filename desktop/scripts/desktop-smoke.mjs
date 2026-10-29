@@ -15,15 +15,18 @@ const dataDir=path.join(temporary,'profile'),working=path.join(temporary,'projec
 await fs.mkdir(working);
 const cli=path.join(temporary,'fake-claude.mjs');
 await fs.writeFile(cli,`import readline from 'node:readline';import{randomUUID}from'node:crypto';
-let effort='medium';
+let effort='medium',waitingForSteer=null;
 const send=m=>process.stdout.write(JSON.stringify(m)+'\\n');
 const resume=process.argv.indexOf('--resume'),session=resume<0?randomUUID():process.argv[resume+1];
 readline.createInterface({input:process.stdin}).on('line',line=>{const m=JSON.parse(line);
  if(m.request?.subtype==='apply_flag_settings')effort=m.request.settings.effortLevel??'medium';
  if(m.type==='control_request'){send({type:'control_response',response:{subtype:'success',request_id:m.request_id,response:m.request?.subtype==='initialize'?{models:[{value:'default',displayName:'Default',supportsEffort:true,supportedEffortLevels:['low','medium','high']},{value:'sonnet',displayName:'Sonnet',supportsEffort:true,supportedEffortLevels:['low','medium','high']}]}:m.request?.subtype==='get_settings'?{applied:{effort}}:{}}});return;}
- if(m.type==='user'){send({type:'system',subtype:'init',session_id:session,model:'sonnet'});
+ if(m.type==='user'){send({type:'command_lifecycle',command_uuid:m.uuid,state:'queued'});send({type:'command_lifecycle',command_uuid:m.uuid,state:'started'});send({type:'system',subtype:'init',session_id:session,model:'sonnet'});
  send({type:'assistant',message:{id:randomUUID(),content:[{type:'thinking',thinking:'Checking the local project.'},{type:'text',text:'Reviewing files and preparing the result.'}],stop_reason:'tool_use'}});
- setTimeout(()=>{send({type:'assistant',message:{id:randomUUID(),content:[{type:'text',text:'The Windows desktop conversation is working. This response is from an offline test fixture.'}],stop_reason:'end_turn'}});send({type:'result',subtype:'success',session_id:session,result:'The Windows desktop conversation is working. This response is from an offline test fixture.',is_error:false});},120);}
+ const text=typeof m.message.content==='string'?m.message.content:JSON.stringify(m.message.content);
+ if(text.startsWith('Wait for steering')){waitingForSteer=m.uuid;return;}
+ const covered=[m.uuid,...(waitingForSteer?[waitingForSteer]:[])];waitingForSteer=null;
+ setTimeout(()=>{send({type:'assistant',message:{id:randomUUID(),content:[{type:'text',text:'The Windows desktop conversation is working. This response is from an offline test fixture.'}],stop_reason:'end_turn'}});send({type:'result',uuid:randomUUID(),user_message_uuids:covered,subtype:'success',session_id:session,result:'The Windows desktop conversation is working. This response is from an offline test fixture.',is_error:false});},120);}
 });`);
 await fs.chmod(cli,0o700);
 // Exercise the documented case where IPC exposes a fresh wrapper for a live
@@ -94,10 +97,14 @@ try{
  await pane.locator('#directory').click();
  await page.evaluate(()=>window.theallDesktop.changed());
  await pane.waitForFunction(()=>!document.getElementById('draft').disabled);
+ await pane.locator('#photo-files').setInputFiles({name:'中文报告.pdf',mimeType:'application/pdf',buffer:Buffer.from('%PDF-desktop-fixture')});
+ await pane.waitForFunction(()=>document.querySelectorAll('#file-previews .file-chip').length===1);
  await pane.locator('#draft').fill('List the files in the current folder.');
  await pane.locator('#draft').press('Control+Enter');
  await pane.waitForFunction(()=>document.getElementById('messages').textContent.includes('The Windows desktop conversation is working'),{timeout:30000});
  await pane.waitForFunction(()=>document.getElementById('draft').value==='');
+ await pane.waitForFunction(()=>document.querySelectorAll('.file-download').length===1 && document.querySelectorAll('#file-previews .file-chip').length===0);
+ assert.equal(await pane.locator('.file-download').getAttribute('download'),'中文报告.pdf');
  await pane.waitForFunction(()=>document.querySelector('.message-timing'));
  await pane.locator('#effort').waitFor({state:'visible'});
  await pane.locator('#effort').selectOption('high');
@@ -109,8 +116,12 @@ try{
  assert.equal(await pane.locator('#draft').inputValue(),'List the files in the current folder.');
  await pane.locator('#draft').press('End');await pane.locator('#draft').press('ArrowDown');
  assert.equal(await pane.locator('#draft').inputValue(),'Keep this unsent draft');
+ await pane.locator('#photo-files').setInputFiles({name:'empty-note.txt',mimeType:'text/plain',buffer:Buffer.alloc(0)});
+ await pane.waitForFunction(()=>document.querySelectorAll('#file-previews .file-chip').length===1);
  await page.evaluate(()=>window.theallFlushDrafts());
  const before=JSON.parse(await fs.readFile(path.join(dataDir,'workspaces.json'),'utf8'));
+ assert.equal(before.chats[terminalId].draft.files.length,1);assert.equal(before.chats[terminalId].draft.files[0].name,'empty-note.txt');assert.equal(before.chats[terminalId].draft.files[0].data,undefined);
+ assert.equal(before.chats[terminalId].messages.find(m=>m.role==='user').files[0].name,'中文报告.pdf');
  assert(before.chats[terminalId].conversationID);assert.equal(before.chats[terminalId].draft.text,'Keep this unsent draft');assert.equal(before.chats[terminalId].draft.reasoningEffort,'high');
  const connectionBytes=await fs.readFile(path.join(dataDir,'Credentials/claude.bin'));assert(!connectionBytes.includes(Buffer.from('fake-desktop-smoke-key')));
  const split=await ipc('pane.split',{workspaceId,tabId,terminalId,direction:'horizontal'});
@@ -126,6 +137,8 @@ try{
  await launch();await page.evaluate(()=>window.theallDesktop.changed());pane=await paneFor(terminalId);
  await pane.waitForFunction(()=>document.getElementById('messages').textContent.includes('The Windows desktop conversation is working'));
  await pane.waitForFunction(()=>document.getElementById('draft').value==='Draft saved while quitting through a recreated frame wrapper');
+ await pane.waitForFunction(()=>document.querySelectorAll('#file-previews .file-chip').length===1);
+ assert((await pane.locator('#file-previews').textContent()).includes('empty-note.txt'));
  assert.equal((await ipc('settings.get')).connections.claude.configured,true);
  const after=JSON.parse(await fs.readFile(path.join(dataDir,'workspaces.json'),'utf8'));
  assert.equal(after.chats[terminalId].conversationID,before.chats[terminalId].conversationID);
@@ -134,6 +147,26 @@ try{
  assert.equal(after.workspaces.find(w=>w.id===workspaceId).tabs.find(t=>t.id===tabId).layout.type,'split');
  await pane.locator('#draft').fill('Continue after reopening.');await pane.locator('#draft').press('Control+Enter');
  await pane.waitForFunction(()=>document.querySelectorAll('.message.user').length>=2,{timeout:30000});
+ await pane.waitForFunction(()=>document.querySelectorAll('.file-download').length===2);
+ // A running task accepts a second prompt through the same composer, without stopping.
+ await pane.waitForFunction(()=>document.getElementById('stop').hidden);
+ await pane.locator('#draft').fill('Wait for steering before completing.');await pane.locator('#draft').press('Control+Enter');
+ await pane.waitForFunction(()=>!document.getElementById('stop').hidden && document.getElementById('draft').value==='');
+ const timingsBefore=await pane.locator('.message-timing').count();
+ await pane.locator('#draft').fill('Use only source files.');
+ await pane.waitForFunction(()=>!document.getElementById('send').disabled && document.getElementById('send').textContent==='Steer ↑');
+ assert.equal(await pane.locator('#stop').getAttribute('aria-label'),'Stop ■');
+ assert.equal(await pane.locator('#composer-hint').textContent(),'Ctrl+↵ Steer ↑');
+ const apiBefore=await pane.evaluate(async id=>(await fetch('/api/chats/'+id)).json(),terminalId);
+ assert(apiBefore.canSteer && apiBefore.steerToken);
+ await pane.locator('#draft').press('Control+Enter');
+ await pane.waitForFunction(()=>document.getElementById('draft').value==='' && document.getElementById('stop').hidden);
+ assert.equal(await pane.locator('.message-timing').count(),timingsBefore+1,'one completion after steering');
+ const apiAfter=await pane.evaluate(async id=>(await fetch('/api/chats/'+id)).json(),terminalId);
+ assert.equal(apiAfter.steerToken,null);
+ assert.equal(apiAfter.canSteer,false);
+ assert(apiAfter.messages.some(m=>m.role==='user' && m.text==='Use only source files.' && m.isSteering));
+ assert.equal(await pane.locator('#composer-hint').textContent(),'Ctrl+↵ Send ↑');
  await page.locator('#settings-button').click();assert.equal(await page.locator('#settings-tabs button').count(),8);
  assert.equal((await ipc('update.status')).phase,'disabled');
  assert.equal(await page.locator('#update-shortcut').isVisible(),false);

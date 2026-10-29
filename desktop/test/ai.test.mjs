@@ -486,3 +486,199 @@ test('Codex actual effort remains distinct from desired Default across full proc
   await assert.rejects(restored.session.send({ text: 'Keep this draft', reasoningEffort: '' }), /default thinking level.*unknown/);
   assert.equal(restored.child.sent.filter(m => m.method === 'turn/start').length, 0);
 });
+
+test('files and images reach both CLI protocols while history keeps the original text and metadata only',async t=>{
+ const {FileAttachments}=await import('../src/attachments.mjs');
+ for(const provider of ['claude','openai']){
+  const f=await fixture(t,provider,(m,child)=>{if(m.method==='turn/start')child.respond(m,{turn:{id:'files-turn'}});});
+  const store=new FileAttachments(f.root),files=store.import([{name:'报告 "quoted".pdf',data:Buffer.from('file bytes').toString('base64')}]).files;
+  const imagePath=path.join(f.root,'test.png');await writeFile(imagePath,'image bytes');
+  await f.session.start();await f.session.send({text:'',files,images:[{id:'image',name:'p.png',path:imagePath,mimeType:'image/png'}]});
+  const wire=f.child.sent.at(-1),content=provider==='claude'?wire.message.content:wire.params.input;
+  const text=content.find(item=>item.type==='text').text;assert(text.includes(JSON.stringify(store.path(files[0]))));assert(text.includes('available file tools'));
+  assert(content.some(item=>item.type===(provider==='claude'?'image':'localImage')));
+  assert.equal(f.chat.messages[0].text,'');assert.deepEqual(f.chat.messages[0].files,files);assert(!JSON.stringify(f.chat.messages).includes(store.path(files[0])));
+ }
+});
+test('file-only messages work and missing or modified files cannot silently become text-only requests',async t=>{
+ const {FileAttachments}=await import('../src/attachments.mjs');
+ for(const provider of ['claude','openai']){
+  const f=await fixture(t,provider,(m,child)=>{if(m.method==='turn/start')child.respond(m,{turn:{id:'file-only'}});});
+  const store=new FileAttachments(f.root),files=store.import([{name:'notes.txt',data:''}]).files;
+  await f.session.start();const before=f.child.sent.length;
+  await writeFile(store.path(files[0]),'modified');await assert.rejects(f.session.send({text:'must stay unsent',files}));
+  assert.equal(f.child.sent.length,before);assert.equal(f.session.isBusy,false);
+  await writeFile(store.path(files[0]),'');await f.session.send({text:'',files});assert.equal(f.chat.messages[0].files[0].byteCount,0);
+ }
+});
+
+test('Codex steer targets the accepted running turn and retains timing, model, attachments and completion identity', async t => {
+  let mono = 100, hold;
+  const f = await fixture(t, 'openai', (m, child) => {
+    if (m.method === 'turn/start') child.respond(m, { turn: { id: 'steered-turn' } });
+    if (m.method === 'turn/steer') hold = m;
+  }, {}, { elapsedNow: () => mono });
+  const { FileAttachments } = await import('../src/attachments.mjs');
+  const files = new FileAttachments(f.root).import([{ name: 'instructions.md', data: Buffer.from('supplement').toString('base64') }]).files;
+  const imagePath = path.join(f.root, 'steer.png'); await writeFile(imagePath, 'image bytes');
+  const images = [{ id: 'steer-image', name: 'example.png', path: imagePath, mimeType: 'image/png' }];
+  const completed = []; f.session.on('completed', event => completed.push(event));
+  await f.session.start(); assert.equal(f.session.canSteer, false);
+  await f.session.send({ text: 'Original task' }); const original = f.chat.messages[0].id;
+  assert.equal(f.session.canSteer, true); mono = 300;
+  const steering = f.session.steer({ text: 'Keep the colors', files, images });
+  await tick(); assert.equal(f.session.canSteer, false);
+  await assert.rejects(f.session.steer({ text: 'Concurrent correction' }), /not ready/);
+  while (!hold) await tick();
+  assert.equal(hold.params.expectedTurnId, 'steered-turn'); assert.equal(hold.params.threadId, 'thread-1');
+  assert.equal(hold.params.model, undefined); assert(hold.params.input[0].text.includes('Keep the colors'));
+  assert.equal(hold.params.input[1].path, imagePath);
+  f.child.emitJSON({ method: 'turn/completed', params: { turn: { id: 'steered-turn', status: 'completed', items: [{ id: 'final', type: 'agentMessage', text: 'Adjusted', phase: 'final_answer' }] } } });
+  assert.equal(completed.length, 0); mono = 900;
+  f.child.respond(hold, { turnId: 'steered-turn' }); await steering;
+  assert.equal(f.chat.messages[1].text, 'Keep the colors'); assert.deepEqual(f.chat.messages[1].files, files);
+  assert.equal(f.chat.messages.at(-1).text, 'Adjusted'); assert.equal(f.chat.messages.at(-1).durationMs, 800);
+  assert.equal(completed.length, 1); assert.equal(completed[0].id, original); assert.equal(f.session.canSteer, false);
+  assert.equal(f.child.sent.filter(m => m.method === 'turn/start').length, 1);
+});
+
+test('Codex rejected or invalid steer keeps the original task active and consumes deferred output', async t => {
+  let hold;
+  const f = await fixture(t, 'openai', (m, child) => {
+    if (m.method === 'turn/start') child.respond(m, { turn: { id: 'current' } });
+    if (m.method === 'turn/steer') hold = m;
+  });
+  await f.session.start(); await f.session.send({ text: 'Original task' });
+  await assert.rejects(f.session.steer({ text: '', files: [{ id: 'bad' }] }));
+  assert.equal(f.session.isBusy, true); assert.equal(f.session.canSteer, true);
+  await assert.rejects(f.session.steer({ text: 'Revoked', stillAuthorized: () => false }), { code: 'authorization_revoked' });
+  const steering = f.session.steer({ text: 'Rejected draft' }); await tick();
+  f.child.emitJSON({ method: 'item/agentMessage/delta', params: { threadId: 'thread-1', itemId: 'progress', delta: 'Still running' } });
+  f.child.reject(hold, 'Expected turn is no longer current');
+  await assert.rejects(steering, { code: 'backend_rejected' });
+  assert.equal(f.session.isBusy, true); assert.equal(f.session.canSteer, true); assert.equal(f.child.killed, false);
+  assert.equal(f.chat.messages.at(-1).text, 'Still running'); assert.equal(f.chat.messages.filter(m => m.role === 'user').length, 1);
+  f.child.emitJSON({ method: 'turn/completed', params: { turn: { id: 'current', status: 'completed' } } });
+  await assert.rejects(f.session.steer({ text: 'Too late' }), /not ready/);
+});
+
+test('Codex unknown steer preserves the correction without retrying or terminating the running task', async t => {
+  const f = await fixture(t, 'openai', (m, child) => { if (m.method === 'turn/start') child.respond(m, { turn: { id: 'current' } }); }, {}, { timeout: 50 });
+  await f.session.start(); await f.session.send({ text: 'Original' });
+  const steering = assert.rejects(f.session.steer({ text: 'Unknown correction' }), { code: 'submission_uncertain' });
+  // Keep the test event loop alive because production timeout handles are unref'ed.
+  await new Promise(resolve => setTimeout(resolve, 80)); await steering;
+  assert.equal(f.session.isBusy, true); assert.equal(f.session.canSteer, false); assert.equal(f.child.killed, false);
+  assert.equal(f.chat.messages.at(-1).text, 'Unknown correction');
+  f.child.emitJSON({ method: 'turn/completed', params: { turn: { id: 'current', status: 'completed' } } });
+  assert.equal(f.session.isBusy, false);
+  assert.equal(f.child.sent.filter(m => m.method === 'turn/steer').length, 1);
+});
+
+for (const boundary of ['tool', 'final stream']) test(`Claude ${boundary} steer waits for UUID ACK and completes the whole logical task once`, async t => {
+  let mono = 0, command;
+  const f = await fixture(t, 'claude', (m, child) => {
+    if (m.type === 'user') {
+      if (!command) { command = m; child.emitJSON({ type: 'command_lifecycle', command_uuid: m.uuid, state: 'queued' }); }
+    }
+  }, {}, { elapsedNow: () => mono });
+  await f.session.start(); assert(f.launch().args.includes('--replay-user-messages'));
+  const completed = []; f.session.on('completed', event => completed.push(event));
+  await f.session.send({ text: 'Original task' }); const token = f.session.steerToken;
+  assert.equal(f.session.canSteer, true); mono = 200;
+  const steering = f.session.steer({ text: 'Use the new requirement' }); await tick();
+  const correction = f.child.sent.at(-1); assert.equal(correction.type, 'user'); assert(correction.uuid); assert.equal(correction.priority, undefined);
+  assert.equal(f.chat.messages.length, 1); assert.equal(f.session.canSteer, false);
+  f.child.emitJSON({ type: 'command_lifecycle', command_uuid: correction.uuid, state: 'queued' }); await steering;
+  assert.equal(f.chat.messages[1].text, 'Use the new requirement'); assert.equal(f.session.steerToken, token);
+  const emit = (uuid, ids, text) => f.child.emitJSON({ type: 'result', uuid, subtype: 'success', result: text, user_message_uuids: ids, queued_turn_count: 0 });
+  if (boundary === 'final stream') {
+    emit('original-result', [command.uuid], 'Old answer');
+    assert.equal(f.session.isBusy, true); assert.equal(completed.length, 0);
+    f.child.emitJSON({ type: 'user', uuid: correction.uuid, isReplay: true, message: { content: 'Use the new requirement' } });
+  }
+  mono = 900; emit('final-result', boundary === 'tool' ? [command.uuid, correction.uuid] : [correction.uuid], 'Adjusted answer');
+  assert.equal(completed.length, 1); assert.equal(completed[0].id, token); assert.equal(f.session.isBusy, false);
+  assert.equal(f.chat.messages.at(-1).text, 'Adjusted answer'); assert.equal(f.chat.messages.at(-1).durationMs, 900);
+  assert.equal(f.chat.messages.filter(m => m.role === 'user').length, 2);
+  emit('final-result', [correction.uuid], 'Adjusted answer'); assert.equal(completed.length, 1);
+});
+
+test('Claude refused steer leaves task active and rejected drafts out of history', async t => {
+  const f = await fixture(t, 'claude', (m, child) => {
+    if (m.type === 'user' && m.message.content === 'Original') child.emitJSON({ type: 'command_lifecycle', command_uuid: m.uuid, state: 'queued' });
+  });
+  await f.session.start(); await f.session.send({ text: 'Original' });
+  const steering = f.session.steer({ text: 'Refuse this correction' }); await tick();
+  f.child.emitJSON({ type: 'command_lifecycle', command_uuid: f.child.sent.at(-1).uuid, state: 'refused' });
+  await assert.rejects(steering, { code: 'backend_rejected' });
+  assert.equal(f.session.isBusy, true); assert.equal(f.session.canSteer, true);
+  assert.equal(f.chat.messages.length, 1); assert.equal(f.child.killed, false);
+});
+
+test('Claude Stop cancels accepted queued corrections and releases a held completion without notifying', async t => {
+  let initial;
+  const f = await fixture(t, 'claude', (m, child) => {
+    if (m.type === 'user') { initial ||= m.uuid; child.emitJSON({ type: 'command_lifecycle', command_uuid: m.uuid, state: 'queued' }); }
+    if (m.request?.subtype === 'interrupt') {
+      assert.equal(m.request.cancel_queued, true);
+      child.respond(m, { cancelled: [child.sent.filter(m => m.type === 'user').at(-1).uuid], still_queued: [] });
+    }
+  });
+  const completed = []; f.session.on('completed', e => completed.push(e));
+  await f.session.start(); await f.session.send({ text: 'Original' }); await f.session.steer({ text: 'Queued' });
+  f.child.emitJSON({ type: 'result', uuid: 'first-result', subtype: 'success', result: 'Partial answer', user_message_uuid: initial });
+  assert.equal(f.session.isBusy, true);
+  await f.session.interrupt(); assert.equal(f.session.isBusy, false); assert.equal(completed.length, 0);
+  assert.equal(f.chat.messages.find(m => m.text === 'Queued').isError, true);
+});
+
+for (const state of ['cancelled', 'refused', 'discarded']) test(`Claude accepted steer later ${state} is visibly not applied and releases held result`, async t => {
+  let initial;
+  const f = await fixture(t, 'claude', (m, child) => {
+    if (m.type === 'user') { initial ||= m.uuid; child.emitJSON({ type: 'command_lifecycle', command_uuid: m.uuid, state: 'queued' }); }
+  });
+  await f.session.start(); await f.session.send({ text: 'Original' });
+  await f.session.steer({ text: 'Correction not applied' });
+  const correction = f.chat.messages.at(-1);
+  assert.equal(correction.isSteering, true); assert.equal(correction.isError, false);
+  f.child.emitJSON({ type: 'result', uuid: 'original-result', subtype: 'success', result: 'Original answer', user_message_uuids: [initial] });
+  assert.equal(f.session.isBusy, true);
+  f.child.emitJSON({ type: 'command_lifecycle', command_uuid: correction.id, state });
+  assert.equal(correction.text, 'Correction not applied'); assert.equal(correction.isError, true);
+  assert.equal(f.session.isBusy, false); assert.equal(f.session.claudeSteers.size, 0);
+  assert.match(f.session.error, /could not apply/);
+});
+
+test('Claude Stop lifecycle cancellation marks accepted steer without a generic failure', async t => {
+  let initial;
+  const f = await fixture(t, 'claude', (m, child) => {
+    if (m.type === 'user') { initial ||= m.uuid; child.emitJSON({ type: 'command_lifecycle', command_uuid: m.uuid, state: 'queued' }); }
+    if (m.request?.subtype === 'interrupt') {
+      const id = child.sent.filter(m => m.type === 'user').at(-1).uuid;
+      child.emitJSON({ type: 'command_lifecycle', command_uuid: id, state: 'cancelled' });
+      child.respond(m, { cancelled: [id], still_queued: [] });
+    }
+  });
+  await f.session.start(); await f.session.send({ text: 'Original' }); await f.session.steer({ text: 'Cancelled correction' });
+  const correction = f.chat.messages.at(-1);
+  f.child.emitJSON({ type: 'result', uuid: 'original-result', subtype: 'success', result: 'Original answer', user_message_uuid: initial });
+  await f.session.interrupt();
+  assert.equal(correction.isError, true); assert.equal(f.session.isBusy, false); assert.equal(f.session.error, null);
+});
+
+test('Claude queued ACK and cancellation in the same output batch cannot create a falsely applied steer row', async t => {
+  const f = await fixture(t, 'claude', (m, child) => {
+    if (m.type === 'user') {
+      child.emitJSON({ type: 'command_lifecycle', command_uuid: m.uuid, state: 'queued' });
+      if (m.message.content === 'Cancelled in same batch') child.emitJSON({ type: 'command_lifecycle', command_uuid: m.uuid, state: 'cancelled' });
+    }
+  });
+  await f.session.start(); await f.session.send({ text: 'Original' });
+  await f.session.steer({ text: 'Cancelled in same batch' });
+  const correction = f.chat.messages.at(-1);
+  assert.equal(correction.isSteering, true); assert.equal(correction.isError, true);
+  assert.match(f.session.error, /could not apply/); assert.equal(f.session.claudeSteers.size, 0);
+  f.child.emitJSON({ type: 'result', uuid: 'original-result', subtype: 'success', result: 'Original answer', user_message_uuid: f.session.claudeInitialUUID });
+  assert.equal(f.session.isBusy, false);
+});

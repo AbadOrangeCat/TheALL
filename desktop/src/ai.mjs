@@ -8,6 +8,7 @@ import { randomUUID } from 'node:crypto';
 import { StringDecoder } from 'node:string_decoder';
 import { modelCapabilities, mergeModelCatalog, selectedReasoningEffort } from './models.mjs';
 import { APP_VERSION } from './version.mjs';
+import { FileAttachments, fileMetadata } from './attachments.mjs';
 
 const MAX_FRAME = 16 * 1024 * 1024;
 const MAX_QUEUED = 32 * 1024 * 1024;
@@ -95,7 +96,7 @@ export async function makeLaunchConfiguration({ provider, connection, chat, data
     childEnv[connection.useBearerToken ? 'ANTHROPIC_AUTH_TOKEN' : 'ANTHROPIC_API_KEY'] = connection.apiKey;
     childEnv.ANTHROPIC_BASE_URL = connection.baseURL || 'https://api.anthropic.com';
     args.push('--setting-sources', '', '--settings', '{"apiKeyHelper":""}', '--print', '--input-format', 'stream-json',
-      '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--permission-prompt-tool', 'stdio', '--dangerously-skip-permissions');
+      '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--replay-user-messages', '--permission-prompt-tool', 'stdio', '--dangerously-skip-permissions');
     if (chat.conversationID) args.push('--resume', chat.conversationID);
   } else {
     childEnv.CODEX_HOME = path.join(dataDir, 'codex');
@@ -137,6 +138,8 @@ export class AISession extends EventEmitter {
     this.deferred = []; this.deferredBytes = 0; this.pendingSubmission = false;
     this.thinkingStart = chat.messages.length; this.turnID = null; this.defaultModel = null;
     this.completionToken = null; this.completedClaudeResults = new Set();
+    this.pendingSteer = false; this.steerUncertain = false;
+    this.claudeSteeringSupported = false; this.claudeInitialUUID = null; this.claudeSteers = new Set(); this.steerNotApplied = new Set(); this.heldClaudeResult = null;
     this.appliedModel = chat.model; this.turnModel = chat.model; this.appliedReasoningEffort = chat.provider === 'openai' ? chat.codexAppliedReasoningEffort || '' : undefined;
     this.streamed = new Set(); this.streamedThoughts = new Set(); this.thoughtCounts = new Map();
     this.stopReasons = new Map(); this.phases = new Map(); this.reasoning = new Map(); this.messageID = '';
@@ -148,6 +151,14 @@ export class AISession extends EventEmitter {
   }
 
   changed() { this.emit('change'); }
+
+  get steerToken() { return this.isBusy ? this.completionToken : null; }
+
+  get canSteer() {
+    return this.isReady && !this.stopped && this.isBusy && this.canInterrupt && !!this.turnTiming
+      && !this.turnInterrupted && !this.questions.length && !this.pendingSubmission && !this.pendingSteer && !this.steerUncertain
+      && (this.chat.provider === 'claude' ? this.claudeSteeringSupported : !!this.turnID);
+  }
 
   async start() {
     if (this.isReady) return;
@@ -243,12 +254,12 @@ export class AISession extends EventEmitter {
     });
   }
 
-  request(message, id) {
+  request(message, id, { fatalTimeout = true } = {}) {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.responses.delete(id);
         const error = new Error('The AI process did not respond in time.');
-        reject(error); this.fail(error, true);
+        reject(error); if (fatalTimeout) this.fail(error, true);
       }, this.timeout);
       timer.unref?.();
       this.responses.set(id, { resolve, reject, timer });
@@ -261,9 +272,9 @@ export class AISession extends EventEmitter {
     return this.request({ type: 'control_request', request_id: id, request: { subtype, ...fields } }, id);
   }
 
-  rpc(method, params) {
+  rpc(method, params, options) {
     const id = randomUUID();
-    return this.request({ id, method, params }, id);
+    return this.request({ id, method, params }, id, options);
   }
 
   complete(id, result, error) {
@@ -274,15 +285,15 @@ export class AISession extends EventEmitter {
     return true;
   }
 
-  async send({ text = '', images = [], model = this.chat.model, reasoningEffort = this.chat.reasoningEffort || '', stillAuthorized = () => true }) {
+  async send({ text = '', images = [], files = [], model = this.chat.model, reasoningEffort = this.chat.reasoningEffort || '', stillAuthorized = () => true }) {
     const generation = this.generation;
     const requireAuthorization = () => {
       if (this.generation !== generation || this.stopped || !this.isReady) throw new Error('Connection closed before the message was sent.');
       if (!stillAuthorized()) throw Object.assign(new Error('This device is no longer authorized.'), { code: 'authorization_revoked' });
     };
     requireAuthorization();
-    if (!this.isReady || this.isBusy || this.questions.length) throw new Error('This conversation is not ready for another message.');
-    if (typeof text !== 'string' || Buffer.byteLength(text) > 128 * 1024 || (!text.trim() && !images.length)) throw new Error('Enter a message or attach an image.');
+    if (!this.isReady || this.isBusy || this.pendingSteer || this.questions.length) throw new Error('This conversation is not ready for another message.');
+    if (typeof text !== 'string' || Buffer.byteLength(text) > 128 * 1024 || (!text.trim() && !images.length && !files.length)) throw new Error('Enter a message or attach a file or image.');
     if (images.length > 4 || new Set(images.map(i => i.id)).size !== images.length) throw new Error('Attach up to four different images.');
     if (typeof model !== 'string' || model.length > 256 || /[\0\r\n]/.test(model)) throw new Error('Invalid model.');
     reasoningEffort = selectedReasoningEffort(this.models, model, reasoningEffort, this.defaultModel);
@@ -295,10 +306,11 @@ export class AISession extends EventEmitter {
       if (!bytes.length || bytes.length > 2 * 1024 * 1024) throw new Error('An image is unavailable.');
       input.push(this.chat.provider === 'claude' ? { type: 'image', source: { type: 'base64', media_type: image.mimeType, data: bytes.toString('base64') } } : { type: 'localImage', path: image.path });
     }
-    if (text) input.unshift({ type: 'text', text });
+    const providerText = new FileAttachments(this.dataDir).prompt(text, files);
+    if (providerText) input.unshift({ type: 'text', text: providerText });
     // Awaiting file reads may allow another sender to win admission.
     requireAuthorization();
-    if (!this.isReady || this.isBusy || this.questions.length) throw new Error('This conversation is not ready for another message.');
+    if (!this.isReady || this.isBusy || this.pendingSteer || this.questions.length) throw new Error('This conversation is not ready for another message.');
     this.isBusy = true; this.error = null; this.turnModel = model;
     this.turnAppliedEffort = null; this.turnEffortVerified = false;
     this.chat.model = model; this.chat.reasoningEffort = reasoningEffort; this.thinkingStart = this.chat.messages.length;
@@ -328,8 +340,9 @@ export class AISession extends EventEmitter {
         requireAuthorization();
         this.pendingSubmission = true;
         written = true;
-        await this.write({ type: 'user', message: { role: 'user', content: images.length ? input : text }, parent_tool_use_id: null, session_id: this.chat.conversationID || '' });
-        this.appendUser(text, images); this.canInterrupt = true;
+        this.claudeInitialUUID = randomUUID();
+        await this.write({ type: 'user', uuid: this.claudeInitialUUID, message: { role: 'user', content: images.length ? input : providerText }, parent_tool_use_id: null, session_id: this.chat.conversationID || '' });
+        this.appendUser(text, images, files); this.canInterrupt = true;
       } else {
         if (!this.chat.conversationID || (!model && !this.defaultModel)) throw new Error('No model is available for this connection.');
         requireAuthorization();
@@ -341,7 +354,7 @@ export class AISession extends EventEmitter {
         const result = await this.rpc('turn/start', { threadId: this.chat.conversationID, cwd: this.chat.directory,
           approvalPolicy: 'never', sandboxPolicy: { type: 'dangerFullAccess' }, model: model || this.defaultModel, effort: codexEffort, input });
         this.turnID = result.turn?.id || null; this.appliedReasoningEffort = codexEffort;
-        this.appendUser(text, images); this.canInterrupt = true;
+        this.appendUser(text, images, files); this.canInterrupt = true;
       }
       const deferred = this.deferred;
       this.pendingSubmission = false; this.deferred = []; this.deferredBytes = 0;
@@ -355,7 +368,7 @@ export class AISession extends EventEmitter {
       }
       this.pendingSubmission = false; this.deferred = []; this.deferredBytes = 0;
       if (written && error.code !== 'backend_rejected') {
-        if (!this.chat.messages.slice(this.thinkingStart).some(m => m.role === 'user')) this.appendUser(text, images);
+        if (!this.chat.messages.slice(this.thinkingStart).some(m => m.role === 'user')) this.appendUser(text, images, files);
         error = uncertain(error);
       }
       this.fail(error, written && error.code !== 'backend_rejected');
@@ -363,18 +376,99 @@ export class AISession extends EventEmitter {
     }
   }
 
-  appendUser(text, images) {
+  async steer({ text = '', images = [], files = [], steerToken = this.steerToken, stillAuthorized = () => true }) {
+    if (!this.canSteer || !steerToken || steerToken !== this.steerToken) throw new Error('This task is not ready for a steering message.');
+    const generation = this.generation, token = this.completionToken, turnID = this.turnID;
+    const requireCurrentTurn = () => {
+      if (this.generation !== generation || this.stopped || !this.isReady || !this.isBusy || !this.canInterrupt
+          || this.completionToken !== token || this.turnID !== turnID || this.turnInterrupted || this.questions.length)
+        throw new Error('The task changed before the steering message was sent. Your draft was kept.');
+      if (!stillAuthorized()) throw Object.assign(new Error('This device is no longer authorized.'), { code: 'authorization_revoked' });
+    };
+    this.pendingSteer = true; this.changed();
+    let written = false, appended = false;
+    const commandID = randomUUID();
+    const append = () => {
+      if (appended) return;
+      appended = true;
+      this.chat.messages.push({ id: commandID, role: 'user', isSteering: true, text: this.redact(text), model: this.turnModel,
+        isError: this.steerNotApplied.has(commandID), isIntermediate: false, images: images.map(imageMetadata), ...(files.length ? { files: files.map(fileMetadata) } : {}) });
+      this.changed();
+    };
+    try {
+      requireCurrentTurn();
+      if (typeof text !== 'string' || Buffer.byteLength(text) > 128 * 1024 || (!text.trim() && !images.length && !files.length)) throw new Error('Enter a message or attach a file or image.');
+      if (images.length > 4 || new Set(images.map(i => i.id)).size !== images.length) throw new Error('Attach up to four different images.');
+      const input = [];
+      for (const image of images) {
+        if (!image.path || !['image/jpeg', 'image/png'].includes(image.mimeType)) throw new Error('An image is unavailable.');
+        const bytes = await readFile(image.path);
+        if (!bytes.length || bytes.length > 2 * 1024 * 1024) throw new Error('An image is unavailable.');
+        input.push(this.chat.provider === 'claude' ? { type: 'image', source: { type: 'base64', media_type: image.mimeType, data: bytes.toString('base64') } } : { type: 'localImage', path: image.path });
+      }
+      const providerText = new FileAttachments(this.dataDir).prompt(text, files);
+      if (providerText) input.unshift({ type: 'text', text: providerText });
+      requireCurrentTurn();
+      this.pendingSubmission = true; written = true;
+      if (this.chat.provider === 'claude') {
+        this.claudeSteers.add(commandID);
+        // Claude injects queued user input at its next processing boundary.
+        // UUID lifecycle/echo ACK proves acceptance; a successful pipe write alone does not.
+        await this.request({ type: 'user', uuid: commandID, message: { role: 'user', content: images.length ? input : providerText },
+          parent_tool_use_id: null, session_id: this.chat.conversationID || '' }, commandID, { fatalTimeout: false });
+      } else {
+        const result = await this.rpc('turn/steer', { threadId: this.chat.conversationID, expectedTurnId: turnID, clientUserMessageId: commandID, input }, { fatalTimeout: false });
+        if (result.turnId !== turnID) throw new Error('The AI process did not confirm the expected running task.');
+      }
+      append(); if (!this.steerNotApplied.has(commandID)) this.error = null;
+      return { accepted: true };
+    } catch (error) {
+      if (!written || error.code === 'backend_rejected') this.claudeSteers.delete(commandID);
+      if (written && error.code !== 'backend_rejected') {
+        append(); this.steerUncertain = true; error = uncertain(error);
+      }
+      // A rejected correction must never finish or interrupt the original task.
+      const message = this.redact(error.message);
+      if (!this.turnInterrupted || error.code !== 'backend_rejected') this.error = message;
+      throw Object.assign(new Error(message), { code: error.code });
+    } finally {
+      this.steerNotApplied.delete(commandID);
+      if (this.generation === generation) {
+        const deferred = this.deferred;
+        this.pendingSubmission = false; this.deferred = []; this.deferredBytes = 0;
+        this.pendingSteer = false;
+        for (const message of deferred) this.receive(message);
+        if (!this.claudeSteers.size && this.heldClaudeResult) {
+          const result = this.heldClaudeResult; this.heldClaudeResult = null; this.finalizeClaude(result);
+        }
+        this.changed();
+      }
+    }
+  }
+
+  appendUser(text, images, files = []) {
     const id = randomUUID(); this.completionToken = id;
     this.turnTiming = { started: this.elapsedNow() }; this.turnInterrupted = false;
     this.chat.messages.push({ id, role: 'user', text: this.redact(text), model: this.turnModel,
-      isError: false, isIntermediate: false, images: images.map(imageMetadata) });
+      isError: false, isIntermediate: false, images: images.map(imageMetadata), ...(files.length ? { files: files.map(fileMetadata) } : {}) });
     this.emit('submitted', text); this.changed();
   }
 
   async interrupt() {
     if (!this.isBusy || !this.canInterrupt) return false;
     this.completionToken = null; this.turnInterrupted = true;
-    if (this.chat.provider === 'claude') await this.control('interrupt');
+    if (this.chat.provider === 'claude') {
+      const result = await this.control('interrupt', { cancel_queued: true });
+      for (const id of result.cancelled || []) {
+        this.steerNotApplied.add(id);
+        this.complete(id, null, 'The steering message was cancelled.');
+        this.claudeSteers.delete(id);
+        const entry = this.chat.messages.find(m => m.id === id); if (entry) { entry.isError = true; this.steerNotApplied.delete(id); }
+      }
+      if (!this.claudeSteers.size && this.heldClaudeResult) {
+        const result = this.heldClaudeResult; this.heldClaudeResult = null; this.finalizeClaude(result);
+      }
+    }
     else {
       if (!this.turnID) throw new Error('The turn is still starting. Try stopping again shortly.');
       await this.rpc('turn/interrupt', { threadId: this.chat.conversationID, turnId: this.turnID });
@@ -406,7 +500,8 @@ export class AISession extends EventEmitter {
         }
       }
     }
-    this.turnTiming = null; this.completionToken = null; this.isBusy = false; this.canInterrupt = false;
+    this.turnTiming = null; this.completionToken = null; this.isBusy = false; this.canInterrupt = false; this.steerUncertain = false;
+    this.claudeSteers.clear(); this.heldClaudeResult = null;
     this.turnID = null; this.questions = []; this.questionReplies.clear();
   }
 
@@ -454,7 +549,7 @@ export class AISession extends EventEmitter {
     for (const pending of this.responses.values()) { clearTimeout(pending.timer); pending.reject(error); }
     this.responses.clear();
     for (const finish of [...this.writes]) finish(error);
-    this.deferred = []; this.deferredBytes = 0; this.pendingSubmission = false;
+    this.deferred = []; this.deferredBytes = 0; this.pendingSubmission = false; this.pendingSteer = false;
     await this.terminate(); this.changed();
   }
 
@@ -509,6 +604,26 @@ export class AISession extends EventEmitter {
     }
     if (this.chat.provider === 'openai' && !message.method && Object.hasOwn(message, 'id')) {
       this.complete(message.id, message.result, message.error ? message.error.message || 'AI request failed.' : null); return;
+    }
+    if (this.chat.provider === 'claude') {
+      const id = message.type === 'command_lifecycle' ? message.command_uuid : message.type === 'user' && message.isReplay ? message.uuid : null;
+      if (id === this.claudeInitialUUID && message.type === 'command_lifecycle') this.claudeSteeringSupported = true;
+      if (id && this.claudeSteers.has(id)) {
+        if (message.type === 'user' || ['queued', 'started', 'completed'].includes(message.state)) this.complete(id, { accepted: true });
+        else if (['cancelled', 'refused', 'discarded'].includes(message.state)) {
+          this.steerNotApplied.add(id);
+          const pending = this.complete(id, null, 'Claude could not apply this steering message.');
+          this.claudeSteers.delete(id);
+          if (!pending) {
+            const entry = this.chat.messages.find(m => m.id === id);
+            if (entry) { entry.isError = true; this.steerNotApplied.delete(id); }
+            if (!this.turnInterrupted) this.error = 'Claude could not apply this steering message.';
+            if (!this.claudeSteers.size && this.heldClaudeResult) {
+              const result = this.heldClaudeResult; this.heldClaudeResult = null; this.finalizeClaude(result);
+            }
+          }
+        }
+      }
     }
     const serverRequest = this.chat.provider === 'claude'
       ? ['control_request', 'control_cancel_request'].includes(message.type)
@@ -590,18 +705,32 @@ export class AISession extends EventEmitter {
           this.completedClaudeResults.add(message.uuid);
           if (this.completedClaudeResults.size > 4096) this.completedClaudeResults.delete(this.completedClaudeResults.values().next().value);
         }
-        if (typeof message.session_id === 'string') this.chat.conversationID = message.session_id;
-        if (message.is_error) this.error = this.redact(message.errors?.join('\n') || message.result || 'The AI request failed.');
-        const token = this.completionToken;
-        const success = message.subtype === 'success' && !message.is_error
-          && (!message.terminal_reason || message.terminal_reason === 'completed')
-          && (!message.stop_reason || ['end_turn', 'stop_sequence'].includes(message.stop_reason));
-        this.completeClaude(message); this.finishTurn(success ? 'completed' : 'failed');
-        if (token && success) this.emit('completed', { id: token, chatId: this.chat.id });
+        const covered = [...(Array.isArray(message.user_message_uuids) ? message.user_message_uuids : []), message.user_message_uuid];
+        for (const id of covered) this.claudeSteers.delete(id);
+        if (this.claudeSteers.size) {
+          // A correction during final streaming may run in the next backend
+          // turn. Keep one UI task and completion clock until its UUID finishes.
+          this.heldClaudeResult = message;
+          break;
+        }
+        this.heldClaudeResult = null;
+        this.finalizeClaude(message);
         break;
       }
       default: break;
     }
+  }
+
+  finalizeClaude(message) {
+    if (!this.turnTiming) return;
+    if (typeof message.session_id === 'string') this.chat.conversationID = message.session_id;
+    if (message.is_error) this.error = this.redact(message.errors?.join('\n') || message.result || 'The AI request failed.');
+    const token = this.completionToken;
+    const success = message.subtype === 'success' && !message.is_error
+      && (!message.terminal_reason || message.terminal_reason === 'completed')
+      && (!message.stop_reason || ['end_turn', 'stop_sequence'].includes(message.stop_reason));
+    this.completeClaude(message); this.finishTurn(success ? 'completed' : 'failed');
+    if (token && success) this.emit('completed', { id: token, chatId: this.chat.id });
   }
 
   receiveCodex(message) {

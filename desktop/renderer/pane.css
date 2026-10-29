@@ -53,3 +53,10 @@ body.hide-mouse,body.hide-mouse * { cursor:none!important; }
   .composer #effort { max-width:96px; width:96px; flex-basis:96px; }
   .native-setup { padding:16px; }
 }
+
+.composer .attachment-add::before { content:'📎'; font-size:16px; }
+
+.composer #stop { width:32px; min-width:32px; padding-left:0; padding-right:0; }
+@media(max-width:360px) {
+  .composer.steering #effort { max-width:80px; width:80px; flex-basis:80px; }
+}

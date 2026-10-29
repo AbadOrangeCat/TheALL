@@ -1,6 +1,6 @@
 # Third-party components and corresponding source
 
-TheAll 0.1.5's Apple Silicon release includes Ghostty's native terminal engine,
+TheAll 0.1.7's Apple Silicon release includes Ghostty's native terminal engine,
 Sparkle, and the dependencies and assets documented below. The original license
 texts ship in `TheAll.app/Contents/Resources/ThirdPartyLicenses/` and alongside
 the app in the release archive. These components retain their own licenses;
@@ -12,8 +12,8 @@ License, with its contributed-module notices retained.
 
 ## Source downloads
 
-The [v0.1.5 release](https://github.com/AbadOrangeCat/TheALL/releases/tag/v0.1.5)
-provides **TheAll-0.1.5-third-party-sources.tar.gz** next to the DMG and ZIP,
+The [v0.1.7 release](https://github.com/AbadOrangeCat/TheALL/releases/tag/v0.1.7)
+provides **TheAll-0.1.7-third-party-sources.tar.gz** next to the DMG and ZIP,
 at no charge. It contains complete original source archives for gettext 0.24
 and z2d 0.10.0, license texts, the exact Ghostty libintl build configuration and
 headers, a rebuild recipe, and a copy of the original libintl object archive with debug information
@@ -29,8 +29,8 @@ Ghostty's source baseline is commit
 [`81af65766f319a954a26196b4812d159496d4f00`](https://github.com/ghostty-org/ghostty/tree/81af65766f319a954a26196b4812d159496d4f00).
 The source bundle retains the actual `pkg/libintl` and `pkg/apple-sdk` files
 used for this build, including the generated configuration. Sparkle is version
-2.9.1, commit
-[`066e75a8b3e99962685d6a90cdd5293ebffd9261`](https://github.com/sparkle-project/Sparkle/tree/066e75a8b3e99962685d6a90cdd5293ebffd9261).
+2.10.1, commit
+[`ab7d71291238df6e0492143b120c9b696a35f603`](https://github.com/sparkle-project/Sparkle/tree/ab7d71291238df6e0492143b120c9b696a35f603).
 
 The `provenance.json` file in
 [`Resources/ThirdPartyLicenses`](../Resources/ThirdPartyLicenses/) records the
@@ -47,7 +47,7 @@ not imply that every optional feature is enabled in TheAll.
 | Component | Version or pinned source | Notice in `ThirdPartyLicenses/` |
 | --- | --- | --- |
 | Ghostty | `81af65766f319a954a26196b4812d159496d4f00` | `Ghostty-LICENSE.txt` (MIT) |
-| Sparkle | 2.9.1 | `Sparkle-LICENSE.txt` (full license and incorporated third-party notices) |
+| Sparkle | 2.10.1 | `Sparkle-LICENSE.txt` (full license and incorporated third-party notices) |
 | libxev | `34fa50878aec6e5fa8f532867001ab3c36fae23e` | `libxev-LICENSE.txt` |
 | libvaxis | `7dbb9fd3122e4ffad262dd7c151d80d863b68558` | `vaxis-LICENSE.txt` |
 | zig-objc | `f356ed02833f0f1b8e84d50bed9e807bf7cdc0ae` | `zig-objc-LICENSE.txt` |
@@ -93,7 +93,7 @@ After extracting the corresponding-source archive on an Apple Silicon Mac with
 Python 3 and Xcode command line tools:
 
 ```sh
-cd TheAll-0.1.5-third-party-sources
+cd TheAll-0.1.7-third-party-sources
 python3 rebuild-libintl.py
 ```
 

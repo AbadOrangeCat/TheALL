@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { createHash, randomUUID } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
+import { FileAttachments } from '../src/attachments.mjs';
 import { AISession, resolveCLI } from '../src/ai.mjs';
 
 async function until(predicate, timeout = 40_000) {
@@ -19,7 +20,7 @@ async function until(predicate, timeout = 40_000) {
 // Opt-in only: installed provider CLIs, fake key, temporary config/history, and
 // the repository's loopback-only API fixture. No real AI endpoint is contacted.
 for (const provider of ['claude', 'openai']) {
-  test(`installed ${provider} CLI: model switch, photo, executable tool and process restart preserve context`, {
+  test(`installed ${provider} CLI: model switch, photo, file, steer and process restart preserve context`, {
     skip: process.env.THEALL_TEST_INSTALLED_CLIS !== '1', timeout: 180_000
   }, async t => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'TheAll Windows CLI '));
@@ -29,7 +30,9 @@ for (const provider of ['claude', 'openai']) {
     const executable = binary.prefix[0] || binary.command;
     const fixture = process.env.THEALL_GATEWAY_FIXTURE || fileURLToPath(new URL('../../TheAllTests/Fixtures/ai_gateway.py', import.meta.url));
     const python = process.env.PYTHON || (process.platform === 'win32' ? 'python' : 'python3');
-    const server = spawn(python, [fixture, root], { stdio: 'ignore', windowsHide: true, shell: false });
+    const steeringFixture = path.join(root, 'gateway.py');
+    await writeFile(steeringFixture, (await readFile(fixture, 'utf8')).replace("{'model': body.get('model'), 'count':", "{'steer_seen': 'THEALL_OFFLINE_STEER_MARKER' in json.dumps(body), 'model': body.get('model'), 'count':"));
+    const server = spawn(python, [steeringFixture, root], { stdio: 'ignore', windowsHide: true, shell: false });
     let serverError;
     server.on('error', error => { serverError = error; });
     let session;
@@ -79,11 +82,33 @@ for (const provider of ['claude', 'openai']) {
     assert.equal(session.chat.conversationID, conversationID);
     requests = (await readFile(path.join(root, 'requests.jsonl'), 'utf8')).trim().split('\n').map(JSON.parse);
     assert.ok(requests.at(-1).count > previousCount);
-    await writeFile(path.join(root, 'tool-command.txt'), 'node -e "require(\'fs\').writeFileSync(\'fixture-result.txt\',\'passed\');console.log(\'fixture passed\')"');
-    await send({ text: 'Run the local offline fixture tool' });
+    const attachments = new FileAttachments(root), fileBytes = Buffer.from('Local uploaded file 资料\n');
+    const files = attachments.import([{ name: '资料 with spaces.txt', data: fileBytes.toString('base64') }]).files;
+    await writeFile(path.join(root, 'check-attached-file.cjs'), `const fs=require('fs'); const bytes=fs.readFileSync(${JSON.stringify(attachments.path(files[0]))}); if(bytes.toString('base64')!==${JSON.stringify(fileBytes.toString('base64'))}) throw Error('Wrong attached bytes'); fs.writeFileSync('fixture-result.txt','passed'); console.log('attachment read passed');`);
+    await writeFile(path.join(root, 'tool-command.txt'), 'node check-attached-file.cjs');
+    await send({ text: 'Read the uploaded file using the local offline fixture tool', files });
+    assert.deepEqual(session.chat.messages.filter(m => m.role === 'user').at(-1).files, files);
     assert.equal(await readFile(path.join(root, 'fixture-result.txt'), 'utf8'), 'passed');
     assert.equal(session.chat.messages.filter(m => m.role === 'user').length, 5);
     assert.equal(session.chat.messages.filter(m => m.role === 'assistant').length, 5);
+    // Exercise the production session, not just raw protocol probes: an active
+    // local tool gives both CLIs a real boundary at which to consume the steer.
+    await rm(path.join(root, 'tool-requested'), { force: true });
+    await writeFile(path.join(root, 'wait-for-steer.cjs'), "const fs=require('fs');fs.writeFileSync('steer-tool-started','1');setTimeout(()=>console.log('tool finished'),2500)");
+    await writeFile(path.join(root, 'tool-command.txt'), 'node wait-for-steer.cjs');
+    const completions = []; session.on('completed', e => completions.push(e));
+    await session.send({ text: 'Start an offline task to adjust while running' });
+    await until(async () => { try { await readFile(path.join(root, 'steer-tool-started')); return session.canSteer; } catch { return false; } });
+    const taskToken = session.steerToken;
+    await session.steer({ text: 'THEALL_OFFLINE_STEER_MARKER: use the uploaded context', files, steerToken: taskToken });
+    assert.equal(session.steerToken, taskToken);
+    await until(() => !session.isBusy);
+    assert.equal(completions.length, 1); assert.equal(completions[0].id, taskToken);
+    assert.equal(session.chat.messages.filter(m => m.isSteering).at(-1).text, 'THEALL_OFFLINE_STEER_MARKER: use the uploaded context');
+    requests = (await readFile(path.join(root, 'requests.jsonl'), 'utf8')).trim().split('\n').map(JSON.parse);
+    assert(requests.some(r => r.steer_seen), 'A provider API request must actually contain the steering instruction');
+    assert.equal(session.error, null);
+
     const effortModel = session.models.find(m => (provider !== 'claude' || m.id === firstModel) && m.reasoningEfforts?.includes('high') && m.reasoningEfforts?.includes('low') && m.defaultReasoningEffort !== 'high');
     assert(effortModel, 'Installed CLI must advertise an actual model with high/low effort');
     const recordedEffort = async () => (await readFile(path.join(root, 'requests.jsonl'), 'utf8')).trim().split('\n').map(JSON.parse).at(-1).effort;

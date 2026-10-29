@@ -107,3 +107,12 @@ try XCTSkipIf(ProcessInfo.processInfo.environment["SKIP_GHOSTTY_INTEGRATION"] ==
 Run `./scripts/test-local.sh` for the isolated native suite, `node --test mobile-tests/*.test.mjs` for mobile shell/worker logic, and `npm test --prefix desktop` for Windows runtime logic. `npm run test:desktop --prefix desktop` checks the real sandboxed Electron UI, completion timestamps and reasoning-effort drafts across Quit/reopen, including temporarily unavailable model metadata. Installed provider CLIs can be verified offline with `THEALL_TEST_INSTALLED_CLIS=1 node --test desktop/test/ai.integration.test.mjs`; the fixture uses a fake key and a loopback-only gateway.
 
 Notification tests verify the official RFC 8291 encryption vector, VAPID signatures, authorized device/scope/origin routing, revocation/cancellation, expired subscriptions, duplicate completion events and history restore. They never send a real phone notification. Physical acceptance requires an HTTPS mobile connection and explicit notification opt-in; iPhone uses the installed Home Screen web app. Test with the web app closed and the phone locked, then check Apple Watch or Wear OS notification mirroring under the device's normal notification/Focus settings. Plain HTTP LAN pairing remains usable for chat but cannot provide background push.
+
+
+### 普通文件附件
+
+原生 `AIChatFileTests` 与 `MobileAccessTests` 验证私有副本、空文件/Unicode、符号链接/大小/hash拒绝、混合批次回滚、两种CLI的文件清单、v3历史恢复以及手机权限/幂等发送。`mobile-tests/mobile-files.test.mjs` 与浏览器smoke覆盖统一按钮、混合拖放、5语言、只文件发送及失败保留；desktop/runtime/attachment测试和隔离Electron smoke验证Windows独立草稿存储、缺失文件恢复与退出保存。真实CLI集成仅对本地假API运行，读取合成文件验证原始字节。relay测试覆盖接近最大组合上传和10MiB私有下载，保持无缓存与原有鉴权。
+
+## 任务中 Steer
+
+`AIChatSteeringTests` covers same-turn Codex requests, task-token races, attachment validation, revoked authorization, independent remote drafts, lost/late ACKs, deferred completion, and Claude single/two-result lifecycle coalescing. `MobileAccessTests` verifies the scoped/idempotent `/steer` route. Desktop AI/runtime tests mirror the protocol and access cases; installed-CLI offline integration uses a local fake gateway to verify actual Claude/Codex steer input without real API calls. Browser/Electron smoke covers keyboard steering, attachments, rejection/unknown-result retry, same-round grouping and narrow five-language controls. Stop must cancel queued Claude instructions; a steer must not reset elapsed time or send an early completion notification.
