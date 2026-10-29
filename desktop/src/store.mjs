@@ -100,7 +100,7 @@ export class Store {
     try {
       this.state = fs.existsSync(this.file) ? validateState(JSON.parse(readFile(this.file))) : {
         version: 1, workspaces: [], chats: {}, devices: [], selectedWorkspaceId: null,
-        settings: { defaultDirectory: os.homedir(), theme: 'dark', fontFamily: 'Cascadia Code', fontSize: 14, language: 'en' }
+        settings: { defaultDirectory: os.homedir(), theme: 'dark', fontFamily: 'Segoe UI', fontSize: 14, language: 'en' }
       };
     } catch (error) {
       throw new Error(`Cannot read saved conversations. Your files were preserved at ${this.directory}. ${error.message}`);
