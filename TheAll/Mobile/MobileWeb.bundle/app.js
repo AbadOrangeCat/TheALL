@@ -4,6 +4,7 @@ import { NotificationPreferences, readNotificationChat, notificationMessage } fr
 import { turnTiming } from './timing.js';
 import { reasoningOptions, selectedReasoningEffort } from './effort.js';
 
+import { FILE_LIMITS, FileError, validateFileSelection, prepareFile, splitAttachments, filePath, fileSize, freezeFileSubmission, removeSubmittedFiles } from './files.js';
 import { PHOTO_LIMITS, PhotoError, validatePhotoSelection, preparePhoto, imagePath, freezePhotoSubmission, removeSubmittedPhotos } from './photos.js';
 
 const $ = id => document.getElementById(id);
@@ -28,7 +29,7 @@ function translatePage() {
   document.querySelectorAll('[data-i18n-placeholder]').forEach(node => { node.placeholder = t(node.dataset.i18nPlaceholder); });
   for (const [id, key] of Object.entries({ 'open-sidebar': 'openWorkspaces', 'close-sidebar': 'close',
     'drawer-shade': 'close', 'new-chat': 'newChat', 'jump-bottom': 'jumpBottom',
-    'open-notifications': 'notificationsTitle', 'close-notifications': 'close', 'effort': 'reasoningEffort', 'close-new': 'close', 'close-install': 'close', 'close-photo': 'close', 'add-photos': 'photosAdd', transcript: 'history', sidebar: 'workspaces' })) $(id).ariaLabel = t(key);
+    'open-notifications': 'notificationsTitle', 'close-notifications': 'close', 'effort': 'reasoningEffort', 'close-new': 'close', 'close-install': 'close', 'close-photo': 'close', 'add-photos': 'filesAdd', transcript: 'history', sidebar: 'workspaces' })) $(id).ariaLabel = t(key);
   $('directory').title = $('directory').textContent || t('directory');
   document.querySelectorAll('.language-select').forEach(select => { select.value = language(); });
   $('connection-note').textContent = quickLAN ? t('quickLANNote') : '';
@@ -44,7 +45,7 @@ $('device-name').value = /iPad/.test(navigator.userAgent) ? 'iPad' : /iPhone/.te
 
 const state = {
   suspended: false, authenticated: false, connected: false, sessionGeneration: 0, access: { workspaceId: null, writable: true }, live: false, refreshQueued: false, bootID: null, workspaces: [], selected: null, selection: 0,
-  chats: new Map(), drafts: new Map(), imageDrafts: new Map(), imageLoading: new Set(), models: new Map(), efforts: new Map(), modelNotices: new Set(), scroll: new Map(),
+  chats: new Map(), drafts: new Map(), imageDrafts: new Map(), fileDrafts: new Map(), imageLoading: new Set(), models: new Map(), efforts: new Map(), modelNotices: new Set(), scroll: new Map(),
   progress: new Map(), errors: new Map(), answerDrafts: new Map(), pending: new Map(), rendering: '', questionRendering: '',
   recoveryTimer: null, sessionProbe: null, pairingAttempt: null, pollTimer: null, polling: false, loadingOlder: false, newOperation: null, installPrompt: null
 };
@@ -143,7 +144,7 @@ function applyAccess(value) {
   const scopeChanged = next.workspaceId !== state.access.workspaceId;
   if (scopeChanged) {
     const allowed = new Set(state.workspaces.filter(w => !next.workspaceId || w.id === next.workspaceId).flatMap(w => w.conversations.map(c => c.id)));
-    for (const key of ['chats', 'drafts', 'imageDrafts', 'models', 'efforts', 'scroll', 'errors', 'pending']) {
+    for (const key of ['chats', 'drafts', 'imageDrafts', 'fileDrafts', 'models', 'efforts', 'scroll', 'errors', 'pending']) {
       for (const id of state[key].keys()) if (!allowed.has(id)) state[key].delete(id);
     }
     for (const key of ['answerDrafts', 'progress']) {
@@ -203,8 +204,8 @@ function pairScreen(error = '') {
   clearNotificationSubscription();
   clearTimeout(state.pollTimer);
   state.selection++; state.selected = null; state.workspaces = [];
-  for (const key of ['chats', 'drafts', 'imageDrafts', 'models', 'efforts', 'scroll', 'progress', 'errors', 'answerDrafts', 'pending']) state[key].clear();
-  state.imageLoading.clear(); closePhoto(); $('photo-previews').replaceChildren(); $('photo-files').value = '';
+  for (const key of ['chats', 'drafts', 'imageDrafts', 'fileDrafts', 'models', 'efforts', 'scroll', 'progress', 'errors', 'answerDrafts', 'pending']) state[key].clear();
+  state.imageLoading.clear(); closePhoto(); $('photo-previews').replaceChildren(); $('photo-files').value = ''; $('file-previews').replaceChildren();
   state.modelNotices.clear(); state.rendering = ''; state.questionRendering = ''; state.newOperation = null;
   $('messages').replaceChildren(); $('questions').replaceChildren(); $('workspace-list').replaceChildren(); $('draft').value = '';
   if ($('new-dialog').open) $('new-dialog').close();
@@ -368,7 +369,7 @@ async function poll() {
     updateBootID(result.bootID); applyAccess(result.access);
     state.workspaces = result.workspaces.filter(w => !state.access.workspaceId || state.access.workspaceId === w.id);
     if (state.selected && !chatSummary()) {
-      state.chats.delete(state.selected); state.drafts.delete(state.selected); state.imageDrafts.delete(state.selected); closePhoto(); state.selected = null; state.selection++;
+      state.chats.delete(state.selected); state.drafts.delete(state.selected); state.imageDrafts.delete(state.selected); state.fileDrafts.delete(state.selected); closePhoto(); state.selected = null; state.selection++;
       $('messages').replaceChildren(); $('questions').replaceChildren(); $('draft').value = '';
       $('chat-area').hidden = true; $('welcome').hidden = false;
     }
@@ -464,6 +465,20 @@ function messageNode(message, provider, chatID, previousNodes) {
       images.append(button);
     }
     node.append(images);
+  }
+  if (message.files?.length) {
+    const files = el('div', 'message-files');
+    for (const file of message.files) {
+      const source = filePath(chatID, file.id); if (!source) continue;
+      const link = el('a', 'file-chip file-download'); link.href = source; link.download = safeDownloadName(file.name);
+      link.append(el('span', 'file-symbol', '↧'), el('span', 'file-name', file.name), el('span', 'file-size', fileSize(file.byteCount, language())));
+      link.ariaLabel = `${t('filesDownload')}: ${file.name}`; files.append(link);
+    }
+    node.append(files);
+  }
+  if (message.role === 'user' && message.isSteering === true && message.isError === true) {
+    const status = el('p', 'steer-status small error', t('steerNotApplied'));
+    status.setAttribute('role', 'status'); node.append(status);
   }
   const timing = turnTiming(message, language());
   if (timing) {
@@ -583,12 +598,20 @@ function updateComposer() {
   const data = state.chats.get(state.selected); const pending = state.pending.get(state.selected);
   const available = state.connected && navigator.onLine && state.authenticated;
   const writable = state.access.writable && available && (data?.isReady || data?.canResume) && !pending;
-  $('send').disabled = !writable || data?.isBusy || state.imageLoading.has(state.selected) || (! $('draft').value.trim() && !(state.imageDrafts.get(state.selected)?.length));
-  $('add-photos').disabled = !data || !state.access.writable || !!pending || state.imageLoading.has(state.selected) || (state.imageDrafts.get(state.selected)?.length || 0) >= PHOTO_LIMITS.count;
+  const steering = !!data?.isBusy;
+  $('composer').classList.toggle('steering', steering);
+  $('send').dataset.i18n = steering ? 'steer' : 'send';
+  $('send').textContent = t(steering ? 'steer' : 'send');
+  $('send').title = steering ? t('steerHelp') : '';
+  $('draft').dataset.i18nPlaceholder = steering ? 'steerPlaceholder' : 'messagePlaceholder';
+  $('draft').placeholder = t($('draft').dataset.i18nPlaceholder);
+  $('stop').textContent = '■'; $('stop').ariaLabel = t('stop'); $('stop').title = t('stop');
+  $('send').disabled = (state.fileDrafts.get(state.selected) || []).some(file => file.unavailable || typeof file.data !== 'string') || !writable || (steering && (!data?.canSteer || !data?.steerToken)) || state.imageLoading.has(state.selected) || (! $('draft').value.trim() && !(state.imageDrafts.get(state.selected)?.length) && !(state.fileDrafts.get(state.selected)?.length));
+  $('add-photos').disabled = !data || !state.access.writable || !!pending || state.imageLoading.has(state.selected);
   $('photo-loading').hidden = !state.imageLoading.has(state.selected);
-  renderPhotoDrafts();
+  renderPhotoDrafts(); renderFileDrafts();
   $('composer').hidden = !state.access.writable; $('questions').hidden = !state.access.writable;
-  $('send').hidden = !state.access.writable || !!data?.isBusy;
+  $('send').hidden = !state.access.writable;
   $('stop').hidden = !state.access.writable || !data?.isBusy; $('stop').disabled = !available || !data?.canInterrupt || !!pending;
   $('setup-notice').hidden = !data || data.isReady || data.canResume;
   $('draft').disabled = !data; // Offline drafts remain editable, but can never be submitted/queued.
@@ -649,26 +672,66 @@ function renderPhotoDrafts() {
   }
   $('photo-previews').hidden = photos.length === 0;
 }
+function safeDownloadName(name) { return String(name || 'attachment').split(/[\\/]/).pop().replace(/[\x00-\x1f\x7f]/g, ''); }
+function renderFileDrafts() {
+  const id = state.selected, files = state.fileDrafts.get(id) || [], pending = state.pending.has(id);
+  const signature = JSON.stringify([id, files.map(file => [file.id, file.name, file.byteCount]), pending, language()]);
+  const container = $('file-previews'); if (container.dataset.signature === signature) return;
+  container.dataset.signature = signature; container.replaceChildren(); container.hidden = !files.length;
+  for (const file of files) {
+    const item = el('div', 'file-chip'); item.append(el('span', 'file-symbol', '▤'), el('span', 'file-name', file.name), el('span', 'file-size', fileSize(file.byteCount, language())));
+    const remove = el('button', 'file-remove', '×'); remove.type = 'button'; remove.disabled = pending;
+    remove.ariaLabel = `${t('filesRemove')}: ${file.name}`;
+    remove.onclick = () => { if (!state.pending.has(id)) { state.fileDrafts.set(id, (state.fileDrafts.get(id) || []).filter(value => value.id !== file.id)); updateComposer(); } };
+    if (file.unavailable || typeof file.data !== 'string') { item.classList.add('file-unavailable'); item.append(el('span', 'file-size', t('filesMissing'))); }
+    item.append(remove); container.append(item);
+  }
+}
 $('add-photos').onclick = () => $('photo-files').click();
-$('photo-files').onchange = async () => {
-  const files = Array.from($('photo-files').files || []); $('photo-files').value = '';
+$('photo-files').onchange = () => { const files = Array.from($('photo-files').files || []); $('photo-files').value = ''; return importAttachments(files); };
+const attachmentImports = new Set();
+function importAttachments(files) {
+  const task = prepareAttachments(files); attachmentImports.add(task);
+  return task.finally(() => attachmentImports.delete(task));
+}
+async function prepareAttachments(files) {
   const id = state.selected, generation = state.sessionGeneration;
   if (!files.length || !id || !state.authenticated || !state.access.writable || state.pending.has(id) || state.imageLoading.has(id)) return;
   const stillAllowed = () => state.sessionGeneration === generation && state.authenticated && state.access.writable && !!chatSummary(id);
   try {
-    validatePhotoSelection(files, (state.imageDrafts.get(id) || []).length);
+    const { images, documents } = splitAttachments(files);
+    validatePhotoSelection(images, (state.imageDrafts.get(id) || []).length);
+    validateFileSelection(documents, state.fileDrafts.get(id) || []);
     state.imageLoading.add(id); updateComposer(); showError('photo-error', '');
-    const prepared = [];
-    for (const file of files) { prepared.push(await preparePhoto(file)); if (!stillAllowed()) return; }
-    const current = state.imageDrafts.get(id) || [];
-    validatePhotoSelection([], current.length + prepared.length);
-    state.imageDrafts.set(id, [...current, ...prepared]);
+    const preparedImages = [], preparedFiles = [];
+    for (const file of images) { preparedImages.push(await preparePhoto(file)); if (!stillAllowed()) return; }
+    for (const file of documents) { preparedFiles.push(await prepareFile(file)); if (!stillAllowed()) return; }
+    const currentImages = state.imageDrafts.get(id) || [], currentFiles = state.fileDrafts.get(id) || [];
+    validatePhotoSelection([], currentImages.length + preparedImages.length);
+    validateFileSelection([], [...currentFiles, ...preparedFiles]);
+    // Commit the entire selection only after every attachment has been prepared.
+    state.imageDrafts.set(id, [...currentImages, ...preparedImages]);
+    state.fileDrafts.set(id, [...currentFiles, ...preparedFiles]);
   } catch (error) {
-    if (stillAllowed() && state.selected === id) showError('photo-error', t(error instanceof PhotoError ? error.key : 'photosInvalid'));
+    if (stillAllowed() && state.selected === id) showError('photo-error', t(error instanceof PhotoError || error instanceof FileError ? error.key : 'filesUnavailable'));
   } finally {
     if (generation === state.sessionGeneration) { state.imageLoading.delete(id); updateComposer(); }
   }
-};
+}
+let dragDepth = 0;
+const draggingFiles = event => [...(event.dataTransfer?.types || [])].includes('Files');
+document.addEventListener('dragenter', event => { if (draggingFiles(event)) { event.preventDefault(); dragDepth++; if (state.selected && state.access.writable) { document.body.dataset.dropLabel = t('filesDrop'); document.body.classList.add('attachment-drop-target'); } } });
+document.addEventListener('dragover', event => { if (draggingFiles(event)) { event.preventDefault(); event.dataTransfer.dropEffect = state.access.writable ? 'copy' : 'none'; } });
+document.addEventListener('dragleave', () => { if (--dragDepth <= 0) { dragDepth = 0; document.body.classList.remove('attachment-drop-target'); } });
+document.addEventListener('drop', event => {
+  if (!draggingFiles(event)) return; event.preventDefault(); dragDepth = 0; document.body.classList.remove('attachment-drop-target');
+  if ([...(event.dataTransfer.items || [])].some(item => item.webkitGetAsEntry?.()?.isDirectory)) { showError('photo-error', t('filesFolders')); return; }
+  importAttachments([...event.dataTransfer.files]);
+});
+$('draft').addEventListener('paste', event => {
+  const files = [...(event.clipboardData?.items || [])].filter(item => item.kind === 'file').map(item => item.getAsFile()).filter(Boolean);
+  if (files.length) { event.preventDefault(); importAttachments(files); }
+});
 function resizeDraft() { $('draft').style.height = 'auto'; $('draft').style.height = `${Math.min(180, $('draft').scrollHeight)}px`; }
 $('draft').oninput = () => { state.drafts.set(state.selected, $('draft').value); resizeDraft(); updateComposer(); };
 $('model').onchange = () => {
@@ -688,10 +751,14 @@ function canMutate(id) {
 }
 $('composer').onsubmit = async event => {
   event.preventDefault(); const id = state.selected; const data = state.chats.get(id); const text = $('draft').value;
-  const photos = state.imageDrafts.get(id) || [];
-  if ((!text.trim() && !photos.length) || state.imageLoading.has(id) || !(data?.isReady || data?.canResume) || data.isBusy || !canMutate(id)) return;
+  const photos = state.imageDrafts.get(id) || [], files = state.fileDrafts.get(id) || [];
+  if (files.some(file => file.unavailable || typeof file.data !== 'string') || (!text.trim() && !photos.length && !files.length) || state.imageLoading.has(id) || !(data?.isReady || data?.canResume) || (data.isBusy && (!data.canSteer || !data.steerToken)) || !canMutate(id)) return;
   const model = state.models.has(id) ? state.models.get(id) : data.model;
-  await runOperation(id, { kind: 'send', text, imageIDs: photos.map(photo => photo.id), request: operation(chatPath(id, '/send'), { bootID: state.bootID, text, images: freezePhotoSubmission(photos), model: model || '', reasoningEffort: state.efforts.has(id) ? state.efforts.get(id) : data.reasoningEffort || '' }) });
+  const kind = data.isBusy ? 'steer' : 'send';
+  // A steer belongs to the running task. Model/effort choices remain for the
+  // next ordinary turn, and a rejected steer is never retried as a new send.
+  const settings = kind === 'send' ? { model: model || '', reasoningEffort: state.efforts.has(id) ? state.efforts.get(id) : data.reasoningEffort || '' } : { steerToken: data.steerToken };
+  await runOperation(id, { kind, text, imageIDs: photos.map(photo => photo.id), fileIDs: files.map(file => file.id), request: operation(chatPath(id, '/' + kind), { bootID: state.bootID, text, images: freezePhotoSubmission(photos), files: freezeFileSubmission(files), ...settings }) });
 };
 $('stop').onclick = async () => {
   const id = state.selected;
@@ -708,13 +775,14 @@ async function runOperation(id, pending) {
   const session = state.sessionGeneration;
   state.errors.delete(id); state.pending.set(id, pending); pending.running = true; pending.error = ''; updateComposer();
   try {
-    await request(pending.request.path, { body: pending.request.body });
+    await request(pending.request.path, { body: pending.request.body, ...(pending.request.body.files?.length ? { timeoutMs: 180000 } : {}) });
     if (session !== state.sessionGeneration || state.pending.get(id) !== pending) return;
     state.pending.delete(id);
-    if (pending.kind === 'send') {
+    if (pending.kind === 'send' || pending.kind === 'steer') {
       if (state.drafts.get(id) === pending.text) state.drafts.set(id, '');
       state.imageDrafts.set(id, removeSubmittedPhotos(state.imageDrafts.get(id) || [], pending.imageIDs || []));
-      state.modelNotices.delete(id);
+      state.fileDrafts.set(id, removeSubmittedFiles(state.fileDrafts.get(id) || [], pending.fileIDs || []));
+      if (pending.kind === 'send') state.modelNotices.delete(id);
       if (state.selected === id && $('draft').value === pending.text) { $('draft').value = ''; resizeDraft(); }
     }
     if (pending.kind === 'answer' && state.selected === id) { state.questionRendering = ''; $('questions').replaceChildren(); }

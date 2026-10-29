@@ -809,11 +809,15 @@ final class AIChatTests: XCTestCase {
         window.setContentSize(NSSize(width: 420, height: 640))
         RunLoop.current.run(until: Date().addingTimeInterval(0.2))
         capture("TheAll narrow composer")
+        active.draftFiles = ["季度报告.pdf", "design-notes.md", "budget.xlsx", "source-code.swift", "empty.txt"].enumerated().map { index, name in
+            AIChatFile(id: UUID(), name: name, mimeType: "application/octet-stream", byteCount: index * 1024, sha256: String(repeating: "0", count: 64))
+        }
         for (width, dark) in [(320.0, true), (420.0, false), (1152.0, true)] {
             session.theme = .systemFallback(isDark: dark)
             window.setContentSize(NSSize(width: width, height: 640))
             RunLoop.current.run(until: Date().addingTimeInterval(0.2))
             hosting.layoutSubtreeIfNeeded()
+            XCTAssertLessThanOrEqual(hosting.bounds.width, width + 1, "Composer must not force a wider window")
             let input = try XCTUnwrap(editors(hosting).first(where: \.isEditable))
             let rect = input.convert(input.bounds, to: hosting)
             XCTAssertGreaterThanOrEqual(rect.minX, 0)

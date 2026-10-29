@@ -34,7 +34,9 @@ function wsSend(socket, message) {
 }
 function push(message = { type: 'changed', bootID }) { for (const socket of eventSockets) wsSend(socket, message); }
 const screenshotPath = process.env.SCREENSHOT_PATH || join(tmpdir(), 'theall-mobile-preview.png');
-const requests = [];
+let running = false, steerReady = true, rejectSteer = false, unknownSteer = false, interruptCount = 0;
+const steers = [];
+const requests = []; let rejectFileSend = false; const uploadedFiles = new Map();
 const all = Array.from({ length: 122 }, (_, n) => ({ id: `m${n}`, role: n % 2 ? 'assistant' : 'user', text: `Historical message ${n}`, isIntermediate: false }));
 all.push({ id: 'u', role: 'user', text: '查看当前项目的状态，并运行测试。' }, { id: 'p', role: 'assistant', isIntermediate: true, text: '正在检查工作目录与提交状态。' }, { id: 'a', role: 'assistant', completedAt: '2026-10-28T00:01:02.123Z', durationMs: 65432, completionStatus: 'completed', reasoningEffort: 'high', reasoningEffortVerified: true, text: '检查已完成，所有测试通过。\n\n```sh\nnpm test\n```\nhttps://example.com\n<script>alert("xss")</script>' });
 const server = createServer(async (req, res) => {
@@ -64,16 +66,34 @@ const server = createServer(async (req, res) => {
     if (url.pathname === '/api/workspaces') { workspaceReads++; return json(200, { bootID, access, workspaces: [{ id: 'w', name: 'Project Atlas', conversations: [{ id: 'c', title: '检查项目状态', directory: '/Users/you/Projects/atlas', provider: 'claude', model: 'claude-sonnet', status: 'idle', messageCount: all.length }, { id: 'd', title: 'Another conversation', directory: '/Users/you/Projects/atlas', provider: 'openai', status: 'idle', messageCount: 0 }, ...(includeNotificationChat ? [{ id: notificationChat, title: 'Notification target', provider: 'claude', status: 'idle', messageCount: 0 }] : [])] }].filter(w => !access.workspaceId || w.id === access.workspaceId) }); }
     if (url.pathname === '/api/chats/' + rejectedNotificationChat) { unauthorizedNotificationReads++; return json(403, { error: 'Forbidden' }); }
     if (url.pathname === '/api/chats/' + notificationChat) { notificationReads++; return json(200, { id: notificationChat, bootID, access, provider: 'claude', model: '', messages: [], start: 0, total: 0, canResume: true, isBusy: false, models: [] }); }
+    if (url.pathname.startsWith('/api/chats/c/files/')) {
+      const file = uploadedFiles.get(url.pathname.split('/').pop()); if (!file) return json(404, {});
+      res.writeHead(200, {'Content-Type':'application/octet-stream','Content-Disposition':'attachment','X-Content-Type-Options':'nosniff'}); return res.end(Buffer.from(file.data,'base64'));
+    }
+    if (url.pathname === '/api/chats/c/steer') {
+      assert.equal(req.headers['x-theall-client'], '1'); steers.push(body);
+      assert.equal(body.steerToken, 'task-1'); assert.equal(body.model, undefined); assert.equal(body.reasoningEffort, undefined);
+      if (!running || !steerReady || rejectSteer) { rejectSteer = false; return json(409, { error: 'The task no longer accepts instructions.' }); }
+      if (unknownSteer) { unknownSteer = false; return json(503, { code: 'outcome_unknown', error: 'Steer acknowledgement lost' }); }
+      all.push({id:'steer-applied',role:'user',text:body.text,isSteering:true});
+      return json(200, { id: 'c' });
+    }
+    if (url.pathname === '/api/chats/c/interrupt') { interruptCount++; running = false; return json(200, { id: 'c' }); }
     if (url.pathname === '/api/chats/c/send') {
       assert.equal(req.headers['x-theall-client'], '1'); requests.push(body);
       if (unknown) { unknown = false; all.push({ id: 'sent', role: 'user', text: body.text }); return json(503, { code: 'outcome_unknown', error: 'Mac acknowledgement was lost' }); }
+      if (rejectFileSend) { rejectFileSend = false; return json(409, {error:'File fixture rejected once'}); }
+      if (body.files?.length) {
+        const files=body.files.map((file,index)=>{const id='00000000-0000-4000-8000-'+String(index+1).padStart(12,'0');uploadedFiles.set(id,file);return {id,name:file.name,byteCount:Buffer.from(file.data,'base64').length,mimeType:'application/octet-stream'};});
+        all.push({id:'file-message',role:'user',text:body.text,files});
+      }
       return json(200, { id: 'c' });
     }
     if (['/api/chats/c', '/api/chats/d'].includes(url.pathname)) {
       const messages = url.pathname.endsWith('/c') ? all : [];
       const end = Math.min(Number(url.searchParams.get('before') ?? messages.length), messages.length);
       const start = Math.max(0, end - 100);
-      return json(200, { id: url.pathname.endsWith('/c') ? 'c' : 'd', bootID, access, provider: 'claude', model: 'claude-sonnet', directory: '/Users/you/Projects/atlas', messages: messages.slice(start, end), start, total: messages.length, isReady: false, canResume: true, isBusy: false, canInterrupt: false, questions: url.pathname.endsWith('/d') ? [{ id: 'qg', title: 'Pick an option', questions: [{ id: 'q', prompt: 'Which task?', options: ['Build', 'Test'], multiple: true, secret: false }] }] : [], defaultModel: 'claude-sonnet', reasoningEffort: '', models: [{ id: 'claude-sonnet', title: 'Claude Sonnet', reasoningEfforts: ['low', 'high'], defaultReasoningEffort: 'high' }, { id: 'no-reasoning', title: 'No effort support' }] });
+      return json(200, { id: url.pathname.endsWith('/c') ? 'c' : 'd', bootID, access, provider: 'claude', model: 'claude-sonnet', directory: '/Users/you/Projects/atlas', messages: messages.slice(start, end), start, total: messages.length, isReady: running, canResume: !running, isBusy: running, canSteer: access.writable && running && steerReady, steerToken: running ? 'task-1' : null, canInterrupt: running, questions: url.pathname.endsWith('/d') ? [{ id: 'qg', title: 'Pick an option', questions: [{ id: 'q', prompt: 'Which task?', options: ['Build', 'Test'], multiple: true, secret: false }] }] : [], defaultModel: 'claude-sonnet', reasoningEffort: '', models: [{ id: 'claude-sonnet', title: 'Claude Sonnet', reasoningEfforts: ['low', 'high'], defaultReasoningEffort: 'high' }, { id: 'no-reasoning', title: 'No effort support' }] });
     }
     return json(404, { error: 'Unknown test endpoint' });
   }
@@ -282,6 +302,115 @@ try {
   assert.equal(requests[2].images[0].name, 'local-photo.jpg'); assert.ok(Buffer.from(requests[2].images[0].data, 'base64').length > 0);
   assert.match(requests[2].requestId, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
   await until(() => evaluate('document.querySelectorAll(".photo-draft").length === 0'), 'photo draft cleared after success');
+  // The same picker accepts files. An asynchronous import stays with its original chat.
+  assert.equal(await evaluate('document.getElementById("photo-files").hasAttribute("accept")'),false);
+  await evaluate(`(() => {
+    const read=File.prototype.arrayBuffer;
+    File.prototype.arrayBuffer=function(){if(this.name==='empty.txt'){const file=this;return new Promise(resolve=>{window.finishFileImport=async()=>{File.prototype.arrayBuffer=read;resolve(await read.call(file));};});}return read.call(this);};
+    const transfer=new DataTransfer();transfer.items.add(new File([],'empty.txt',{type:'text/plain'}));
+    const input=document.getElementById('photo-files');input.files=transfer.files;input.dispatchEvent(new Event('change'));
+  })()`);
+  await until(()=>evaluate('typeof window.finishFileImport === "function"'),'file read started');
+  assert.equal(await evaluate('document.getElementById("send").disabled'),true);
+  await evaluate('document.querySelectorAll(".conversation")[1].click()');
+  await until(()=>evaluate('document.getElementById("chat-title").textContent === "Another conversation"'),'switch during import');
+  await evaluate('window.finishFileImport()');await pause(100);
+  assert.equal(await evaluate('document.querySelectorAll("#file-previews .file-chip").length'),0);
+  await evaluate('document.querySelectorAll(".conversation")[0].click()');
+  await until(()=>evaluate('document.querySelectorAll("#file-previews .file-chip").length === 1'),'file remains on original chat');
+  // Mixed drop atomically keeps the image and opaque active document bytes.
+  await evaluate(`(async()=>{
+    const canvas=document.createElement('canvas');canvas.width=canvas.height=8;
+    const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));
+    const transfer=new DataTransfer();transfer.items.add(new File([blob],'mixed.png',{type:'image/png'}));
+    transfer.items.add(new File(['%PDF-fixture'],'中文报告.pdf',{type:'application/pdf'}));
+    transfer.items.add(new File(['<script>window.fileExecuted=true</script>'],'active.html',{type:'text/html'}));
+    document.getElementById('draft').dispatchEvent(new DragEvent('drop',{dataTransfer:transfer,bubbles:true,cancelable:true}));
+  })()`);
+  await until(()=>evaluate('document.querySelectorAll("#file-previews .file-chip").length === 3 && document.querySelectorAll(".photo-draft").length === 1'),'mixed drop prepared');
+  assert.equal(await evaluate('window.fileExecuted === undefined'),true);
+  await call('Emulation.setDeviceMetricsOverride', {width:320,height:844,deviceScaleFactor:1,mobile:true});
+  await evaluate(`document.querySelector('.language-select').value='zh-Hans';document.querySelector('.language-select').dispatchEvent(new Event('change'));`);
+  await pause(200);assert.equal(await evaluate('document.documentElement.scrollWidth <= innerWidth'),true,'320px attachment layout');
+  const attachmentShot=await call('Page.captureScreenshot',{format:'png'});await writeFile(process.env.FILE_SCREENSHOT_PATH || join(tmpdir(),'theall-file-attachments-preview.png'),Buffer.from(attachmentShot.data,'base64'));
+  await call('Emulation.setDeviceMetricsOverride', {width:390,height:844,deviceScaleFactor:1,mobile:true});
+  // Removing the image leaves a valid files-only submission.
+  await evaluate('document.querySelector(".photo-remove").click()');
+  assert.equal(await evaluate('document.getElementById("send").disabled'),false);
+  rejectFileSend=true;await evaluate('document.getElementById("composer").requestSubmit()');
+  await until(()=>requests.length===4,'file rejection');await until(()=>evaluate('!document.getElementById("send").disabled'),'rejection keeps file draft');
+  assert.equal(await evaluate('document.querySelectorAll("#file-previews .file-chip").length'),3);
+  await evaluate('document.getElementById("composer").requestSubmit()');
+  await until(()=>requests.length===5,'file retry');
+  assert.deepEqual(requests[3].files,requests[4].files);assert.equal(requests[4].text,'');assert.equal(requests[4].images.length,0);
+  assert.equal(requests[4].files[0].data,'');assert.equal(Buffer.from(requests[4].files[1].data,'base64').toString(),'%PDF-fixture');
+  await until(()=>evaluate('document.querySelectorAll("#file-previews .file-chip").length === 0 && document.querySelectorAll(".file-download").length === 3'),'files saved in history');
+  assert.equal(await evaluate('document.querySelectorAll(".file-download[download]").length'),3);
+  assert.equal(await evaluate(`(async()=>{const link=[...document.querySelectorAll('.file-download')].find(a=>a.textContent.includes('active.html'));const response=await fetch(link.href);return response.headers.get('content-disposition')==='attachment' && (await response.text()).includes('fileExecuted');})()`),true);
+  assert.equal(await evaluate('window.fileExecuted === undefined && document.documentElement.scrollWidth <= innerWidth'),true);
+  for(const locale of ['en','zh-Hans','fr','ja','ko']){
+    await evaluate(`document.querySelector('.language-select').value=${JSON.stringify(locale)};document.querySelector('.language-select').dispatchEvent(new Event('change'));`);
+    assert.equal(await evaluate('document.documentElement.scrollWidth <= innerWidth'),true,locale+' files layout');
+    assert(await evaluate('document.getElementById("add-photos").ariaLabel.length > 0'));
+  }
+  // A running task accepts supplemental instructions without changing its next-turn settings.
+  running = true; push();
+  await until(() => evaluate('!document.getElementById("stop").hidden && !document.getElementById("send").hidden'), 'steer and stop coexist');
+  await evaluate(`document.querySelector('.language-select').value='en';document.querySelector('.language-select').dispatchEvent(new Event('change'));
+    document.getElementById('model').value='no-reasoning';document.getElementById('model').dispatchEvent(new Event('change'));
+    document.getElementById('draft').value='Please inspect tests first';document.getElementById('draft').dispatchEvent(new Event('input'));
+    const transfer=new DataTransfer();transfer.items.add(new File(['steer attachment'],'notes.txt',{type:'text/plain'}));
+    document.getElementById('draft').dispatchEvent(new DragEvent('drop',{dataTransfer:transfer,bubbles:true,cancelable:true}));`);
+  await until(() => evaluate('!document.getElementById("send").disabled'), 'steer with file ready');
+  assert.equal(await evaluate('document.getElementById("send").textContent'), 'Steer ↑');
+  assert.equal(await evaluate('document.getElementById("model-notice").hidden'), false);
+  for(const locale of ['en','zh-Hans','fr','ja','ko']) {
+    await call('Emulation.setDeviceMetricsOverride', {width:320,height:844,deviceScaleFactor:1,mobile:true});
+    await evaluate(`document.querySelector('.language-select').value=${JSON.stringify(locale)};document.querySelector('.language-select').dispatchEvent(new Event('change'));`);
+    assert.equal(await evaluate('document.documentElement.scrollWidth <= innerWidth'), true, locale+' steer controls fit at 320px');
+    const boxes=await evaluate(`['model','effort','send','stop'].map(id=>{const b=document.getElementById(id).getBoundingClientRect();return {x:b.x,right:b.right,width:b.width};})`);
+    assert.ok(boxes.every(b=>b.width>20&&b.x>=0&&b.right<=320), locale+' steer controls usable');
+    assert.ok(boxes.every((b,i)=>!i||b.x>=boxes[i-1].right),locale+' steer controls do not overlap');
+  }
+  await evaluate(`document.querySelector('.language-select').value='zh-Hans';document.querySelector('.language-select').dispatchEvent(new Event('change'));`);
+  const steerShot=await call('Page.captureScreenshot',{format:'png'});await writeFile(process.env.STEER_SCREENSHOT_PATH || join(tmpdir(),'theall-steer-preview.png'),Buffer.from(steerShot.data,'base64'));
+  rejectSteer = true;
+  await evaluate(`document.getElementById('draft').dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',ctrlKey:true,bubbles:true,cancelable:true}));`);
+  await until(() => steers.length === 1, 'keyboard submits steer');
+  await until(() => evaluate('!document.getElementById("send").disabled'), 'rejected steer restores submit');
+  assert.equal(await evaluate('document.getElementById("draft").value'), 'Please inspect tests first');
+  assert.equal(await evaluate('document.querySelectorAll("#file-previews .file-chip").length'), 1);
+  assert.equal(requests.length,5,'rejection never falls back to ordinary send');
+  // A missing capability (old server or a transition) disables, rather than queues, busy input.
+  steerReady = false; push();
+  await until(() => evaluate('document.getElementById("send").disabled'), 'busy task not ready for steer');
+  await evaluate('document.getElementById("composer").requestSubmit()');await pause(100);
+  assert.equal(steers.length,1);
+  steerReady = true; push();
+  await until(() => evaluate('!document.getElementById("send").disabled'), 'steer capability restored');
+  unknownSteer = true; await evaluate('document.getElementById("composer").requestSubmit()');
+  await until(() => evaluate('!document.getElementById("mutation-error").hidden'), 'uncertain steer remains explicit');
+  assert.equal(await evaluate('document.getElementById("draft").value'), 'Please inspect tests first');
+  await evaluate('document.getElementById("retry-operation").click()');
+  await until(() => evaluate('document.getElementById("draft").value === ""'), 'confirmed steer clears only submitted draft');
+  assert.equal(steers.length,3);assert.deepEqual(steers[1],steers[2]);assert.equal(steers[2].text,'Please inspect tests first');
+  assert.equal(Buffer.from(steers[2].files[0].data,'base64').toString(),'steer attachment');
+  assert.equal(await evaluate('document.querySelectorAll("#file-previews .file-chip").length'),0);
+  assert.equal(await evaluate('document.getElementById("model-notice").hidden'),false,'steer retains next-turn model notice');
+  assert.equal(await evaluate('document.getElementById("stop").hidden'),false,'steer does not end the task');
+  assert.equal(await evaluate('document.querySelectorAll(".steer-status").length'),0,'accepted steer has no failure caption');
+  all.find(message=>message.id==='steer-applied').isError=true;push();
+  await until(()=>evaluate('document.querySelector(".steer-status")?.textContent === "这条补充指令未执行。"'),'later cancelled steer clearly marked');
+  assert.equal(await evaluate('document.querySelector("[data-message-id=steer-applied] .message-body").textContent'),'Please inspect tests first','failure caption preserves original instruction');
+  assert.equal(await evaluate('document.querySelector("[data-message-id=steer-applied]").closest(".turn").querySelectorAll(".message.user").length >= 2'),true,'cancelled steer remains in the original task');
+  await evaluate('document.getElementById("stop").click()');
+  await until(() => interruptCount===1 && evaluate('document.getElementById("stop").hidden'), 'separate stop interrupts');
+  assert.equal(requests.length,5,'steer and stop never issue ordinary send');
+  // Read-only grants suppress steer even when a task is running.
+  running=true;access={workspaceId:null,writable:false};push();
+  await until(()=>evaluate('document.getElementById("composer").hidden && document.getElementById("send").hidden && document.getElementById("stop").hidden'),'read-only hides steer');
+  running=false;
+  await evaluate(`document.querySelector('.language-select').value='ko';document.querySelector('.language-select').dispatchEvent(new Event('change'));`);
   // A scope change must remove previously authorized transcript and its draft.
   access = { workspaceId: 'other', writable: false }; push();
   await until(() => evaluate('document.getElementById("chat-area").hidden && document.querySelectorAll(".conversation").length === 0'), 'scope invalidation');
@@ -331,9 +460,9 @@ try {
   invitation = 'notification-invitation';
   await evaluate('document.getElementById("pair-token").value="notification-invitation"; document.getElementById("pair-form").requestSubmit()');
   await until(() => evaluate('document.getElementById("chat-title").textContent === "Notification target"'), 'notification target survives re-pairing');
-  assert.equal(requests.length, 3, 'notification clicks never submit messages');
+  assert.equal(requests.length, 5, 'notification clicks never submit messages');
   assert.deepEqual(exceptions, []);
-  console.log(`PASS (${lanMode ? 'insecure LAN HTTP' : 'secure-context loopback'}): automatic pairing/cookies/UUID/photo/new-chat, history pagination, safe rendering, mobile layout, archived resume, draft retention, unknown-outcome retry, offline guard, question drafts, initial offline recovery, Mac restart, WebSocket push/backoff/fallback, scope, read-only, revocation, five languages. Screenshot: ${screenshotPath}`);
+  console.log(`PASS (${lanMode ? 'insecure LAN HTTP' : 'secure-context loopback'}): automatic pairing/cookies/UUID/photo/file/mixed-drop/new-chat/steer, history pagination, safe rendering, mobile layout, archived resume, draft retention, unknown-outcome retry, offline guard, question drafts, initial offline recovery, Mac restart, WebSocket push/backoff/fallback, scope, read-only, revocation, five languages. Screenshot: ${screenshotPath}`);
 } finally {
   socket?.close(); browser?.kill(); for (const eventSocket of eventSockets) eventSocket.destroy(); server.closeAllConnections(); server.close();
   await pause(600); await rm(temporary, { recursive: true, force: true });

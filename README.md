@@ -6,14 +6,14 @@
 <p align="center"><strong>Claude Code and Codex. One workspace for Mac and Windows.</strong><br />Keep your projects, AI conversations, and models together. Continue from your phone.</p>
 
 <p align="center">
-  <a href="https://github.com/AbadOrangeCat/TheALL/releases/tag/v0.1.6"><img alt="Release v0.1.6" src="https://img.shields.io/badge/release-v0.1.6-176B68?style=flat-square" /></a>
+  <a href="https://github.com/AbadOrangeCat/TheALL/releases/tag/v0.1.7"><img alt="Release v0.1.7" src="https://img.shields.io/badge/release-v0.1.7-176B68?style=flat-square" /></a>
   <img alt="macOS 14 or later on Apple Silicon" src="https://img.shields.io/badge/macOS-14%2B_%C2%B7_Apple_Silicon-263C3B?style=flat-square" />
   <img alt="Windows preview: Windows 10 version 1809 or later and Windows 11, x64 and ARM64" src="https://img.shields.io/badge/Windows_preview-10%2B_%C2%B7_x64_%26_ARM64-263C3B?style=flat-square" />
   <img alt="Mobile web app for iOS and Android" src="https://img.shields.io/badge/mobile-iOS_%26_Android-263C3B?style=flat-square" />
 </p>
 
 <p align="center">
-  <a href="https://github.com/AbadOrangeCat/TheALL/releases/tag/v0.1.6"><strong>Download for macOS &amp; Windows</strong></a> ·
+  <a href="https://github.com/AbadOrangeCat/TheALL/releases/tag/v0.1.7"><strong>Download for macOS &amp; Windows</strong></a> ·
   <a href="docs/windows.md">Windows guide</a> ·
   <a href="https://abadorangecat.github.io/TheALL/">Website</a> ·
   <a href="docs/mobile-access.md">Mobile setup</a> ·
@@ -32,7 +32,8 @@
 | **Keep projects organized** | Workspaces, tabs, and splits; a workspace gets a name from your first question. |
 | **Change models, keep the conversation** | Choose from a dropdown without losing chat history or an unsent draft. Official endpoints and compatible custom Base URLs are supported. |
 | **Pick up where you left off** | Reopen saved conversations, working folders, model choices, and desktop drafts. Use ↑ / ↓ to recall previous questions. |
-| **Show the AI what you see** | Attach up to four photos from desktop or phone; drag images into the desktop chat or paste screenshots. Preview attachments and reopen them with saved conversations. Requires an image-capable model. |
+| **Share files and photos** | Use one attachment button, drag files into chat, or paste. Attach up to 5 files and 4 photos, with saved drafts and history. Photos require an image-capable model. |
+| **Steer work as it happens** | Add instructions and attachments during a running task without losing its context; keep a separate Stop control. |
 | **Read the answer clearly** | Distinct question cards, conversation dividers, collapsible thinking and progress, and a jump-to-latest button. |
 | **Continue from your phone** | An iOS/Android Web App can read history, reply, start conversations, and stop tasks running on your Mac or Windows PC. |
 | **Use your language** | English, 简体中文, Français, 日本語, and 한국어 on desktop and mobile. |
@@ -45,7 +46,7 @@ API connections are saved through macOS Keychain on Mac and Windows system encry
 | --- | --- | --- |
 | **System** | macOS 14 or later | Windows 10 version 1809 or later, or Windows 11 (recommended) |
 | **Processor** | Apple Silicon (arm64) | x64; ARM64 is also available |
-| **v0.1.6 downloads** | [DMG](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.6/TheAll-0.1.6-macos-arm64.dmg) · [ZIP](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.6/TheAll-0.1.6-macos-arm64.zip) | x64: [installer](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.6/TheAll-0.1.6-windows-x64-nsis.exe) · [portable EXE](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.6/TheAll-0.1.6-windows-x64-portable.exe) · [ZIP](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.6/TheAll-0.1.6-windows-x64-zip.zip)<br />ARM64: [installer](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.6/TheAll-0.1.6-windows-arm64-nsis.exe) · [portable EXE](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.6/TheAll-0.1.6-windows-arm64-portable.exe) · [ZIP](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.6/TheAll-0.1.6-windows-arm64-zip.zip) |
+| **v0.1.7 downloads** | [DMG](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.7/TheAll-0.1.7-macos-arm64.dmg) · [ZIP](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.7/TheAll-0.1.7-macos-arm64.zip) | x64: [installer](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.7/TheAll-0.1.7-windows-x64-nsis.exe) · [portable EXE](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.7/TheAll-0.1.7-windows-x64-portable.exe) · [ZIP](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.7/TheAll-0.1.7-windows-x64-zip.zip)<br />ARM64: [installer](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.7/TheAll-0.1.7-windows-arm64-nsis.exe) · [portable EXE](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.7/TheAll-0.1.7-windows-arm64-portable.exe) · [ZIP](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.7/TheAll-0.1.7-windows-arm64-zip.zip) |
 
 Both platforms need an API connection and the [Claude Code CLI](https://code.claude.com/docs/en/setup) or [Codex CLI](https://developers.openai.com/codex/cli) for your chosen provider, installed separately on the same computer. Claude Code and Codex run locally on Windows; no Mac or WSL is needed. See the [Windows guide](docs/windows.md) for CLI setup.
 
@@ -56,26 +57,24 @@ Both platforms need an API connection and the [Claude Code CLI](https://code.cla
 
 **About this release:**
 
-- **macOS:** v0.1.6 is signed with a local development certificate and is **not notarized by Apple**. macOS may block the first launch. After verifying the download and choosing to trust it, follow [Apple’s guidance](https://support.apple.com/en-us/102445) and use **System Settings → Privacy & Security → Open Anyway** if macOS offers it. Keep system security protections enabled. The Mac build is arm64 only.
+- **macOS:** v0.1.7 is signed with a local development certificate and is **not notarized by Apple**. macOS may block the first launch. After verifying the download and choosing to trust it, follow [Apple’s guidance](https://support.apple.com/en-us/102445) and use **System Settings → Privacy & Security → Open Anyway** if macOS offers it. Keep system security protections enabled. The Mac build is arm64 only.
 - **Windows:** the preview packages are **unsigned**. Windows may show a SmartScreen notice, and organization policy may prevent them from running. ARM64 is cross-built and not device-tested. Windows CI covers the x64 runtime and credential/history restoration; installed-package upgrades, real provider CLIs and physical phone/watch delivery still need device acceptance.
-- [SHA-256 checksums](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.6/SHA256SUMS.txt) cover both platforms. This published version requires manual updates. The current source adds automatic update checks and a download/install button above Connect Phone; install a future release containing this feature once to receive subsequent updates in the app.
+- [SHA-256 checksums](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.7/SHA256SUMS.txt) cover both platforms. Automatic update checks and a download/install button above Connect Phone are included. Install v0.1.7 manually when upgrading from an older release; subsequent updates can be installed in the app. Active tasks and drafts are saved before installation.
 
 **Execution behavior:** coding-agent tools run automatically, including file changes, deletion, dependency installation, and Git pushes. Use a project and API connection you intend the agent to operate. Questions that require your answer still pause for input.
 
-## New in v0.1.6 <!-- version:keep -->
+## New in v0.1.7 <!-- version:keep -->
 
-- **Windows preview:** local Claude Code/Codex, workspaces, tabs, split panes, saved conversations and phone access.
-- **Reasoning effort beside the model:** choices come from the selected model's reported capabilities. Claude settings are read back before every message; a mismatch stops submission and keeps your draft. The completion footer distinguishes CLI-confirmed effort from Codex's requested effort. A model's own description of its internal budget is not a settings readback.
-- **Completion details:** each new finished turn shows its completion time and elapsed duration, saved with the conversation.
-- **Phone and watch alerts:** opt into task-completion Web Push over HTTPS. iOS uses a Home Screen Web App; compatible watches mirror phone notifications according to OS settings. Physical device delivery remains unverified. Local HTTP quick connect supports chat, but cannot receive background push.
+- **Files and photos together:** one attachment button with mixed selection, drag/drop and paste on desktop and mobile. Ordinary files are copied privately and retained with drafts/history; send up to 5 files, 10 MiB each and 20 MiB total.
+- **Steer running tasks:** send additional instructions with text, files or photos while Claude Code/Codex works. The current task keeps its model, elapsed time and conversation context. Stop also cancels queued Claude instructions.
+- **Updates in the app:** automatic checks on Mac and Windows, with a visible download/install action above Connect Phone. Installation waits for work to finish and drafts to save. Mac updates use a signed Sparkle feed; Windows downloads are checked against the published asset digest.
+- **Aligned interface:** more consistent spacing, controls and reading widths while preserving existing themes and colors.
 
-The sidebar **Connect phone** button still provides automatic QR pairing on trusted local Wi-Fi. Advanced settings offer HTTPS and self-hosted relay access.
+## Files and photos
 
-## Photos
+Use the attachment button, drag files or images into the desktop chat, or paste with **⌘V** (**Ctrl+V** on Windows). Attach up to 5 ordinary files (10 MiB each, 20 MiB combined) and 4 photos. Send attachments with text or on their own. Desktop photo imports accept up to 20 MiB per source and create smaller copies with orientation corrected and original metadata removed. Originals remain unchanged, and failed sends preserve the draft.
 
-Use the photo button, drag images into the desktop chat, or paste with **⌘V** (**Ctrl+V** on Windows). Send photos with text or on their own. Desktop imports accept up to 20 MiB per source and create smaller copies with orientation corrected and original metadata removed; the originals stay unchanged. Mobile uploads are compressed before sending. Failed sends preserve draft attachments.
-
-Chats containing photos use a newer history format: keep v0.1.4 or later to reopen them. If you use a self-hosted relay, update its code alongside the desktop app for photo uploads. See [photo details](docs/ai-terminals.md#photos). <!-- version:keep -->
+Chats containing ordinary files require v0.1.7 or later. Update a self-hosted relay alongside the desktop app to support the larger uploads. See [attachment details](docs/ai-terminals.md#files-and-photos) and [steering during a task](docs/ai-terminals.md#additional-instructions-during-a-task). <!-- version:keep -->
 
 ## Your computer, reachable from your phone
 
@@ -94,7 +93,7 @@ Pair a phone with access to all workspaces or just one, and choose **read-only**
 
 | Key | Action |
 | --- | --- |
-| **⌘ Return** (Windows: **Ctrl Enter**) | Send the current message. |
+| **⌘ Return** (Windows: **Ctrl Enter**) | Send a message, or steer the running task. |
 | **Return** (Windows: **Enter**) | Insert a new line. |
 | **↑** on the first visual line | Recall an older question in this conversation. |
 | **↓** on the last visual line | Move toward newer questions, then restore your unsent draft. |

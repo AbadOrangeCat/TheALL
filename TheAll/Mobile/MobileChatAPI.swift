@@ -21,6 +21,10 @@ final class MobileChatAPI {
                parts[3] == "images", let id = UUID(uuidString: parts[2]), let imageID = UUID(uuidString: parts[4]) {
                 return try image(id, imageID: imageID, access: device.access)
             }
+            if request.method == "GET", parts.count == 5, parts[0] == "api", parts[1] == "chats",
+               parts[3] == "files", let id = UUID(uuidString: parts[2]), let fileID = UUID(uuidString: parts[4]) {
+                return try await file(id, fileID: fileID, access: device.access, stillAuthorized: stillAuthorized)
+            }
             if request.method == "GET", parts.count == 3, parts[0] == "api", parts[1] == "chats",
                let id = UUID(uuidString: parts[2]) { return try conversation(id, request: request, access: device.access) }
             if request.method == "POST", !device.access.writable { throw APIError(403, "mobile.error.readOnly") }
@@ -31,7 +35,7 @@ final class MobileChatAPI {
             // session restoration, or any other resource-specific state.
             if request.path == "/api/chats" { _ = try createWorkspaceID(body, access: device.access) }
             else if parts.count == 4, parts[0] == "api", parts[1] == "chats",
-                    let id = UUID(uuidString: parts[2]), ["send", "interrupt", "answer"].contains(parts[3]) {
+                    let id = UUID(uuidString: parts[2]), ["send", "steer", "interrupt", "answer"].contains(parts[3]) {
                 _ = try authorizeConversation(id, access: device.access)
             } else { throw APIError(404, "mobile.error.notFound") }
             guard body["bootID"] as? String == bootID else { throw APIError(409, "mobile.error.restarted") }
@@ -117,6 +121,7 @@ final class MobileChatAPI {
             "model": snapshot?.model ?? "", "defaultModel": chat?.defaultModel ?? "", "reasoningEffort": snapshot?.reasoningEffort ?? "", "directory": snapshot?.directory ?? registry.directories.pwd(for: id) ?? NSHomeDirectory(),
             "messages": try JSONSerialization.jsonObject(with: encoded), "start": start, "total": messages.count,
             "isReady": chat?.isReady ?? false, "isBusy": chat?.isBusy ?? false, "canInterrupt": access.writable && (chat?.canInterrupt ?? false),
+            "canSteer": access.writable && (chat?.canSteer ?? false), "steerToken": chat?.steerToken as Any? ?? NSNull(),
             "canResume": access.writable && snapshot != nil && chat == nil,
             "models": session?.models.map { ["id": $0.id, "title": $0.title, "reasoningEfforts": $0.reasoningEfforts, "defaultReasoningEffort": $0.defaultReasoningEffort as Any? ?? NSNull()] as [String: Any] } ?? [],
             "questions": chat?.approvals.map { approval -> [String: Any] in
@@ -139,6 +144,38 @@ final class MobileChatAPI {
         else { throw APIError(404, "mobile.error.notFound") }
         return MobileHTTPResponse(status: 200, headers: ["Content-Type": image.mimeType,
             "Content-Disposition": "inline"], body: data)
+    }
+
+    private func file(_ id: UUID, fileID: UUID, access: MobilePairingStore.Access, stillAuthorized: @escaping () -> Bool) async throws -> MobileHTTPResponse {
+        _ = try authorizeConversation(id, access: access)
+        guard let snapshot = try registry.snapshot(for: id),
+              let file = snapshot.messages.filter(\.isVisibleInTranscript).flatMap(\.files).first(where: { $0.id == fileID }) else { throw APIError(404, "mobile.error.notFound") }
+        let store = registry.history.fileStore
+        guard let data = try? await Task.detached(priority: .userInitiated, operation: { try store.data(for: file) }).value else { throw APIError(404, "mobile.error.notFound") }
+        guard stillAuthorized() else { throw APIError(401, "mobile.error.authorization") }
+        _ = try authorizeConversation(id, access: access)
+        guard let current = try registry.snapshot(for: id), current.messages.filter(\.isVisibleInTranscript).flatMap(\.files).contains(file) else { throw APIError(404, "mobile.error.notFound") }
+        let allowed = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
+        let name = file.name.addingPercentEncoding(withAllowedCharacters: allowed) ?? "attachment"
+        return MobileHTTPResponse(status: 200, headers: ["Content-Type": "application/octet-stream",
+            "Content-Disposition": "attachment; filename=\"attachment\"; filename*=UTF-8''" + name], body: data)
+    }
+
+    private func filePayloads(_ body: [String: Any]) throws -> [(Data, String)] {
+        guard let value = body["files"] else { return [] }
+        guard let files = value as? [[String: Any]] else { throw APIError(400, "ai.files.invalid") }
+        guard files.count <= AIChatFileStore.maximumCount else { throw APIError(400, "ai.files.tooMany") }
+        var total = 0
+        return try files.map { file in
+            guard let name = file["name"] as? String, !name.isEmpty, name.utf8.count <= 255,
+                  let encoded = file["data"] as? String,
+                  encoded.utf8.count <= 4 * ((AIChatFileStore.maximumBytes + 2) / 3),
+                  let data = Data(base64Encoded: encoded), data.count <= AIChatFileStore.maximumBytes,
+                  data.base64EncodedString() == encoded else { throw APIError(400, "ai.files.invalid") }
+            total += data.count
+            guard total <= AIChatFileStore.maximumTotalBytes else { throw APIError(400, "ai.files.totalTooLarge") }
+            return (data, name)
+        }
     }
 
     private func imagePayloads(_ body: [String: Any]) throws -> [(Data, String)] {
@@ -188,12 +225,21 @@ final class MobileChatAPI {
                      stillAuthorized: @escaping () -> Bool) async throws -> MobileHTTPResponse {
         guard stillAuthorized() else { throw APIError(401, "mobile.error.authorization") }
         _ = try authorizeConversation(id, access: access)
-        guard ["send", "interrupt", "answer"].contains(action) else { throw APIError(404, "mobile.error.notFound") }
-        if action == "send" {
+        guard ["send", "steer", "interrupt", "answer"].contains(action) else { throw APIError(404, "mobile.error.notFound") }
+        if action == "send" || action == "steer" {
+            let steering = action == "steer"
+            let expectedToken = body["steerToken"] as? String
+            let steeringChat = steering ? registry.sessions[id]?.chat : nil
+            if steering {
+                guard body["model"] == nil, body["reasoningEffort"] == nil else { throw APIError(400, "mobile.error.request") }
+                guard let chat = steeringChat, chat.canSteer, let expectedToken, chat.steerToken == expectedToken
+                else { throw APIError(409, "ai.chat.steerUnavailable") }
+            }
             guard let text = body["text"] as? String, text.utf8.count <= 128 * 1024
             else { throw APIError(400, "mobile.error.request") }
             let payloads = try imagePayloads(body)
-            guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !payloads.isEmpty
+            let files = try filePayloads(body)
+            guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !payloads.isEmpty || !files.isEmpty
             else { throw APIError(400, "mobile.error.request") }
             let model = try selectedModel(body)
             let effort: String?
@@ -201,30 +247,31 @@ final class MobileChatAPI {
                 guard let value = raw as? String, value.utf8.count <= 32 else { throw APIError(400, "mobile.error.request") }
                 effort = value
             } else { effort = nil }
+            guard registry.beginAttachmentImport() else { throw APIError(409, "mobile.error.busy") }
+            defer { registry.endAttachmentImport() }
             let imageStore = registry.history.imageStore
-            let imported: [AIChatImage]
+            let fileStore = registry.history.fileStore
+            let batch: AIChatAttachmentImport.Batch
             do {
-                imported = try await Task.detached(priority: .userInitiated) {
-                    var images: [AIChatImage] = []
+                batch = try await Task.detached(priority: .userInitiated) {
+                    var result = AIChatAttachmentImport.Batch()
                     do {
-                        for (data, name) in payloads { images.append(try imageStore.importImage(data: data, name: name)) }
-                        return images
-                    } catch {
-                        for image in images { try? imageStore.remove(image) }
-                        throw error
-                    }
+                        for (data, name) in payloads { result.images.append(try imageStore.importImage(data: data, name: name)) }
+                        for (data, name) in files { result.files.append(try fileStore.importFile(data: data, name: name)) }
+                        return result
+                    } catch { result.discard(imageStore: imageStore, fileStore: fileStore); throw error }
                 }.value
-            } catch { throw APIError(400, "ai.images.invalid") }
+            } catch { throw APIError(400, "ai.files.invalid") }
+            let imported = batch.images
+            let importedFiles = batch.files
             var keepImages = false
-            defer {
-                if !keepImages { for image in imported { try? imageStore.remove(image) } }
-            }
+            defer { if !keepImages { batch.discard(imageStore: imageStore, fileStore: fileStore) } }
             guard stillAuthorized() else { throw APIError(401, "mobile.error.authorization") }
             _ = try authorizeConversation(id, access: access)
-            guard let session = registry.session(for: id), let chat = session.chat else { throw APIError(409, "mobile.error.connection") }
+            guard let session = steering ? registry.sessions[id] : registry.session(for: id), let chat = session.chat else { throw APIError(409, "mobile.error.connection") }
             // A newly restored backend needs its protocol handshake. No prompt
             // is queued while disconnected; authorization is checked again after await.
-            if !chat.isReady, !chat.isBusy, chat.errorMessage == nil {
+            if !steering, !chat.isReady, !chat.isBusy, chat.errorMessage == nil {
                 for _ in 0..<100 {
                     if chat.isReady || chat.errorMessage != nil || !stillAuthorized()
                         || (try? authorizeConversation(id, access: access)) == nil { break }
@@ -235,18 +282,29 @@ final class MobileChatAPI {
             _ = try authorizeConversation(id, access: access)
             guard registry.sessions[id]?.chat === chat else { throw APIError(409, "mobile.error.changed") }
             guard chat.isReady else { throw APIError(409, "mobile.error.notReady") }
-            guard !chat.isBusy, chat.approvals.isEmpty else { throw APIError(409, "mobile.error.busy") }
-            let submitted = await withCheckedContinuation { continuation in
-                chat.sendRemote(text, images: imported, model: model, reasoningEffort: effort, stillAuthorized: { [weak self, weak chat] in
+            if steering {
+                guard chat === steeringChat, chat.canSteer, chat.steerToken == expectedToken else { throw APIError(409, "ai.chat.steerUnavailable") }
+            } else { guard !chat.isBusy, chat.approvals.isEmpty else { throw APIError(409, "mobile.error.busy") } }
+            let submitted: AIChatSession.RemoteSubmissionResult = await withCheckedContinuation { continuation in
+                let authorized = { [weak self, weak chat] in
                     guard let self, let chat else { return false }
                     return stillAuthorized() && (try? self.authorizeConversation(id, access: access)) != nil
                         && self.registry.sessions[id]?.chat === chat
-                }) { continuation.resume(returning: $0) }
+                }
+                if steering, let expectedToken {
+                    chat.steerRemote(text, images: imported, files: importedFiles, expectedToken: expectedToken,
+                        stillAuthorized: authorized) { continuation.resume(returning: $0) }
+                } else {
+                    chat.sendRemote(text, images: imported, files: importedFiles, model: model, reasoningEffort: effort,
+                        stillAuthorized: authorized) { continuation.resume(returning: $0) }
+                }
             }
             // Once written, keep the files even if acknowledgement or access is
             // lost; the CLI and saved transcript may already reference them.
             keepImages = submitted != .rejected || imported.contains { image in
                 chat.messages.contains { $0.images.contains(where: { $0.id == image.id }) }
+            } || importedFiles.contains { file in
+                chat.messages.contains { $0.files.contains(where: { $0.id == file.id }) }
             }
             guard stillAuthorized() else { throw APIError(401, "mobile.error.authorization") }
             _ = try authorizeConversation(id, access: access)

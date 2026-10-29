@@ -312,17 +312,19 @@ User click ──► SparkleBridge.{checkForUpdates | downloadAndInstall | skipV
 
 `AIChatHistoryStore` 将每个 terminal UUID 的提供商、模型、工作目录、草稿、消息（含折叠标记）和后端 conversation ID 原子保存到 Application Support/<bundleID>/ChatHistory/<UUID>.json。串行后台队列每 300ms 合并写入，退出和窗口解绑时同步 flush；目录 0700、文件 0600。快照不保存连接或 API Key。恢复先展示本地记录，再读取 Keychain 并以 Claude `--resume` / Codex `thread/resume` 接续同一后端上下文；凭据缺失和恢复失败都保留记录，不自动创建空白会话。旧版没有 terminal 映射，`AIChatLegacyHistory` 只读扫描本应用 Claude 目录，用户在选择页或空白 Claude 聊天的“恢复旧版 Claude 对话”中明确选择导入；导入前停止空会话并保留草稿/模型，随后按当前终端 UUID 保存，以后重开直接续接。
 
-聊天视觉尺寸集中在 `DT.Chat`：内容列最大宽度 880pt、控件行 32pt、输入区 96pt，使用既有 AppTheme 颜色。输入工具栏宽度不足时把照片/目录与模型/强度/发送拆成两行；桌面 Web 使用对应尺寸，手机保留更大的触摸目标。主题、强调色和自定义配色不受这层布局规则影响。
+聊天视觉尺寸集中在 `DT.Chat`：内容列最大宽度 880pt、控件行 32pt、输入区 96pt，使用既有 AppTheme 颜色。输入工具栏宽度不足时把附件/目录与模型/强度/发送拆成两行；桌面 Web 使用对应尺寸，手机保留更大的触摸目标。主题、强调色和自定义配色不受这层布局规则影响。
 
 `AIChatComposer.Editor` 在首个视觉行的 ↑ / 最后视觉行的 ↓ 上浏览当前会话的用户消息；按一次浏览冻结历史，恢复原草稿与光标，临时编辑不改写消息。多行、软换行、选区、修饰键和输入法组合文本保留 AppKit 行为。会话身份或外部草稿变化清理浏览与独立 undo 状态；撤销/重做后的文本作为新草稿，防止历史编辑错位。
 
 `AIChatImage.swift` 提供 `AIChatImage` 元数据和 `AIChatImageStore`。照片独立存储在 ChatHistory/Attachments，快照只保留附件引用和图片草稿，旧版无附件字段的 JSON 仍可读取。ImageIO 检查输入、校正方向、去除 EXIF/GPS 并缩小到最长边 2048；原始文件不修改。每条最多 4 张，桌面原文件最多 20 MB，存储副本最多 2 MB。Claude 使用 base64 image content blocks，Codex 使用 app-server `localImage` 持久本地路径；图片发送失败保留草稿。
 
+`AIChatFile.swift` 提供 `AIChatFile` 与 `AIChatFileStore`，原始文件复制到私有 `ChatHistory/FileAttachments`，存储路径只使用 UUID 与严格过滤的扩展名。每条消息最多 5 个普通文件，单个 10 MiB、总计 20 MiB，允许空文件。SHA-256、长度和普通文件/链接检查在发送前验证；后台读取与验证后，将 JSON 编码的本地路径清单交给 Claude/Codex 工具，历史仍只保存用户原文和元数据。不会自动执行上传文件。`AIChatFileViews.swift` 统一照片与文件选择、拖放、粘贴，混合批次失败时整批回滚；文件卡片显示名称/大小，可移除或在 Finder 显示。更新协调器会等待附件导入完成，再保存草稿并退出。
+
 `AIChatImageViews.swift` 负责选择后的后台导入、图片剪贴板识别、异步缩略图与单图预览。普通文字粘贴仍由 NSTextView 处理。附件可单独移除，支持纯图片消息；上下键历史只调取文字，不隐式重发旧照片。照片预览不因流式文本的每次变化重复解码。
 
-整个聊天区通过 SwiftUI `onDrop` 接收图片文件与图片 representation，原生输入框通过 `acceptableDragTypes`、`dragOperation`、`performDragOperation` 接收图片，避免 NSTextView 把图片路径插入文字。悬停显示主题色提示，普通文字拖放保留 AppKit 行为。拖入只添加草稿附件、不自动发送；开始加载 provider 前固定会话并占用导入状态，顺序导入，超量或失败整批回滚。文件 URL 优先于同图的其他 representation，临时文件必须在 provider 回调返回前完成导入。
+整个聊天区通过 SwiftUI `onDrop` 接收文件 URL 与图片 representation，原生输入框通过 `acceptableDragTypes`、`dragOperation`、`performDragOperation` 接收照片及普通文件，避免 NSTextView 把图片路径插入文字。悬停显示主题色提示，普通文字拖放保留 AppKit 行为。拖入只添加草稿附件、不自动发送；开始加载 provider 前固定会话并占用导入状态，顺序导入，超量或失败整批回滚。文件 URL 优先于同图的其他 representation，临时文件必须在 provider 回调返回前完成导入。
 
-含照片的历史或草稿使用快照 v2，纯文字继续使用 v1；当前构建兼容两者，旧构建会拒绝 v2，避免丢掉附件后覆盖原记录。`AIChatProcess` 通过每个进程独立的后台串行队列写入非阻塞管道，限制单条 16 MiB、待写总量 32 MiB、写入 30 秒；取消不等待主线程。退出前结算所有已排队写入回调。Claude 仅在完整消息写入后清空提交的草稿，提前到达的 stdout 暂存至用户消息入历史；跨进程代次回调被丢弃。
+含普通文件的历史或草稿使用快照 v3，只有照片时使用 v2，纯文字继续使用 v1；当前构建兼容三者，旧构建拒绝未知版本，避免丢掉附件后覆盖原记录。`AIChatProcess` 通过每个进程独立的后台串行队列写入非阻塞管道，限制单条 16 MiB、待写总量 32 MiB、写入 30 秒；取消不等待主线程。退出前结算所有已排队写入回调。Claude 仅在完整消息写入后清空提交的草稿，提前到达的 stdout 暂存至用户消息入历史；跨进程代次回调被丢弃。
 
 `AIChatView` 的消息滚动区域与输入框独立，模型下拉框位于输入框下方、紧邻 Send/Stop 左侧，工作目录靠左。聊天区自动加载模型列表，不显示刷新按钮；连接表单保留刷新功能。阅读旧消息时不强制滚动到底部，回答区右下角仅在未到底部时显示跳转按钮。通过原生 NSScrollView 的 clip bounds/document frame 观察计算底部位置，兼容 macOS 14，并随窗口大小和折叠后的内容高度更新。每轮新提问前用加粗分界线分隔上一轮。`AIModelCatalog` 使用用户配置的 API 地址和相同认证方式请求模型列表，支持 Anthropic 分页，拒绝重定向且不缓存凭据；配置改变时丢弃旧请求结果。
 

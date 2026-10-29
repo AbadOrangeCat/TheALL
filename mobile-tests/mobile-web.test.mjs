@@ -82,6 +82,26 @@ test('turns separate user questions, intermediate progress and final answers; to
   assert.deepEqual(result[0].progress.map(m => m.id), ['2', '4']);
   assert.deepEqual(result[0].answers.map(m => m.id), ['5']);
 });
+test('steering prompts remain visible in the original task and its progress still folds with the final answer', () => {
+  const messages = [
+    { id: 'question', role: 'user', text: 'Inspect project' },
+    { id: 'progress-1', role: 'assistant', isIntermediate: true, text: 'Inspecting' },
+    { id: 'steer-1', role: 'user', isSteering: true, text: 'Focus on tests' },
+    { id: 'progress-2', role: 'thinking', text: 'Checking tests' },
+    { id: 'steer-2', role: 'user', isSteering: true, text: 'Also lint' },
+    { id: 'answer', role: 'assistant', text: 'Done' },
+    { id: 'next', role: 'user', isSteering: false, text: 'Next task' },
+    { id: 'legacy', role: 'user', text: 'Older client question' }
+  ];
+  const result = turns(messages);
+  assert.equal(result.length, 3); assert.equal(result[0].user.id, 'question');
+  assert.deepEqual(result[0].progress.map(m => m.id), ['progress-1','progress-2']);
+  assert.deepEqual(result[0].answers.map(m => m.id), ['steer-1','steer-2','answer']);
+  assert.equal(result[1].user.id, 'next'); assert.equal(result[2].user.id, 'legacy');
+  const paged = turns(messages.slice(2,6));
+  assert.equal(paged.length,1);assert.equal(paged[0].user.id,'steer-1');
+  assert.deepEqual(paged[0].answers.map(m=>m.id),['steer-2','answer']);
+});
 test('pairing token is immediately removed from address and does not enter a request URL', () => {
   let replacement;
   assert.equal(readPairToken({ hash: '#pair=secret%2Btoken', pathname: '/', search: '' }, { replaceState: (...args) => { replacement = args; } }), 'secret+token');

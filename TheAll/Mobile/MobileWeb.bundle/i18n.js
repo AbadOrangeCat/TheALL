@@ -169,6 +169,31 @@ const photoStrings = {
 for (const [key, values] of Object.entries(photoStrings)) {
   Object.keys(supportedLanguages).forEach((code, index) => { catalog[code][key] = values[index]; });
 }
+const steerStrings = {
+  steerNotApplied: ['Additional instruction was not applied.', '这条补充指令未执行。', 'Cette instruction supplémentaire n’a pas été appliquée.', '追加の指示は適用されませんでした。', '추가 지시가 적용되지 않았습니다.'],
+  steer: ['Steer ↑', '补充 ↑', 'Guider ↑', '追加 ↑', '추가 ↑'],
+  steerHelp: ['Add instructions to the running task', '向当前任务补充指令', 'Ajouter des instructions à la tâche en cours', '実行中のタスクに指示を追加', '진행 중인 작업에 지시 추가'],
+  steerPlaceholder: ['Add instructions to this task…', '为当前任务补充要求…', 'Ajouter des instructions à cette tâche…', 'このタスクへの追加指示…', '현재 작업에 추가할 지시…']
+};
+for (const [key, values] of Object.entries(steerStrings)) {
+  Object.keys(supportedLanguages).forEach((code, index) => { catalog[code][key] = values[index]; });
+}
+const fileStrings = {
+  filesMissing: ['Unavailable — select again', '文件缺失，请重新选择', 'Indisponible — sélectionnez à nouveau', '利用できません。再選択してください', '사용 불가 — 다시 선택하세요'],
+  filesAdd: ['Add attachments', '添加附件', 'Ajouter des pièces jointes', '添付ファイルを追加', '첨부 파일 추가'],
+  filesRemove: ['Remove file', '移除文件', 'Retirer le fichier', 'ファイルを削除', '파일 제거'],
+  filesDownload: ['Download file', '下载文件', 'Télécharger le fichier', 'ファイルをダウンロード', '파일 다운로드'],
+  filesPreparing: ['Preparing attachments…', '正在准备附件…', 'Préparation des pièces jointes…', '添付ファイルを準備中…', '첨부 파일 준비 중…'],
+  filesTooMany: ['Attach up to 5 files per message.', '每条消息最多添加 5 个文件。', 'Joignez jusqu’à 5 fichiers par message.', '1 件のメッセージに添付できるファイルは 5 個までです。', '메시지당 파일을 최대 5개 첨부할 수 있습니다.'],
+  filesTooLarge: ['Each file must be 10 MB or smaller.', '单个文件不能超过 10 MB。', 'Chaque fichier doit faire 10 Mo ou moins.', '各ファイルは 10 MB 以下にしてください。', '각 파일은 10 MB 이하여야 합니다.'],
+  filesTotalTooLarge: ['Files must total 20 MB or less per message.', '每条消息的文件总大小不能超过 20 MB。', 'Le total des fichiers ne doit pas dépasser 20 Mo par message.', 'ファイルの合計はメッセージごとに 20 MB 以下にしてください。', '메시지당 파일의 총 크기는 20 MB 이하여야 합니다.'],
+  filesUnavailable: ['This file could not be read. Select it again.', '无法读取此文件，请重新选择。', 'Impossible de lire ce fichier. Sélectionnez-le à nouveau.', 'ファイルを読み込めません。もう一度選択してください。', '이 파일을 읽을 수 없습니다. 다시 선택하세요.'],
+  filesFolders: ['Select files instead of folders.', '请选择文件，不支持直接添加文件夹。', 'Sélectionnez des fichiers, pas des dossiers.', 'フォルダーではなくファイルを選択してください。', '폴더 대신 파일을 선택하세요.'],
+  filesDrop: ['Drop photos or files here', '将照片或文件拖到这里', 'Déposez des photos ou fichiers ici', '写真やファイルをここにドロップ', '사진이나 파일을 여기에 놓으세요']
+};
+for (const [key, values] of Object.entries(fileStrings)) {
+  Object.keys(supportedLanguages).forEach((code, index) => { catalog[code][key] = values[index]; });
+}
 const connectionStrings = {
   pairing: ['Connecting to your Mac…', '正在连接你的 Mac…', 'Connexion à votre Mac…', 'Mac に接続中…', 'Mac에 연결 중…'],
   quickLANNote: ['Direct Wi-Fi connection. Use a trusted private network; this connection is not encrypted.', '通过局域网直接连接，请使用可信的私人网络；此连接未加密。', 'Connexion Wi-Fi directe. Utilisez un réseau privé de confiance ; cette connexion n’est pas chiffrée.', 'Wi-Fi で直接接続します。信頼できるプライベートネットワークで使用してください。この接続は暗号化されません。', 'Wi-Fi로 직접 연결합니다. 신뢰할 수 있는 사설 네트워크를 사용하세요. 이 연결은 암호화되지 않습니다.'],

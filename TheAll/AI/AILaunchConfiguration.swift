@@ -87,7 +87,7 @@ struct AILaunchConfiguration {
         switch provider {
         case .claude:
             result.arguments += ["--print", "--input-format", "stream-json", "--output-format", "stream-json",
-                                 "--verbose", "--include-partial-messages", "--permission-prompt-tool", "stdio",
+                                 "--verbose", "--include-partial-messages", "--replay-user-messages", "--permission-prompt-tool", "stdio",
                                  "--dangerously-skip-permissions"]
         case .openai:
             result.arguments += ["-c", "approval_policy=\"never\"", "-c", "sandbox_mode=\"danger-full-access\"",

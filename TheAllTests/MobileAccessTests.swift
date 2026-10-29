@@ -18,6 +18,8 @@ final class MobileAccessTests: XCTestCase {
         var failUser = false
         var failModel = false
         var failAnswer = false
+        var deferUserWrites = false
+        var pendingWrites: [(Result<Void, Error>) -> Void] = []
         var codexTurnResult: [String: Any]?
         func start(_ configuration: AILaunchConfiguration, directory: String) throws { starts += 1 }
         func stop() { stops += 1 }
@@ -40,6 +42,11 @@ final class MobileAccessTests: XCTestCase {
                 let failed = request["subtype"] as? String == "set_model" && failModel
                 onMessage?(["type": "control_response", "response": ["subtype": failed ? "error" : "success", "request_id": id, "response": [:], "error": "fixture failure"]])
             }
+        }
+        func send(_ message: [String: Any], completion: @escaping (Result<Void, Error>) -> Void) throws {
+            try send(message)
+            if deferUserWrites, message["type"] as? String == "user" { pendingWrites.append(completion) }
+            else { completion(.success(())) }
         }
     }
     private func directory() throws -> URL {
@@ -69,6 +76,49 @@ final class MobileAccessTests: XCTestCase {
               body: try body.map { try JSONSerialization.data(withJSONObject: $0) } ?? Data())
     }
     private func object(_ response: MobileHTTPResponse) throws -> [String: Any] { try XCTUnwrap(JSONSerialization.jsonObject(with: response.body) as? [String: Any]) }
+
+    @MainActor func testMobileSteerIsScopedIdempotentAndKeepsDesktopDraft() async throws {
+        let pipe = Pipe(), registry = try registry(pipe: pipe)
+        pipe.codexTurnResult = ["result": ["turn": ["id": "active-turn"]]]
+        let id = registry.workspaces.createWorkspace(name: "Default")
+        let session = try XCTUnwrap(registry.session(for: id)); session.choose(.openai)
+        defer { session.back() }
+        let chat = try XCTUnwrap(session.chat)
+        chat.input = "Original task"; chat.send()
+        pipe.onMessage?(["method": "turn/started", "params": ["turn": ["id": "active-turn"]]])
+        chat.input = "Private Mac draft"
+        let api = MobileChatAPI(registry: registry), token = try XCTUnwrap(chat.steerToken)
+        let snapshot = await api.handle(try request("/api/chats/\(id)"), device: device, stillAuthorized: { true })
+        XCTAssertEqual(try object(snapshot)["canSteer"] as? Bool, true)
+        XCTAssertEqual(try object(snapshot)["steerToken"] as? String, token)
+        let action = try request("/api/chats/\(id)/steer", body: ["bootID": api.bootID, "requestId": UUID().uuidString,
+            "steerToken": token, "text": "Read the attached notes", "files": [["name": "notes.txt", "data": Data("notes".utf8).base64EncodedString()]]])
+        let pending = Task { await api.handle(action, device: device, stillAuthorized: { true }) }
+        for _ in 0..<200 {
+            if pipe.sent.contains(where: { $0["method"] as? String == "turn/steer" }) { break }
+            try await Task.sleep(nanoseconds: 5_000_000)
+        }
+        let command = try XCTUnwrap(pipe.sent.last(where: { $0["method"] as? String == "turn/steer" }))
+        pipe.onMessage?(["id": command["id"]!, "result": ["turnId": "active-turn"]])
+        let response = await pending.value
+        XCTAssertEqual(response.status, 200)
+        let retry = await api.handle(action, device: device, stillAuthorized: { true })
+        XCTAssertEqual(retry.body, response.body)
+        XCTAssertEqual(pipe.sent.filter { $0["method"] as? String == "turn/steer" }.count, 1)
+        XCTAssertEqual(chat.input, "Private Mac draft")
+        XCTAssertEqual(chat.messages.last?.isSteering, true)
+        XCTAssertEqual(chat.messages.last?.files.first?.name, "notes.txt")
+        XCTAssertTrue(chat.isBusy)
+        let readOnly = MobilePairingStore.Device(id: UUID(), name: "Reader", tokenHash: "fake", createdAt: Date(), expiresAt: .distantFuture,
+            access: .init(writable: false))
+        let denied = await api.handle(action, device: readOnly, stillAuthorized: { true })
+        XCTAssertEqual(denied.status, 403)
+        let stale = try request("/api/chats/\(id)/steer", body: ["bootID": api.bootID, "requestId": UUID().uuidString,
+            "steerToken": UUID().uuidString, "text": "Old task"])
+        let rejected = await api.handle(stale, device: device, stillAuthorized: { true })
+        XCTAssertEqual(rejected.status, 409)
+        XCTAssertEqual(pipe.starts, 1)
+    }
 
     func testPairingIsSingleUseExpiresAndPersistsOnlyHashes() throws {
         let file = try directory().appendingPathComponent("devices.json")
@@ -268,6 +318,115 @@ final class MobileAccessTests: XCTestCase {
         XCTAssertEqual(registry.workspaces.workspaces.count, 1)
         XCTAssertEqual(try registry.history.load(for: id)?.provider, .claude)
         registry.sessions[id]?.back()
+    }
+
+    @MainActor func testAPIFileOnlySendDeduplicatesDownloadsExactBytesAndKeepsMacDraftPrivate() async throws {
+        let pipe = Pipe(), registry = try registry(pipe: pipe)
+        let id = registry.workspaces.createWorkspace(name: "Files")
+        let otherID = registry.workspaces.createWorkspace(name: "Other")
+        let session = try XCTUnwrap(registry.session(for: id)); session.choose(.claude)
+        defer { session.back() }
+        let chat = try XCTUnwrap(session.chat), api = MobileChatAPI(registry: registry)
+        let local = try registry.history.fileStore.importFile(data: Data("Mac private draft".utf8), name: "mac.txt")
+        chat.input = "My unsent Mac question"; chat.draftFiles = [local]
+        let bytes = Data((0...255).map(UInt8.init))
+        let body: [String: Any] = ["requestId": UUID().uuidString, "bootID": api.bootID, "text": "",
+            "files": [["name": "报告 \"file\".html", "data": bytes.base64EncodedString()], ["name": "empty.txt", "data": ""]]]
+        let req = try request("/api/chats/\(id)/send", body: body)
+        let sent = await api.handle(req, device: device, stillAuthorized: { true })
+        let replay = await api.handle(req, device: device, stillAuthorized: { true })
+        XCTAssertEqual(sent.status, 200); XCTAssertEqual(replay.body, sent.body)
+        XCTAssertEqual(pipe.sent.filter { $0["type"] as? String == "user" }.count, 1)
+        XCTAssertEqual(chat.input, "My unsent Mac question"); XCTAssertEqual(chat.draftFiles, [local])
+        let message = try XCTUnwrap(chat.visibleMessages.first)
+        XCTAssertEqual(message.text, ""); XCTAssertEqual(message.files.count, 2)
+        let file = try XCTUnwrap(message.files.first)
+        let downloadPath = "/api/chats/\(id)/files/\(file.id)"
+        let downloaded = await api.handle(try request(downloadPath), device: device, stillAuthorized: { true })
+        XCTAssertEqual(downloaded.status, 200); XCTAssertEqual(downloaded.body, bytes)
+        XCTAssertEqual(downloaded.headers["Content-Type"], "application/octet-stream")
+        let disposition = try XCTUnwrap(downloaded.headers["Content-Disposition"])
+        XCTAssertTrue(disposition.hasPrefix("attachment;")); XCTAssertTrue(disposition.contains("filename*=UTF-8''"))
+        XCTAssertFalse(disposition.contains("报告")); XCTAssertFalse(disposition.contains("\n"))
+        let empty = await api.handle(try request("/api/chats/\(id)/files/\(message.files[1].id)"), device: device, stillAuthorized: { true })
+        XCTAssertEqual(empty.status, 200); XCTAssertTrue(empty.body.isEmpty)
+        let privateDraft = await api.handle(try request("/api/chats/\(id)/files/\(local.id)"), device: device, stillAuthorized: { true })
+        let wrongChat = await api.handle(try request("/api/chats/\(otherID)/files/\(file.id)"), device: device, stillAuthorized: { true })
+        let unauthenticated = await api.handle(try request(downloadPath), device: device, stillAuthorized: { false })
+        XCTAssertEqual(privateDraft.status, 404); XCTAssertEqual(wrongChat.status, 404); XCTAssertEqual(unauthenticated.status, 401)
+        var readOnly = device; readOnly.access = .init(writable: false)
+        let readable = await api.handle(try request(downloadPath), device: readOnly, stillAuthorized: { true })
+        let writeDenied = await api.handle(req, device: readOnly, stillAuthorized: { true })
+        XCTAssertEqual(readable.status, 200); XCTAssertEqual(writeDenied.status, 403)
+        var scoped = device
+        let otherWorkspace = try XCTUnwrap(registry.workspaces.workspaces.first { $0.tabs.contains { $0.layout.allTerminalIds().contains(otherID) } })
+        scoped.access = .init(workspaceID: otherWorkspace.id)
+        let scopeDenied = await api.handle(try request(downloadPath), device: scoped, stillAuthorized: { true })
+        XCTAssertEqual(scopeDenied.status, 403)
+        let history = await api.handle(try request("/api/chats/\(id)"), device: device, stillAuthorized: { true })
+        let historyText = String(decoding: history.body, as: UTF8.self)
+        XCTAssertFalse(historyText.contains("Mac private draft")); XCTAssertFalse(historyText.contains("My unsent Mac question"))
+        XCTAssertFalse(historyText.contains(registry.history.fileStore.directory.path))
+    }
+
+    @MainActor func testAPIRejectedMixedAttachmentsRollBackImportsAndInvalidBase64DoesNotSend() async throws {
+        let pipe = Pipe(), registry = try registry(pipe: pipe)
+        let id = registry.workspaces.createWorkspace(name: "Files")
+        let session = try XCTUnwrap(registry.session(for: id)); session.choose(.claude)
+        defer { session.back() }
+        let chat = try XCTUnwrap(session.chat), api = MobileChatAPI(registry: registry)
+        let draft = try registry.history.fileStore.importFile(data: Data("keep".utf8), name: "desktop.txt")
+        chat.draftFiles = [draft]; chat.input = "Desktop draft"
+        let bitmap = try XCTUnwrap(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 2, pixelsHigh: 2,
+            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
+        for x in 0..<2 { for y in 0..<2 { bitmap.setColor(.blue, atX: x, y: y) } }
+        let png = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+        var body: [String: Any] = ["requestId": UUID().uuidString, "bootID": api.bootID, "text": "",
+            "images": [["name": "photo.png", "data": png.base64EncodedString()]],
+            "files": [["name": "phone.txt", "data": Data("phone".utf8).base64EncodedString()]]]
+        let before = try FileManager.default.contentsOfDirectory(atPath: registry.history.fileStore.directory.path)
+        pipe.failUser = true
+        let rejected = await api.handle(try request("/api/chats/\(id)/send", body: body), device: device, stillAuthorized: { true })
+        XCTAssertEqual(rejected.status, 503)
+        XCTAssertTrue(chat.messages.isEmpty)
+        XCTAssertEqual(chat.draftFiles, [draft]); XCTAssertEqual(chat.input, "Desktop draft")
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: registry.history.fileStore.directory.path), before)
+        XCTAssertTrue(((try? FileManager.default.contentsOfDirectory(atPath: registry.history.imageStore.directory.path)) ?? []).isEmpty)
+        pipe.failUser = false
+        body["requestId"] = UUID().uuidString
+        body["images"] = []
+        body["files"] = [["name": "bad.txt", "data": "Zg==\n"]]
+        let malformed = await api.handle(try request("/api/chats/\(id)/send", body: body), device: device, stillAuthorized: { true })
+        XCTAssertEqual(malformed.status, 400)
+        XCTAssertFalse(pipe.sent.contains { $0["type"] as? String == "user" })
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: registry.history.fileStore.directory.path), before)
+    }
+
+    @MainActor func testAPIUnknownFileSubmissionRetainsBytesAndRetryDoesNotWriteAgain() async throws {
+        let pipe = Pipe(), registry = try registry(pipe: pipe)
+        let id = registry.workspaces.createWorkspace(name: "Files")
+        let session = try XCTUnwrap(registry.session(for: id)); session.choose(.claude)
+        defer { session.back() }
+        let api = MobileChatAPI(registry: registry), bytes = Data("possibly submitted".utf8)
+        let req = try request("/api/chats/\(id)/send", body: ["requestId": UUID().uuidString, "bootID": api.bootID, "text": "",
+            "files": [["name": "keep.txt", "data": bytes.base64EncodedString()]]])
+        pipe.deferUserWrites = true
+        let operation = Task { await api.handle(req, device: device, stillAuthorized: { true }) }
+        for _ in 0..<200 {
+            if !pipe.pendingWrites.isEmpty { break }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        guard !pipe.pendingWrites.isEmpty else { operation.cancel(); return XCTFail("Expected queued file write") }
+        pipe.pendingWrites.removeFirst()(.failure(CocoaError(.fileWriteUnknown)))
+        let uncertain = await operation.value
+        XCTAssertEqual(uncertain.status, 503); XCTAssertEqual(try object(uncertain)["code"] as? String, "outcome_unknown")
+        let retained = try FileManager.default.contentsOfDirectory(at: registry.history.fileStore.directory, includingPropertiesForKeys: nil)
+        XCTAssertEqual(retained.count, 1)
+        XCTAssertEqual(try Data(contentsOf: XCTUnwrap(retained.first)), bytes)
+        let replay = await api.handle(req, device: device, stillAuthorized: { true })
+        XCTAssertEqual(replay.body, uncertain.body)
+        XCTAssertEqual(pipe.sent.filter { $0["type"] as? String == "user" }.count, 1)
     }
 
     @MainActor func testAPIFailedSubmissionCanBeEditedAndQuestionRepliesAreNotDuplicated() async throws {

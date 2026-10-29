@@ -72,7 +72,9 @@ TheAll/
 │   ├── AIChatSession.swift       — Claude/Codex 会话协议、模型切换、流式消息、自动执行与提问
 │   ├── AIChatHistoryStore.swift  — 按终端 UUID 原子保存聊天、草稿和后端会话编号
 │   ├── AIChatImage.swift         — 照片元数据、ImageIO 规范化与私有附件存储
-│   ├── AIChatImageViews.swift    — 照片拖入/粘贴/导入、缩略图与预览
+│   ├── AIChatImageViews.swift    — 照片规范化导入、缩略图与预览
+│   ├── AIChatFile.swift          — 普通文件元数据、私有持久副本与完整性校验
+│   ├── AIChatFileViews.swift     — 统一照片/文件选择、拖放、粘贴与文件卡片
 │   ├── AIChatLegacyHistory.swift — 只读导入应用旧版 Claude 会话，用户明确选择后恢复
 │   ├── AIChatProcess.swift       — 常驻 CLI 的逐行 JSON 进程通信
 │   └── AIChatView.swift          — 聊天记录、原生输入框、模型下拉框和用户提问

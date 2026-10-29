@@ -63,7 +63,7 @@ test('only root HTTPS or local test HTTP and matching Ed25519 identities are acc
   for (const url of ['http://localhost:8080', 'http://127.0.0.1:8080', 'http://[::1]:8080']) assert.equal(relayOrigin(url), url);
   assert.throws(() => new RelayClient({ url: 'https://relay.example.com', privateKey, publicKey: randomBytes(32).toString('base64'), handleRequest() {} }));
   assert.throws(() => new RelayClient({ url: 'https://relay.example.com', privateKey: 'bad', handleRequest() {} }));
-  assert.equal(RELAY_LIMITS.requestBytes, 3 * 1024 * 1024); assert.equal(RELAY_LIMITS.pending, 8);
+  assert.equal(RELAY_LIMITS.requestBytes, 32 * 1024 * 1024); assert.equal(RELAY_LIMITS.pending, 8);
 });
 
 test('real relay authenticates desktop and preserves POST bytes, queries, origin, cookies and binary responses', async t => {
@@ -159,7 +159,7 @@ test('bounds pending HTTP work before invoking runtime and keeps handler failure
 
 test('oversized outbound snapshot returns a bounded 413 while retaining the connection', async t => {
   const responses = []; const f = await fake(t, response => responses.push(response));
-  const client = new RelayClient({ url: f.origin, privateKey, handleRequest: async () => ({ status: 200, headers: {}, body: Buffer.alloc(7 * 1024 * 1024) }) });
+  const client = new RelayClient({ url: f.origin, privateKey, handleRequest: async () => ({ status: 200, headers: {}, body: Buffer.alloc(RELAY_LIMITS.responseBytes + 1) }) });
   t.after(() => client.close()); client.start(); const host = await f.opened; await eventually(() => client.connected);
   host.send(JSON.stringify(requestFrame(f.origin))); await eventually(() => responses.length === 1);
   assert.equal(responses[0].status, 413); assert.equal(client.connected, true);

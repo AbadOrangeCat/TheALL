@@ -20,7 +20,7 @@ class FakeSession extends EventEmitter {
   static sends=0; static starts=0; static delay=null; static uncertain=false;
   constructor({chat,connection}) {super();this.chat=chat;this.connection=connection;this.isReady=false;this.isBusy=false;this.canInterrupt=false;this.questions=[];this.models=[{id:'test-model',title:'Test model'}];}
   async start(){FakeSession.starts++;this.chat.conversationID||=randomUUID();if(FakeSession.delay)await FakeSession.delay;this.isReady=true;this.emit('change');}
-  async send({text,images,model}){FakeSession.sends++;this.chat.model=model;this.chat.messages.push({id:randomUUID(),role:'user',text,images:images.map(({path,data,...i})=>i)});this.chat.messages.push({id:randomUUID(),role:'assistant',text:'A preserved answer',images:[]});this.emit('change');if(FakeSession.uncertain){const e=new Error('Write outcome is unknown');e.code='submission_uncertain';throw e;}}
+  async send({text,images,files=[],model}){FakeSession.sends++;this.chat.model=model;this.chat.messages.push({id:randomUUID(),role:'user',text,images:images.map(({path,data,...i})=>i),files});this.chat.messages.push({id:randomUUID(),role:'assistant',text:'A preserved answer',images:[]});this.emit('change');if(FakeSession.uncertain){const e=new Error('Write outcome is unknown');e.code='submission_uncertain';throw e;}}
   async answer(value){this.answerValue=value;this.questions=[];this.emit('change');}
   async interrupt(){this.isBusy=false;this.canInterrupt=false;this.emit('change');}
   async close(){this.isReady=false;this.emit('change');}
@@ -225,4 +225,127 @@ test('final save failure cancels update shutdown without disabling the runtime o
  for(let i=0;i<100&&!events.some(e=>e.type==='changed');i++)await new Promise(r=>setTimeout(r,10));
  assert(events.some(e=>e.type==='changed'),'Live phone/desktop events resume after a cancelled shutdown');
  assert.equal(f.runtime.tryBeginUpdate(),true);f.runtime.abortUpdate();
+});
+
+test('files persist as metadata, download only from their conversation, and identical requests execute once',async t=>{
+ const f=await fixture(t),id=await f.create();
+ const bytes=Buffer.from('Private file 资料\u0000'),body=mutation(f.runtime,{text:'',files:[{name:'../资料 "x".pdf',data:bytes.toString('base64')}]});
+ assert.equal((await f.api(`/api/chats/${id}/send`,{body})).status,200);
+ assert.equal((await f.api(`/api/chats/${id}/send`,{body})).status,200);assert.equal(FakeSession.sends,1);
+ const file=(await f.api(`/api/chats/${id}`)).body.messages[0].files[0];assert.equal(file.name,'资料 "x".pdf');assert(!('data'in file));assert(!('path'in file));
+ const route=`/api/chats/${id}/files/${file.id}`,download=()=>fetch(f.runtime.url+route,{headers:{cookie:`TheAllDesktopSession=${f.runtime.desktopToken}`}});
+ let response=await download();assert.equal(response.status,200);assert.match(response.headers.get('content-disposition'),/^attachment;/);assert.equal(response.headers.get('x-content-type-options'),'nosniff');assert.deepEqual(Buffer.from(await response.arrayBuffer()),bytes);
+ assert.equal((await fetch(f.runtime.url+route)).status,401);const other=await f.create();assert.equal((await f.api(`/api/chats/${other}/files/${file.id}`)).status,404);
+ const saved=fs.readFileSync(path.join(f.dataDir,'workspaces.json'),'utf8');assert(!saved.includes(bytes.toString('base64')));assert.equal(JSON.parse(saved).version,2);
+ await f.restart();response=await download();assert.equal(response.status,200);assert.deepEqual(Buffer.from(await response.arrayBuffer()),bytes);
+ const {FileAttachments}=await import('../src/attachments.mjs');fs.writeFileSync(new FileAttachments(f.dataDir).path(file),'changed');assert.equal((await download()).status,404);
+});
+test('desktop file drafts survive restart without base64 in workspace JSON; missing files preserve the text draft',async t=>{
+ const f=await fixture(t),id=await f.create(),data=Buffer.from('saved draft bytes').toString('base64');
+ const payload={id,text:'Keep this text',images:[],files:[{id:randomUUID(),name:'draft.txt',data}],model:'test-model'};
+ await f.runtime.desktop('draft.save',payload);const draft=await f.runtime.desktop('draft.get',{id});assert.equal(draft.files[0].data,data);
+ await f.runtime.desktop('draft.save',payload);const next=await f.runtime.desktop('draft.get',{id});assert.equal(next.files[0].id,draft.files[0].id);
+ const json=fs.readFileSync(path.join(f.dataDir,'workspaces.json'),'utf8');assert(!json.includes(data));assert.equal(JSON.parse(json).version,2);
+ await f.restart();assert.deepEqual(await f.runtime.desktop('draft.get',{id}),next);
+ const {FileAttachments}=await import('../src/attachments.mjs');fs.unlinkSync(new FileAttachments(f.dataDir).path(next.files[0]));
+ const missing=await f.runtime.desktop('draft.get',{id});assert.equal(missing.text,payload.text);assert.equal(missing.files[0].unavailable,true);
+ await f.runtime.desktop('draft.save',{...payload,files:[]});assert.deepEqual((await f.runtime.desktop('draft.get',{id})).files,[]);
+});
+test('rejected file submissions remove only new imports; unknown outcomes retain attached bytes and are never retried',async t=>{
+ class Reject extends FakeSession{async send(){throw new Error('Rejected before write');}}
+ const failed=await fixture(t,{Session:Reject}),id=await failed.create(),input={text:'',files:[{name:'a.txt',data:Buffer.from('bytes').toString('base64')}]};
+ assert.equal((await failed.api(`/api/chats/${id}/send`,{body:mutation(failed.runtime,input)})).status,409);
+ assert.deepEqual(fs.readdirSync(path.join(failed.dataDir,'FileAttachments')),[]);
+ const f=await fixture(t),chat=await f.create();FakeSession.uncertain=true;const body=mutation(f.runtime,input);
+ const response=await f.api(`/api/chats/${chat}/send`,{body});assert.equal(response.body.code,'outcome_unknown');assert.equal(fs.readdirSync(path.join(f.dataDir,'FileAttachments')).length,1);
+ await f.api(`/api/chats/${chat}/send`,{body});assert.equal(FakeSession.sends,1);FakeSession.uncertain=false;
+});
+
+test('missing file drafts can retain owned references while edits save; foreign references and failed saves preserve previous data',async t=>{
+ const f=await fixture(t),id=await f.create(),other=await f.create();
+ const files=[{name:'first.txt',data:'YQ=='},{name:'second.txt',data:'Yg=='}];
+ await f.runtime.desktop('draft.save',{id,text:'original',files});const draft=await f.runtime.desktop('draft.get',{id});
+ const {FileAttachments}=await import('../src/attachments.mjs'),attachments=new FileAttachments(f.dataDir);
+ fs.unlinkSync(attachments.path(draft.files[0]));fs.unlinkSync(attachments.path(draft.files[1]));
+ const missing=await f.runtime.desktop('draft.get',{id});await f.runtime.desktop('draft.save',{id,text:'edited',files:[missing.files[1]]});
+ const restored=await f.runtime.desktop('draft.get',{id});assert.equal(restored.text,'edited');assert.equal(restored.files[0].id,missing.files[1].id);assert.equal(restored.files[0].unavailable,true);
+ await assert.rejects(f.runtime.desktop('draft.save',{id:other,text:'foreign',files:restored.files}),/unavailable/);
+ await f.runtime.desktop('draft.save',{id,text:'fixed',files:[files[1]]});const fixed=await f.runtime.desktop('draft.get',{id});assert.equal(fixed.files[0].data,'Yg==');
+ const originalSave=Store.prototype.save,before=fs.readFileSync(path.join(f.dataDir,'workspaces.json'));
+ try{Store.prototype.save=function(){if(this.directory===f.dataDir)throw new Error('Injected storage failure');return originalSave.call(this);};
+   await assert.rejects(f.runtime.desktop('draft.save',{id,text:'must not replace',files:[{name:'new.txt',data:'Yw=='}]}),/storage failure/);
+ }finally{Store.prototype.save=originalSave;}
+ assert.deepEqual(fs.readFileSync(path.join(f.dataDir,'workspaces.json')),before);assert.deepEqual(await f.runtime.desktop('draft.get',{id}),fixed);
+ assert.deepEqual(fs.readdirSync(attachments.directory),[path.basename(attachments.path(fixed.files[0]))]);
+});
+test('paired read-only phone can download an authorized file, but other workspaces and revoked devices cannot',async t=>{
+ const address=lanAddresses()[0]?.address;if(!address){t.skip('No private network interface available');return;}
+ const f=await fixture(t),id=await f.create(),other=await f.create();
+ for(const chat of [id,other])assert.equal((await f.api(`/api/chats/${chat}/send`,{body:mutation(f.runtime,{text:'',files:[{name:'document.txt',data:'cHJpdmF0ZQ=='}]})})).status,200);
+ const file=(await f.api(`/api/chats/${id}`)).body.messages[0].files[0],foreign=(await f.api(`/api/chats/${other}`)).body.messages[0].files[0];
+ const w=(await f.api('/api/workspaces')).body.workspaces.find(w=>w.conversations.some(c=>c.id===id)).id;
+ const {url}=await f.runtime.enableLAN({address,port:0}),invitation=await f.runtime.desktop('mobile.pair',{workspaceId:w,writable:false});
+ const pair=await f.api('/api/pair',{url,origin:url,cookie:'',body:{token:new URLSearchParams(new URL(invitation.url).hash.slice(1)).get('pair'),deviceName:'File phone'}});
+ const cookie=pair.headers.get('set-cookie').split(';')[0];
+ const get=(chat,file)=>fetch(`${url}/api/chats/${chat}/files/${file}`,{headers:{cookie}});
+ const allowed=await get(id,file.id);assert.equal(allowed.status,200);assert.equal(await allowed.text(),'private');
+ assert.equal((await get(other,foreign.id)).status,404);
+ const devices=await f.runtime.desktop('mobile.devices');await f.runtime.desktop('mobile.revoke',{id:devices.devices[0].id});assert.equal((await get(id,file.id)).status,401);
+});
+test('file uploads above the former photo request limit work and mixed invalid imports leave no orphan files',async t=>{
+ const f=await fixture(t),id=await f.create(),bytes=Buffer.alloc(4*1024*1024,65);
+ assert.equal((await f.api(`/api/chats/${id}/send`,{body:mutation(f.runtime,{text:'',files:[{name:'large.bin',data:bytes.toString('base64')}]})})).status,200);
+ const before=fs.readdirSync(path.join(f.dataDir,'FileAttachments'));
+ const result=await f.api(`/api/chats/${id}/send`,{body:mutation(f.runtime,{text:'invalid',images:[{name:'p.png',data:pixels.toString('base64')}],files:[{name:'bad',data:'not-base64'}]})});
+ assert.equal(result.status,409);assert.deepEqual(fs.readdirSync(path.join(f.dataDir,'FileAttachments')),before);assert.deepEqual(fs.readdirSync(path.join(f.dataDir,'Attachments')),[]);
+});
+
+test('steer API requires a live matching task, is idempotent, preserves drafts and never starts a CLI', async t => {
+  let active, steers = 0;
+  class SteeringSession extends FakeSession {
+    constructor(options) { super(options); active = this; this.steerToken = null; this.canSteer = false; }
+    async send(input) { await super.send(input); this.isBusy = true; this.canInterrupt = true; this.canSteer = true; this.steerToken = randomUUID(); }
+    async steer({ text, images, files, steerToken, stillAuthorized }) {
+      if (!this.canSteer || steerToken !== this.steerToken || !stillAuthorized()) throw new Error('Task changed');
+      steers++;
+      this.chat.messages.push({ id: randomUUID(), role: 'user', text, images: images.map(({ path, data, ...i }) => i), files });
+      this.emit('change');
+    }
+  }
+  const f = await fixture(t, { Session: SteeringSession }), id = await f.create();
+  const request = values => f.api(`/api/chats/${id}/steer`, { body: mutation(f.runtime, values) });
+  assert.equal((await request({ text: 'Before starting', steerToken: randomUUID() })).status, 409); assert.equal(FakeSession.starts, 0);
+  assert.equal((await f.api(`/api/chats/${id}/send`, { body: mutation(f.runtime, { text: 'Original' }) })).status, 200);
+  const snapshot = (await f.api(`/api/chats/${id}`)).body;
+  assert.equal(snapshot.canSteer, true); assert.equal(snapshot.steerToken, active.steerToken);
+  await f.runtime.desktop('draft.save', { id, text: 'Desktop draft', images: [] });
+  assert.equal((await request({ text: 'No token' })).status, 409);
+  assert.equal((await request({ text: 'Old token', steerToken: randomUUID() })).status, 409);
+  assert.equal((await request({ text: 'Change model', steerToken: snapshot.steerToken, model: 'different' })).status, 400);
+  const body = mutation(f.runtime, { text: 'Keep the colors', steerToken: snapshot.steerToken, files: [{ name: 'notes.txt', data: Buffer.from('File body').toString('base64') }] });
+  for (let i = 0; i < 2; i++) assert.equal((await f.api(`/api/chats/${id}/steer`, { body })).status, 200);
+  assert.equal(steers, 1); assert.equal(FakeSession.sends, 1); assert.equal(FakeSession.starts, 1);
+  assert.equal((await f.runtime.desktop('draft.get', { id })).text, 'Desktop draft');
+  const history = (await f.api(`/api/chats/${id}`)).body.messages;
+  assert.equal(history.at(-1).text, 'Keep the colors'); assert.equal(history.at(-1).files[0].name, 'notes.txt');
+  active.steerToken = randomUUID();
+  assert.equal((await request({ text: 'Old task', steerToken: snapshot.steerToken })).status, 409);
+});
+
+test('steer completion race during image import rejects and removes unowned attachments', async t => {
+  let active;
+  class SteeringSession extends FakeSession {
+    constructor(options) { super(options); active = this; }
+    async send(input) { await super.send(input); this.isBusy = true; this.canSteer = true; this.steerToken = randomUUID(); }
+    async steer({ steerToken }) { if (steerToken !== this.steerToken) throw new Error('Task changed'); throw new Error('Must not reach CLI'); }
+  }
+  const f = await fixture(t, { Session: SteeringSession, normalizeImage: async () => {
+    active.steerToken = randomUUID();
+    return { data: pixels, mimeType: 'image/png', width: 1, height: 1 };
+  } }), id = await f.create();
+  await f.api(`/api/chats/${id}/send`, { body: mutation(f.runtime, { text: 'Original' }) });
+  const body = mutation(f.runtime, { text: 'Stale after import', steerToken: active.steerToken, images: [{ name: 'photo.png', data: pixels.toString('base64') }], files: [{ name: 'file.txt', data: '' }] });
+  const response = await f.api(`/api/chats/${id}/steer`, { body }); assert.equal(response.status, 409);
+  assert.equal(active.chat.messages.filter(m => m.role === 'user').length, 1);
+  assert.equal(fs.readdirSync(path.join(f.dataDir, 'FileAttachments')).length, 0);
 });

@@ -60,9 +60,11 @@ export function mergePage(previous, incoming) {
 export function turns(messages) {
   const result = [];
   for (const message of messages) {
-    if (message.role === 'user' || !result.length) result.push({ id: message.id, user: null, progress: [], answers: [] });
+    const steering = message.role === 'user' && message.isSteering === true && result.length > 0;
+    if ((message.role === 'user' && !steering) || !result.length) result.push({ id: message.id, user: null, progress: [], answers: [] });
     const turn = result.at(-1);
-    if (message.role === 'user') turn.user = message;
+    if (steering) turn.answers.push(message);
+    else if (message.role === 'user') turn.user = message;
     else if (message.role === 'thinking' || message.isIntermediate) turn.progress.push(message);
     else if (message.role !== 'tool' || message.isError) turn.answers.push(message);
   }

@@ -1,6 +1,6 @@
 # AI chats
 
-The app product is **TheAll.app**, version **0.1.5**. Debug windows and menus use **TheAll dev**; Release uses **TheAll**. Every new tab, split pane,
+The app product is **TheAll.app**, version **0.1.7**. Debug windows and menus use **TheAll dev**; Release uses **TheAll**. Every new tab, split pane,
 and workspace starts at a Claude / OpenAI selector. Restored leaves reopen their saved chat. Existing panes
 retain their connection form, process, conversation, and draft across navigation.
 
@@ -11,7 +11,7 @@ model discovery fails. The API list describes endpoint availability, not a promi
 that every listed model supports the coding agent's tools or context requirements.
 
 After connecting, TheAll provides a native chat transcript and input box. The model
-dropdown sits directly to the left of Send/Stop below the input; the clickable working-folder path is at the left edge of that row. The model-change hint appears only after changing the model and disappears when a message is submitted with that selection. Changing it affects the **next submitted message**:
+dropdown sits directly to the left of Send/Stop below the input; the clickable working-folder path is at the left edge of that row. The model-change hint appears only after changing the model and disappears when a message is submitted with that selection. Changing it affects the **next ordinary turn**:
 it does not interrupt a running turn, replace the process, erase history, or alter
 the draft. Send with the button or Cmd+Return; Return inserts a newline. Stop
 interrupts the active turn. In the native composer, Up on the first visual line recalls
@@ -81,9 +81,17 @@ Local builds require a persistent signing certificate configured by
 rebuilds and do not override it with `CODE_SIGN_IDENTITY=-`.
 See [local signing](build.md#theall-本地签名与钥匙串).
 
+## Additional instructions during a task
+
+While a task is running, the submit button becomes **Steer** (补充 in Chinese), alongside a separate Stop button. Enter text, attach photos/files with the same attachment button, and click Steer or use the normal send shortcut. Desktop and phone share the active task. Each additional user instruction remains visible in the same conversation round, is included in input history, and survives saved-history restoration. Model/effort selections still apply to the next ordinary turn; steering retains the active task's settings.
+
+Codex receives `turn/steer` with the active `expectedTurnId`. Claude receives an additional stream-json user message with a UUID and consumes it at a safe boundary; if an answer is already finishing, it processes the instruction immediately afterward. TheAll retains one logical task, elapsed time and completion notification until all submitted instructions finish. Stop also cancels queued Claude instructions. A later cancelled/refused instruction stays visible with a not-applied label.
+
+A stale task token is rejected without starting a new turn. Failed validation or rejection retains the draft; an uncertain acknowledgement is not automatically resent. Remote requests remain scoped and idempotent, and never clear a separate desktop draft. Claude steering requires its UUID command lifecycle support; older CLIs without that support keep Steer disabled.
+
 ## Photos
 
-Drag image files into the desktop conversation or input box, use the photo button beside the working folder, or paste a screenshot/image with **⌘V**. The drop area highlights while hovering. Up to four photos can be attached; dropping only adds a draft attachment and never sends a message or inserts a file path into the text. Thumbnails appear above the input; click to preview or remove one before sending. Photos can be sent with a question or without text. The selected provider/model must support image input.
+Drag image files into the desktop conversation or input box, use the attachment button beside the working folder, or paste a screenshot/image with **⌘V**. The drop area highlights while hovering. Up to four photos can be attached; dropping only adds a draft attachment and never sends a message or inserts a file path into the text. Thumbnails appear above the input; click to preview or remove one before sending. Photos can be sent with a question or without text. The selected provider/model must support image input.
 
 The desktop accepts system-decodable images, including JPEG, PNG and HEIC, up to 20 MB per source. It corrects orientation, reduces the longest side to 2048 pixels, and creates a metadata-free JPEG/PNG copy of at most 2 MB. Originals are not changed. Prepared photos are saved privately in `ChatHistory/Attachments`; history and unsent desktop drafts retain references across restarts. The app sends the prepared copy to the AI endpoint through Claude Code or Codex when you press Send. Missing/unreadable attachments report an error and are not silently omitted.
 
@@ -233,5 +241,10 @@ ignored local configuration; an explicit previous namespace enables one-time
 settings migration before stores initialize. See [Build guide](build.md).
 Legacy Keychain connections migrate as described above. The current LICENSE,
 separately granted permissions and third-party component licenses apply.
-Automatic updates remain inactive until TheAll has its own feed and signing
-key. No release is published by a local build.
+Release builds check TheAll’s signed update feed and show a download/install action.
+Debug builds can check but cannot install release updates. No release is published by a local build.
+
+
+## Files and photos
+
+输入框旁的单一附件按钮可选择照片和普通文件，也支持混合拖入与文件粘贴。照片仍走图片内容通道；PDF、文档、表格、源代码等文件保留原始字节，由当前 Claude/Codex 的本地工具读取，格式处理能力取决于工具。每条最多 5 个普通文件，单个 10 MiB、合计 20 MiB；只发附件也可发送。发送前可移除文件，发送失败会保留草稿。文件名、大小及附件引用随历史保存，原文件移动或删除不影响已经导入的副本。文件卡片在 Mac 通过 Finder 查看，在 Windows/手机通过授权下载获取，不自动启动可执行附件。

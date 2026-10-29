@@ -97,7 +97,7 @@ final class MobileRelayClient: NSObject, URLSessionTaskDelegate {
         let session = URLSession(configuration: config, delegate: self, delegateQueue: .main)
         self.session = session
         let task = session.webSocketTask(with: endpoint)
-        task.maximumMessageSize = MobileHTTPServer.maximumBody * 2 + 16384
+        task.maximumMessageSize = 48 * 1024 * 1024
         socket = task
         task.resume()
         reader = Task { @MainActor [weak self, weak task] in

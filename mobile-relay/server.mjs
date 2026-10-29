@@ -4,11 +4,11 @@ import { pathToFileURL } from 'node:url';
 import { WebSocket, WebSocketServer } from 'ws';
 
 export const LIMITS = Object.freeze({
-  requestBytes: 3 * 1024 * 1024, responseBytes: 16 * 1024 * 1024, headerBytes: 16 * 1024,
-  webSocketBytes: 24 * 1024 * 1024, pending: 8, unverifiedHosts: 4,
-  bodyTimeout: 15000, responseTimeout: 50000, authenticationTimeout: 10000, heartbeat: 30000,
+  requestBytes: 32 * 1024 * 1024, responseBytes: 16 * 1024 * 1024, headerBytes: 16 * 1024,
+  webSocketBytes: 48 * 1024 * 1024, pending: 8, unverifiedHosts: 4,
+  bodyTimeout: 120000, responseTimeout: 50000, authenticationTimeout: 10000, heartbeat: 30000,
   eventBytes: 8192, events: 16, eventHandshakeTimeout: 10000, eventRate: 30, bufferedEventBytes: 65536,
-  targetBytes: 4096, bufferedHostBytes: 8 * 1024 * 1024
+  targetBytes: 4096, bufferedHostBytes: 64 * 1024 * 1024
 });
 const HOP_HEADERS = new Set(['connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization',
   'te', 'trailer', 'transfer-encoding', 'upgrade']);
