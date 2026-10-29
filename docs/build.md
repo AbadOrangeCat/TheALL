@@ -112,7 +112,7 @@ target 也使用同一证书，独立启用 hardened runtime，不注入调试 e
 
 - `TheAll.xcodeproj/project.pbxproj` 中的同名设置；
 - `desktop/package.json` 与 `package-lock.json`，Windows 版运行时从 `package.json` 读取版本；
-- README、`docs/windows.md` 和网站中指向当前版本的链接、安装包文件名与标签；
+- README、`docs/windows.md`、`docs/third-party-components.md`、打进 app 的 `Resources/ThirdPartyLicenses/README.md` 和网站中指向当前版本的链接、安装包文件名与标签；
 - `landing-page/assets/social-card.svg` 中的版本号，并用 Chrome 重新渲染 `social-card.png`。`overview.png` 同样由 `overview.svg` 渲染。
 
 手动改过 `project.yml` 时，不带参数运行即可同步。`--check` 只读校验，`check-doc-drift.sh` 和 Release workflow 会调用。PNG 记录了渲染所用 SVG 的哈希，修改 SVG 后未重新渲染时校验会失败。请在 macOS 上渲染，以使用图中的 Avenir Next 字体。

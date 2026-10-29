@@ -6,7 +6,8 @@
   ./scripts/sync-version.py --check  # read-only; exit 1 on drift (CI, check-doc-drift.sh)
 
 Synced: the Xcode project, desktop/package.json and its lockfile, current-release
-links and labels in the READMEs, docs/windows.md and the website, and the website
+links and labels in the READMEs, Windows and third-party docs, the bundled license
+notice and the website, and the website
 PNGs rendered from their SVG sources (including the social card's version pill).
 
 A line containing `version:keep` (written as `<!-- version:keep -->` in Markdown and
@@ -32,8 +33,9 @@ import zlib
 ROOT = Path(__file__).resolve().parent.parent
 PROJECT = ROOT / 'project.yml'
 XCODE_PROJECT = ROOT / 'TheAll.xcodeproj/project.pbxproj'
-# Every vX.Y.Z / TheAll-X.Y.Z in these files must be the current version unless kept.
-TEXT_FILES = ['README.md', 'README.zh-CN.md', 'docs/windows.md',
+# Every vX.Y.Z / TheAll-X.Y.Z / TheAll X.Y.Z in these files must be the current version unless kept.
+TEXT_FILES = ['README.md', 'README.zh-CN.md', 'docs/windows.md', 'docs/third-party-components.md',
+              'Resources/ThirdPartyLicenses/README.md',
               'landing-page/index.html', 'landing-page/assets/social-card.svg']
 # JSON files and the key paths that hold the desktop app version.
 JSON_FILES = {'desktop/package.json': [('version',)],
@@ -42,7 +44,7 @@ JSON_FILES = {'desktop/package.json': [('version',)],
 RENDERED = [('landing-page/assets/social-card.svg', 'landing-page/assets/social-card.png'),
             ('landing-page/assets/overview.svg', 'landing-page/assets/overview.png')]
 KEEP_MARKER = 'version:keep'
-VERSION = re.compile(r'\b(v|TheAll-)(\d+\.\d+\.\d+)\b|("softwareVersion"\s*:\s*")(\d+\.\d+\.\d+)')
+VERSION = re.compile(r'\b(v|TheAll[- ])(\d+\.\d+\.\d+)\b|("softwareVersion"\s*:\s*")(\d+\.\d+\.\d+)')
 SOURCE_KEY = 'TheAll-Source-SHA256'
 PNG_SIGNATURE = b'\x89PNG\r\n\x1a\n'
 
