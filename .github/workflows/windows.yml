@@ -50,6 +50,16 @@ jobs:
         run: npm run prepare:assets --prefix desktop
       - name: Exercise Electron, Windows encryption and restored history
         run: npm run test:desktop --prefix desktop
+        env:
+          THEALL_SMOKE_SCREENSHOTS: ${{ runner.temp }}/ui-screenshots
+      - name: Upload UI screenshots for review
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: TheAll-windows-ui-${{ github.run_number }}
+          path: ${{ runner.temp }}/ui-screenshots
+          if-no-files-found: ignore
+          retention-days: 14
 
   package:
     name: Package Windows ${{ matrix.arch }}

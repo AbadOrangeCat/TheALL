@@ -14,8 +14,9 @@ export function themeTokens(mode='system',systemDark=true){
 export function applyTheme(document,settings={}){
  const root=document.documentElement;
  for(const [key,value] of Object.entries(themeTokens(settings.theme,matchMedia('(prefers-color-scheme:dark)').matches))){if(key==='color-scheme')root.style.colorScheme=value;else root.style.setProperty(key,value);}
- const family=String(settings.fontFamily||'Cascadia Code').replace(/[;{}"\\]/g,'');
- root.style.setProperty('--chat-font',`"${family}", ui-monospace, "SFMono-Regular", Consolas, Menlo, monospace`);
+ // Like the Mac chat, the default is the system UI font; the settings page shows the same default.
+ const family=String(settings.fontFamily||'Segoe UI').replace(/[;{}"\\]/g,'');
+ root.style.setProperty('--chat-font',`"${family}", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif`);
  applyEffects(document,settings);
  root.style.setProperty('--chat-size',`${Math.max(6,Math.min(72,Number(settings.fontSize)||13))}px`);
 }

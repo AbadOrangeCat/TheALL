@@ -45,7 +45,10 @@ async function openWindow() {
     width: 1280, height: 850, minWidth: 820, minHeight: 540,
     title: development ? 'TheAll dev' : 'TheAll', show: false,
     icon: path.join(root, 'assets', 'TheAll.png'), backgroundColor: '#121213', backgroundMaterial: process.platform === 'win32' ? 'auto' : undefined,
-    autoHideMenuBar: true,
+    autoHideMenuBar: true, titleBarStyle: 'hidden',
+    // Like the Mac window, content runs to the top edge. Windows keeps its native
+    // caption buttons, drawn over the tab row of the content card.
+    ...(process.platform === 'darwin' ? { trafficLightPosition: { x: 16, y: 14 } } : { titleBarOverlay: titleBarOverlay() }),
     webPreferences: {
       preload: path.join(root, 'src', 'preload.cjs'), sandbox: true,
       contextIsolation: true, nodeIntegration: false, webSecurity: true,
@@ -90,6 +93,14 @@ async function updateWindowEffects() {
   const supportsGlass = process.platform === 'win32' && Number(os.release().split('.')[2]) >= 22621;
   if (supportsGlass) window.setBackgroundMaterial(settings.backgroundBlur > 0 ? 'acrylic' : 'none');
   window.setBackgroundColor(supportsGlass && settings.backgroundBlur > 0 ? '#00000000' : themeTokens(settings.theme, nativeTheme.shouldUseDarkColors)['--canvas']);
+  if (process.platform !== 'darwin') window.setTitleBarOverlay(titleBarOverlay(settings));
+}
+
+// The overlay height matches the 40px tab row in renderer/desktop.css.
+function titleBarOverlay(settings = {}) {
+  const tokens = themeTokens(settings.theme, nativeTheme.shouldUseDarkColors);
+  const hex = value => '#' + value.match(/\d+/g).slice(0, 3).map(v => Number(v).toString(16).padStart(2, '0')).join('');
+  return { color: hex(tokens['--canvas']), symbolColor: hex(tokens['--text']), height: 40 };
 }
 
 if (!app.requestSingleInstanceLock()) app.quit();
@@ -97,6 +108,7 @@ else {
   app.on('second-instance', () => { if (window) { if (window.isMinimized()) window.restore(); window.show(); window.focus(); } });
   app.on('activate', () => { if (runtime) openWindow().catch(fatal); });
   app.on('window-all-closed', () => app.quit());
+  nativeTheme.on('updated', () => { if (window && !window.isDestroyed()) updateWindowEffects().catch(() => {}); });
   app.on('before-quit', event => {
     if (!runtime) return;
     event.preventDefault();

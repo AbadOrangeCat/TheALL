@@ -2,12 +2,15 @@ import { desktopChat as chat, desktopHooks as hooks } from '/app.js';
 import { t, setLocale } from './localization.mjs';
 import { applyTheme } from './theme.mjs';
 import { PromptHistory } from './history.mjs';
+import { icon, iconMask } from './icons.mjs';
 import { setLanguage, t as chatText } from '/i18n.js';
 const shell=window.parent!==window&&window.parent.location.origin===location.origin?window.parent.theallDesktop:null;
 if(!shell)throw new Error('The chat pane requires the desktop host');
 const $=id=>document.getElementById(id);
 const id=new URL(location.href).searchParams.get('id');
 const css=document.createElement('link');css.rel='stylesheet';css.href='/desktop/pane.css';document.head.append(css);
+// Icons for controls whose text the shared chat client rewrites on translation.
+const iconStyle=document.createElement('style');iconStyle.textContent=[['.composer .attachment-add::before','paperclip'],['.composer #stop::before','stop.fill'],['.jump-bottom::before','arrow.down.to.line'],['.composer .directory::before','folder']].map(([selector,name])=>`${selector}{-webkit-mask-image:${iconMask(name)};mask-image:${iconMask(name)}}`).join('');document.head.append(iconStyle);
 let loaded=false,restoreCounter=0,saveTimer,lastSaved='',lastFilesSaved='',saveTail=Promise.resolve(),setupProvider=null,setupDirectory='';
 const history=new PromptHistory();
 function node(tag,cls,text){const el=document.createElement(tag);if(cls)el.className=cls;if(text!==undefined)el.textContent=text;return el;}
@@ -36,19 +39,46 @@ $('directory').role='button';$('directory').tabIndex=0;
 async function chooseFolder(){if(chat.selectedChat?.isBusy||chat.pending)return;const result=await shell.invoke('folder.select',{directory:chat.selectedChat?.directory});if(result.directory){await shell.invoke('chat.update',{id,directory:result.directory});await chat.refresh();}}
 $('directory').onclick=()=>chooseFolder().catch(report);$('directory').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();chooseFolder().catch(report);}};
 document.addEventListener('pointerdown',()=>shell.active(id));window.addEventListener('focus',()=>shell.active(id));
-let lastSetupSignature='';
+let lastSetupSignature='',returnedToChooser=false;
+const providerInfo={claude:{title:'Claude',tool:'Claude Code',icon:'sparkle',url:'https://api.anthropic.com'},openai:{title:'OpenAI',tool:'Codex',icon:'command',url:'https://api.openai.com/v1'}};
+// Chat header (AIChatView.swift): the tool name and its connection settings, once a chat can run.
+const header=node('header','desktop-chat-header'),headerTitle=node('span','desktop-chat-title'),headerSettings=node('button','desktop-chat-settings');
+header.hidden=true;headerSettings.type='button';headerSettings.onclick=()=>shell.openSettings('agents');header.append(icon('sparkles'),headerTitle,headerSettings);$('chat-area').before(header);
+function updateHeader(current,ready){header.hidden=!ready;headerTitle.textContent=providerInfo[current?.provider]?.tool||'AI';const label=t('ai.settings');if(headerSettings.textContent!==label)headerSettings.replaceChildren(icon('slider.horizontal.3'),node('span','',label));}
+function heading(title,detail){const box=node('div','setup-heading');box.append(node('h2','',title),node('p','',detail));return box;}
+// Provider chooser and connection form, laid out like AITerminalPaneView.swift.
 function showSetupIfNeeded(force=false){
  const current=chat.selectedChat;let section=$('native-setup');if(!current)return;
- if(current.provider&&shell.settings.connections?.[current.provider]?.configured){section?.remove();shell.ensureModels(current.provider);return;}
- if(current.provider)setupProvider=current.provider;
- const signature=JSON.stringify([shell.locale,shell.settings.connections,current.directory]);if(!force&&signature===lastSetupSignature&&section)return;lastSetupSignature=signature;section?.remove();
- section=node('section','native-setup');section.id='native-setup';const inner=node('div','setup-inner');inner.append(node('h2','',t('chooseAI')),node('p','help',t('chooseAIDetail')));const choices=node('div','provider-options');const error=node('p','setup-error');
- for(const provider of ['claude','openai']){const button=node('button',setupProvider===provider?'active':'',provider==='claude'?'Claude Code':'Codex');button.type='button';button.onclick=async()=>{setupProvider=provider;if(shell.settings.connections?.[provider]?.configured){button.disabled=true;try{await activate();}catch(e){error.textContent=e.message;button.disabled=false;}}else showSetupIfNeeded(true);};choices.append(button);}inner.append(choices);
- setupDirectory||=current.directory||shell.settings.defaultDirectory||'';const directory=node('div','setup-directory'),label=node('span','',setupDirectory),choose=node('button','',t('chooseFolder'));choose.onclick=async()=>{try{const r=await shell.invoke('folder.select',{directory:setupDirectory});if(r.directory){setupDirectory=r.directory;label.textContent=r.directory;}}catch(e){error.textContent=e.message;}};directory.append(label,choose);inner.append(directory);
- const saved=shell.settings.connections?.[setupProvider];
- if(setupProvider&&!saved?.configured){const form=node('form','');const keyLabel=node('label','help',t('apiKey')),key=node('input');key.type='password';key.autocomplete='off';key.required=true;keyLabel.append(key);const baseLabel=node('label','help',t('baseURL')),base=node('input');base.type='url';base.value=setupProvider==='claude'?'https://api.anthropic.com':'https://api.openai.com/v1';baseLabel.append(base);form.append(keyLabel,baseLabel);const submit=node('button','primary',t('startConversation'));submit.type='submit';form.append(submit);form.onsubmit=async e=>{e.preventDefault();submit.disabled=true;try{await shell.invoke('connection.save',{provider:setupProvider,apiKey:key.value,baseURL:base.value,model:'',useBearerToken:false,executable:''});key.value='';await activate();}catch(e){error.textContent=e.message;}finally{submit.disabled=false;}};inner.append(form);
- }else if(setupProvider){const start=node('button','primary',t('startConversation'));start.onclick=async()=>{start.disabled=true;try{await activate();}catch(e){error.textContent=e.message;start.disabled=false;}};inner.append(start);}
- const settings=node('button','text-button',t('settings'));settings.onclick=()=>shell.openSettings('agents');inner.append(settings,error);section.append(inner);document.body.append(section);
+ const ready=!!(current.provider&&shell.settings.connections?.[current.provider]?.configured);updateHeader(current,ready);
+ if(ready){section?.remove();shell.ensureModels(current.provider);return;}
+ if(current.provider&&!setupProvider&&!returnedToChooser)setupProvider=current.provider;
+ const signature=JSON.stringify([shell.locale,shell.settings.connections,current.directory,setupProvider]);if(!force&&signature===lastSetupSignature&&section)return;lastSetupSignature=signature;section?.remove();
+ section=node('section','native-setup');section.id='native-setup';const inner=node('div','setup-inner'),error=node('p','setup-error');
+ setupDirectory||=current.directory||shell.settings.defaultDirectory||'';
+ const directory=node('div','setup-directory'),choose=node('button'),folderPath=node('span','',setupDirectory);choose.type='button';choose.title=t('ai.directory.choose');choose.append(icon('folder'),folderPath);directory.append(choose);
+ choose.onclick=async()=>{try{const r=await shell.invoke('folder.select',{directory:setupDirectory});if(r.directory){setupDirectory=r.directory;folderPath.textContent=r.directory;}}catch(e){error.textContent=e.message;}};
+ if(setupProvider&&!shell.settings.connections?.[setupProvider]?.configured){
+  const back=node('button','setup-back');back.type='button';back.append(icon('chevron.left'),node('span','',t('ai.back')));back.onclick=()=>{setupProvider=null;returnedToChooser=true;showSetupIfNeeded(true);};
+  const form=node('form','setup-form'),keyField=node('label','setup-field'),key=node('input'),baseField=node('label','setup-field'),base=node('input'),actions=node('div','setup-actions'),submit=node('button','primary',t('ai.saveOpen'));
+  key.type='password';key.autocomplete='off';key.required=true;keyField.append(node('span','',t('apiKey')),key);
+  base.type='url';base.value=providerInfo[setupProvider].url;baseField.append(node('span','',t('ai.url')),base);
+  submit.type='submit';actions.append(submit);form.append(keyField,baseField,actions);
+  form.onsubmit=async e=>{e.preventDefault();submit.disabled=true;try{await shell.invoke('connection.save',{provider:setupProvider,apiKey:key.value,baseURL:base.value,model:'',useBearerToken:false,executable:''});key.value='';await activate();}catch(e){error.textContent=e.message;}finally{submit.disabled=false;}};
+  inner.append(back,heading(providerInfo[setupProvider].tool,t('ai.configure')),directory,form);
+ }else{
+  const brand=node('div','setup-brand'),logo=node('img');logo.src='/icons/icon-192.png';logo.alt='';logo.width=logo.height=24;brand.append(logo,node('span','','TheAll'));
+  const choices=node('div','provider-options');
+  for(const provider of ['claude','openai']){
+   const info=providerInfo[provider],card=node('div','provider-card'+(setupProvider===provider?' active':'')),main=node('button','provider-main'),copy=node('span','provider-copy'),settings=node('button','provider-settings');
+   copy.append(node('strong','',info.title),node('small','',info.tool));main.type='button';main.append(icon(info.icon,'icon provider-icon'),copy,icon('arrow.right','icon provider-arrow'));
+   settings.type='button';settings.title=t('ai.settings');settings.setAttribute('aria-label',`${info.tool} · ${settings.title}`);settings.append(icon('slider.horizontal.3'));settings.onclick=()=>shell.openSettings('agents');
+   main.onclick=async()=>{setupProvider=provider;returnedToChooser=false;if(shell.settings.connections?.[provider]?.configured){main.disabled=true;try{await activate();}catch(e){error.textContent=e.message;main.disabled=false;}}else showSetupIfNeeded(true);};
+   card.append(main,settings);choices.append(card);
+  }
+  const note=node('p','setup-note');note.append(icon('lock.shield'),node('span','',t('storageNote')));
+  inner.append(brand,directory,heading(t('ai.choose.title'),t('ai.choose.detail')),choices,note);
+ }
+ inner.append(error);section.append(inner);document.body.append(section);
  async function activate(){await shell.invoke('chat.update',{id,provider:setupProvider,directory:setupDirectory,model:shell.settings.connections?.[setupProvider]?.model||''});await chat.refresh();await shell.changed();shell.ensureModels(setupProvider);section.remove();}
 }
 function atBoundary(key){const input=$('draft'),start=input.selectionStart;if(key==='ArrowUp'){const before=input.value.slice(0,start);return !before.includes('\n')&&visualWidth(before)<=input.clientWidth-24;}const after=input.value.slice(start);return !after.includes('\n')&&visualWidth(after)<=input.clientWidth-24;}
