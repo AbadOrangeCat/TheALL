@@ -7,7 +7,7 @@
 <image x="75" y="74" width="70" height="70" href="logo@2x.png"/>
 <text x="183" y="130" font-family="Avenir Next, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="68" font-weight="600" fill="#FFFEF9">TheAll</text>
 <rect x="1026.5" y="91.5" width="100" height="33" rx="16.5" fill="#2A514A" stroke="#456B5C"/>
-<text x="1076.5" y="113" text-anchor="middle" font-family="Avenir Next, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="17" font-weight="400" fill="#CFF1DC">v0.1.8</text>
+<text x="1076.5" y="113" text-anchor="middle" font-family="Avenir Next, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="17" font-weight="400" fill="#CFF1DC">v0.1.9</text>
 <text x="65" y="273" font-family="Avenir Next, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="63" font-weight="600" fill="#FFFEF9">Claude Code &amp; Codex.</text>
 <text x="65" y="350" font-family="Avenir Next, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="52" font-weight="600" letter-spacing="-1" fill="#CFF1DC">One workspace for Mac &amp; Windows.</text>
 <text x="66" y="401" font-family="Avenir Next, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="26" font-weight="400" fill="#C7D8D0">Your projects, conversations, and models. Together.</text>
