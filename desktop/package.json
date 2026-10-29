@@ -1,6 +1,6 @@
 {
   "name": "theall-desktop",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "description": "TheAll AI workspace for Windows",
   "author": "TheAll",
   "license": "SEE LICENSE IN LICENSE",
@@ -22,7 +22,9 @@
     "dist:win:zip:arm64": "npm run prepare:assets && electron-builder --win zip --arm64"
   },
   "dependencies": {
+    "@peculiar/asn1-schema": "3.0.0",
     "@peculiar/x509": "3.1.0",
+    "asn1js": "4.0.0",
     "qrcode": "1.5.4",
     "reflect-metadata": "0.2.2",
     "ws": "8.22.0"
@@ -37,6 +39,7 @@
     "productName": "TheAll",
     "artifactName": "TheAll-${version}-windows-${arch}-zip.${ext}",
     "asar": true,
+    "afterPack": "scripts/after-pack.mjs",
     "directories": {
       "output": "dist",
       "buildResources": "assets"
