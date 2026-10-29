@@ -1,174 +1,172 @@
-#if !DEBUG
 import Foundation
 import Sparkle
 
-/// Implements Sparkle's SPUUserDriver protocol, the interface through which
-/// Sparkle notifies the app of update-lifecycle events and receives user
-/// decisions. Every callback mutates UpdateStore on the main actor so the
-/// SwiftUI views observe the change; every user action (downloadAndInstall,
-/// skip, dismiss) is routed here via SparkleBridge, which stores the
-/// pending reply blocks and calls them when the user clicks.
-///
-/// Lifecycle (happy path):
-///   showUpdateFound(...) → (user click Download & Install)
-///   → showDownloadInitiated → showDownloadDidReceiveData(progress) x N
-///   → showDownloadDidStartExtractingUpdate → showReady(toInstallAndRelaunch)
-///   → Sparkle quits + relaunches.
-///
-/// Compiled only in Release (`#if !DEBUG`) — Debug has no Sparkle in scope.
+/// The same callback implementation is compiled in Debug and Release. Tests inject
+/// local continuations; no feed, updater process or real application is launched.
 @MainActor
 final class UpdateUserDriver: NSObject, SPUUserDriver {
-
-    private weak var store: UpdateStore?
-
-    // Pending reply from Sparkle's showUpdateFound; consumed by a user click
-    // (Download / Skip / Dismiss). Sparkle requires this block to be called
-    // exactly once per update check — failing to call it hangs the state
-    // machine.
+    private let store: UpdateStore
+    private let canInstall: () -> Bool
+    let installation: UpdateInstallCoordinator
     private var pendingUpdateReply: ((SPUUserUpdateChoice) -> Void)?
+    private var downloadCancellation: (() -> Void)?
+    private var receivedBytes: UInt64 = 0
+    private var expectedTotalBytes: UInt64 = 0
+    private var userRequestedInstall = false
+    private var wasCancelled = false
 
-    init(store: UpdateStore) {
-        self.store = store
+    init(store: UpdateStore, canInstall: @escaping () -> Bool,
+         isBusy: @escaping () -> Bool, flush: @escaping () throws -> Void) {
+        self.store = store; self.canInstall = canInstall
+        installation = UpdateInstallCoordinator(store: store, isBusy: isBusy, flush: flush)
         super.init()
     }
 
-    // MARK: - Public (called by SparkleBridge when user clicks)
-
     func userRequestedDownloadAndInstall() {
-        pendingUpdateReply?(.install)
+        guard canInstall(), let reply = pendingUpdateReply else { return }
         pendingUpdateReply = nil
+        wasCancelled = false; userRequestedInstall = true
+        store.setDownloading(progress: 0)
+        reply(.install)
     }
-
     func userRequestedSkipVersion() {
-        pendingUpdateReply?(.skip)
-        pendingUpdateReply = nil
-        store?.resetToIdle()
+        let reply = pendingUpdateReply; pendingUpdateReply = nil
+        userRequestedInstall = false
+        store.resetToIdle()
+        reply?(.skip)
     }
-
     func userRequestedDismiss() {
-        pendingUpdateReply?(.dismiss)
-        pendingUpdateReply = nil
+        let reply = pendingUpdateReply; pendingUpdateReply = nil
+        userRequestedInstall = false
+        store.resetToIdle()
+        reply?(.dismiss)
     }
-
-    // MARK: - SPUUserDriver
-
-    // Required by SPUUserDriver in Sparkle 2.9: ask user permission for
-    // automatic update checks (typically first-launch only). We auto-grant
-    // permission with the system profile disabled to stay non-intrusive.
-    func show(_ request: SPUUpdatePermissionRequest, reply: @escaping (SUUpdatePermissionResponse) -> Void) {
-        reply(SUUpdatePermissionResponse(automaticUpdateChecks: true, sendSystemProfile: false))
-    }
-
-    func showUserInitiatedUpdateCheck(cancellation: @escaping () -> Void) {
-        store?.setChecking()
-    }
-
-    func showUpdateFound(
-        with appcastItem: SUAppcastItem,
-        state: SPUUserUpdateState,
-        reply: @escaping (SPUUserUpdateChoice) -> Void
-    ) {
-        // Defensive: if a prior update check's reply is still stashed (user
-        // closed Settings without clicking any button), resolve it with
-        // .dismiss so Sparkle's state machine doesn't deadlock.
-        pendingUpdateReply?(.dismiss)
-        pendingUpdateReply = reply
-        store?.setUpdateAvailable(
-            version: appcastItem.displayVersionString ?? appcastItem.versionString,
-            releaseNotes: appcastItem.itemDescription
-        )
-    }
-
-    func showUpdateReleaseNotes(with downloadData: SPUDownloadData) {
-        // Not used: we render notes from appcastItem.itemDescription at the
-        // moment of showUpdateFound(...). If a release ships notes as a
-        // separate HTML asset via sparkle:releaseNotesLink, Sparkle would
-        // call this; we'd optionally plumb it into UpdateStore later.
-    }
-
-    func showUpdateReleaseNotesFailedToDownloadWithError(_ error: Error) {
-        // Non-fatal — we already have the inline release notes.
-    }
-
-    func showUpdateNotFoundWithError(_ error: Error, acknowledgement: @escaping () -> Void) {
-        store?.setUpToDate()
-        acknowledgement()
-        // Auto-transition back to idle after 3 s.
-        Task { @MainActor [weak store] in
-            try? await Task.sleep(nanoseconds: 3_000_000_000)
-            if case .upToDate = store?.state {
-                store?.resetToIdle()
-            }
+    func cancel() {
+        wasCancelled = true; userRequestedInstall = false
+        if let cancel = downloadCancellation {
+            downloadCancellation = nil
+            store.resetToIdle()
+            cancel()
+        } else if installation.hasPendingInstallation {
+            installation.cancel()
         }
     }
 
-    func showUpdaterError(_ error: Error, acknowledgement: @escaping () -> Void) {
-        store?.setError(error.localizedDescription)
+    func show(_ request: SPUUpdatePermissionRequest, reply: @escaping (SUUpdatePermissionResponse) -> Void) {
+        reply(SUUpdatePermissionResponse(automaticUpdateChecks: true, sendSystemProfile: false))
+    }
+    func prepareForCheck() { wasCancelled = false }
+    func showUserInitiatedUpdateCheck(cancellation: @escaping () -> Void) { prepareForCheck(); store.setChecking() }
+
+    func showUpdateFound(with appcastItem: SUAppcastItem, state: SPUUserUpdateState,
+                         reply: @escaping (SPUUserUpdateChoice) -> Void) {
+        guard !appcastItem.isInformationOnlyUpdate, Self.isReleaseAsset(appcastItem.fileURL) else {
+            reply(.dismiss)
+            store.setError(L10n.string("update.invalidRelease"))
+            return
+        }
+        offer(version: appcastItem.displayVersionString, notes: appcastItem.itemDescription,
+              alreadyInstalling: state.stage == .installing, reply: reply)
+    }
+
+    /// Entry point shared by live Sparkle callbacks and deterministic lifecycle tests.
+    func offer(version: String, notes: String?, alreadyInstalling: Bool = false,
+               reply: @escaping (SPUUserUpdateChoice) -> Void) {
+        pendingUpdateReply?(.dismiss)
+        installation.abandon()
+        downloadCancellation = nil; store.canCancelDownload = false
+        userRequestedInstall = false; wasCancelled = false
+        pendingUpdateReply = { [weak self] choice in
+            if choice == .install, alreadyInstalling { self?.showReady(toInstallAndRelaunch: reply) }
+            else { reply(choice) }
+        }
+        store.setUpdateAvailable(version: version, releaseNotes: notes)
+    }
+
+    static func isReleaseAsset(_ url: URL?) -> Bool {
+        guard let url, url.scheme == "https", url.host == "github.com", url.port == nil,
+              url.user == nil, url.password == nil, url.query == nil, url.fragment == nil else { return false }
+        return url.path.range(of: #"^/AbadOrangeCat/TheALL/releases/download/v[0-9]+\.[0-9]+\.[0-9]+/TheAll-[0-9]+\.[0-9]+\.[0-9]+-macos-(arm64|x64|universal)\.(dmg|zip)$"#, options: .regularExpression) != nil
+    }
+
+    func showUpdateReleaseNotes(with downloadData: SPUDownloadData) {}
+    func showUpdateReleaseNotesFailedToDownloadWithError(_ error: Error) {}
+    func showUpdateNotFoundWithError(_ error: Error, acknowledgement: @escaping () -> Void) {
+        recordCycleError(error)
         acknowledgement()
+    }
+    func showUpdaterError(_ error: Error, acknowledgement: @escaping () -> Void) {
+        recordCycleError(error)
+        acknowledgement()
+    }
+
+    func recordCycleError(_ error: Error) {
+        installation.abandon()
+        pendingUpdateReply = nil; downloadCancellation = nil
+        userRequestedInstall = false; store.canCancelDownload = false
+        let ns = error as NSError
+        if wasCancelled || (ns.domain == SUSparkleErrorDomain && ns.code == SUError.installationCanceledError.rawValue) {
+            store.resetToIdle(); return
+        }
+        if ns.domain == SUSparkleErrorDomain, ns.code == SUError.noUpdateError.rawValue {
+            let reason = (ns.userInfo[SPUNoUpdateFoundReasonKey] as? NSNumber)?.intValue ?? -1
+            if reason == Int(SPUNoUpdateFoundReason.onLatestVersion.rawValue)
+                || reason == Int(SPUNoUpdateFoundReason.onNewerThanLatestVersion.rawValue) {
+                store.setUpToDate()
+            } else {
+                // Unsupported OS/architecture or an empty feed is not "up to date".
+                store.setError(L10n.string("update.noCompatibleRelease"))
+            }
+        } else {
+            store.setError(L10n.string("update.checkFailed") + "\n" + ns.localizedDescription)
+        }
     }
 
     func showDownloadInitiated(cancellation: @escaping () -> Void) {
-        // Reset byte counters — they are instance state that persists across
-        // multiple download cycles (rare, but possible if user cancels and
-        // Sparkle retries).
-        receivedBytes = 0
-        expectedTotalBytes = 0
-        store?.setDownloading(progress: 0)
+        guard userRequestedInstall, canInstall(), !wasCancelled else { cancellation(); return }
+        receivedBytes = 0; expectedTotalBytes = 0
+        downloadCancellation = cancellation; store.canCancelDownload = true
+        store.setDownloading(progress: 0)
     }
-
     func showDownloadDidReceiveExpectedContentLength(_ expectedContentLength: UInt64) {
-        // Stored for progress % calculation in showDownloadDidReceiveData.
         expectedTotalBytes = expectedContentLength
     }
-
-    private var expectedTotalBytes: UInt64 = 0
-    private var receivedBytes: UInt64 = 0
-
     func showDownloadDidReceiveData(ofLength length: UInt64) {
-        receivedBytes += length
-        // If Sparkle never called the expectedContentLength path, fall back
-        // to indeterminate 0% — avoids divide-by-zero.
+        guard userRequestedInstall, !wasCancelled else { return }
+        let sum = receivedBytes.addingReportingOverflow(length)
+        receivedBytes = sum.overflow ? UInt64.max : sum.partialValue
         let total = expectedTotalBytes > 0 ? expectedTotalBytes : max(receivedBytes, 1)
-        let progress = min(1.0, Double(receivedBytes) / Double(total))
-        store?.setDownloading(progress: progress)
+        store.setDownloading(progress: Double(receivedBytes) / Double(total))
     }
-
     func showDownloadDidStartExtractingUpdate() {
-        store?.setDownloading(progress: 1.0)
+        downloadCancellation = nil; store.canCancelDownload = false
+        if userRequestedInstall, !wasCancelled { store.setDownloading(progress: 1) }
     }
-
     func showExtractionReceivedProgress(_ progress: Double) {
-        store?.setDownloading(progress: progress)
+        // Keep download at 100% during verification/extraction (do not jump backwards).
     }
-
     func showReady(toInstallAndRelaunch reply: @escaping (SPUUserUpdateChoice) -> Void) {
-        store?.setReadyToInstall()
-        // Auto-install: match input0 behaviour.
-        reply(.install)
+        guard userRequestedInstall, canInstall(), !wasCancelled else {
+            reply(.skip) // Cancel staged installation; .dismiss would still install on quit.
+            return
+        }
+        downloadCancellation = nil; store.canCancelDownload = false
+        installation.ready(install: { reply(.install) }, cancel: { reply(.skip) })
     }
-
-    func showInstallingUpdate(
-        withApplicationTerminated applicationTerminated: Bool,
-        retryTerminatingApplication: @escaping () -> Void
-    ) {
-        // Sparkle is about to quit + install. UI unchanged from readyToInstall.
+    func showInstallingUpdate(withApplicationTerminated applicationTerminated: Bool,
+                             retryTerminatingApplication: @escaping () -> Void) {
+        store.setInstalling()
     }
-
     func showUpdateInstalledAndRelaunched(_ relaunched: Bool, acknowledgement: @escaping () -> Void) {
-        // Only called if Sparkle ran the installer in-process without quitting
-        // (uncommon for .dmg installs). Acknowledge and reset.
-        store?.resetToIdle()
-        acknowledgement()
+        installation.abandon(); store.resetToIdle(); acknowledgement()
     }
-
-    func showUpdateInFocus() {
-        // Reserved for bringing focus to the update UI; our settings panel
-        // is reached by the user clicking the sidebar version number, so
-        // no-op here.
-    }
-
+    func showUpdateInFocus() {}
     func dismissUpdateInstallation() {
-        // Sparkle telling us the install flow ended (success or user cancel).
+        // Sparkle can dismiss its UI during the successful termination handoff.
+        switch store.state {
+        case .checking, .downloading, .readyToInstall, .waitingToInstall:
+            installation.abandon(); store.resetToIdle()
+        default: break // Preserve error/up-to-date feedback and the relaunch gate.
+        }
     }
 }
-#endif

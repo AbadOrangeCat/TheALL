@@ -75,3 +75,11 @@ dialog { border-radius:16px; }
 @media(prefers-reduced-motion:reduce) {
   *,*::before,*::after { animation:none!important; transition:none!important; scroll-behavior:auto!important; }
 }
+
+.update-shortcut { display:flex; align-items:center; gap:12px; margin:12px 8px 0; padding:12px; min-height:48px; text-align:left; color:var(--accent); background:var(--accent-muted); border:1px solid var(--border-strong); border-radius:10px; }
+.update-shortcut>span:first-child { font-size:20px; }
+.update-shortcut>span:last-child { min-width:0; }
+.update-shortcut strong,.update-shortcut small { display:block; overflow-wrap:anywhere; }
+.update-shortcut small { color:var(--muted); font-size:10px; line-height:1.5; margin-top:4px; }
+.update-shortcut:disabled { opacity:1; }
+.collapsed-sidebar .update-shortcut { display:none; }

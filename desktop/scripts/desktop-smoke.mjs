@@ -39,7 +39,7 @@ ipcMain.handle=(channel,listener)=>handle(channel,channel==='theall:desktop'?(ev
  const wrapper=frame?new Proxy(frame,{get(target,key){const value=Reflect.get(target,key,target);return typeof value==='function'?value.bind(target):value;}}):null;
  return listener({sender:event.sender,senderFrame:wrapper},...args);
 }:listener);
-import(${JSON.stringify(pathToFileURL(path.join(root,'src/main.mjs')).href)});
+import(${JSON.stringify(pathToFileURL(path.join(root,'src/updater.mjs')).href)}).then(({DesktopUpdater})=>{globalThis.theallUpdaterClass=DesktopUpdater;return import(${JSON.stringify(pathToFileURL(path.join(root,'src/main.mjs')).href)});});
 `);
 let application,page;const errors=[];
 const env={...process.env,THEALL_TEST_DATA_DIR:dataDir,THEALL_TEST_HIDE_WINDOW:'1'};delete env.ELECTRON_RUN_AS_NODE;
@@ -135,6 +135,26 @@ try{
  await pane.locator('#draft').fill('Continue after reopening.');await pane.locator('#draft').press('Control+Enter');
  await pane.waitForFunction(()=>document.querySelectorAll('.message.user').length>=2,{timeout:30000});
  await page.locator('#settings-button').click();assert.equal(await page.locator('#settings-tabs button').count(),8);
+ assert.equal((await ipc('update.status')).phase,'disabled');
+ assert.equal(await page.locator('#update-shortcut').isVisible(),false);
+ // Instrument the updater class in the isolated harness only. Production builds
+ // have no test URL, fixture switch or renderer-controlled install destination.
+ await application.evaluate(() => {
+   const DesktopUpdater=globalThis.theallUpdaterClass;
+   globalThis.theallUpdateFixture={phase:'available',version:'9.0.0',currentVersion:'0.1.6'};
+   DesktopUpdater.prototype.status=function(){return {...globalThis.theallUpdateFixture};};
+   DesktopUpdater.prototype.install=function(){globalThis.theallUpdateFixture.phase='downloading';globalThis.theallUpdateFixture.progress=.5;return this.status();};
+ });
+ await page.locator('#update-shortcut').waitFor({state:'visible'});
+ assert(await page.evaluate(()=>!!(document.getElementById('update-shortcut').compareDocumentPosition(document.getElementById('phone-shortcut'))&Node.DOCUMENT_POSITION_FOLLOWING)));
+ if(process.env.THEALL_TEST_UPDATE_SCREENSHOT){await page.locator('#close-settings').click();await page.screenshot({path:process.env.THEALL_TEST_UPDATE_SCREENSHOT});}
+ await page.locator('#update-shortcut').click();await page.waitForFunction(()=>document.getElementById('update-detail').textContent.includes('50%'));
+ assert(await page.locator('#update-shortcut').isDisabled());
+ await application.evaluate(()=>{globalThis.theallUpdateFixture.phase='waiting';});
+ await page.waitForFunction(()=>document.getElementById('update-detail').textContent.includes('Waiting'));
+ for(const language of ['zh-Hans','fr','ja','ko','en']){await page.evaluate(()=>window.theallDesktop.openSettings('appearance'));await page.locator('#settings-content select:has(option[value="zh-Hans"])').selectOption(language);await page.waitForFunction(value=>document.documentElement.lang===value,language);await page.evaluate(()=>window.theallDesktop.openSettings('update'));assert(await page.locator('#update-settings').isVisible());}
+ await application.evaluate(()=>{globalThis.theallUpdateFixture={phase:'upToDate',currentVersion:'0.1.6'};});
+ await page.locator('#update-shortcut').waitFor({state:'hidden'});
  assert.deepEqual(errors,[]);
  console.log('PASS: isolated Electron main-frame wrapper authorization, actual provider/key/folder UI, quit-time draft saving, sandbox/IPC, native-style desktop panes, CLI send, progress folding, prompt history, encrypted credentials, drafts/history/layout across restart, and resumed chat. '+(process.platform==='win32'?'Windows DPAPI verified.':'Host UI verified; Windows DPAPI requires the Windows CI job.'));
 }catch(error){

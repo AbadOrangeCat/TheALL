@@ -21,6 +21,15 @@ def main():
     info = plistlib.loads((app / 'Contents/Info.plist').read_bytes())
     assert info['CFBundleIdentifier'] == 'com.theall.app', 'Unexpected application identity'
     assert not info.get('TheAllPreviousNamespace'), 'Local migration setting must not ship'
+    project = (Path(__file__).resolve().parent.parent / 'project.yml').read_text()
+    public_key = re.search(r'^\s+SUPublicEDKey:\s*["\']?([A-Za-z0-9+/]{43}=)', project, re.M)
+    assert public_key and info.get('SUPublicEDKey') == public_key.group(1), 'Update signing public key is missing or mismatched'
+    assert info.get('SUFeedURL') == 'https://github.com/AbadOrangeCat/TheALL/releases/latest/download/appcast.xml', 'Unexpected update source'
+    assert info.get('SUEnableAutomaticChecks') is True, 'Automatic update checks must be enabled'
+    assert info.get('SUAutomaticallyUpdate') is False, 'Updates must wait for an explicit download click'
+    sparkle_info = plistlib.loads((app / 'Contents/Frameworks/Sparkle.framework/Resources/Info.plist').read_bytes())
+    sparkle_version = tuple(int(part) for part in sparkle_info['CFBundleShortVersionString'].split('.'))
+    assert sparkle_version >= (2, 9, 6), 'Sparkle 2.9.6 or newer is required'
     version = info['CFBundleShortVersionString']
     assert args.sources.name == f'TheAll-{version}-third-party-sources.tar.gz'
     with tarfile.open(args.sources, 'r:gz') as archive:

@@ -47,7 +47,19 @@
 	<key>NSRemovableVolumesUsageDescription</key>
 	<string>TheAll needs access so terminal sessions can read and write files on removable volumes.</string>
 	<key>SUEnableAutomaticChecks</key>
+	<true/>
+	<key>SUScheduledCheckInterval</key>
+	<integer>21600</integer>
+	<key>SUAutomaticallyUpdate</key>
 	<false/>
+	<key>SUAllowsAutomaticUpdates</key>
+	<false/>
+	<key>SUVerifyUpdateBeforeExtraction</key>
+	<true/>
+	<key>SUFeedURL</key>
+	<string>https://github.com/AbadOrangeCat/TheALL/releases/latest/download/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>YBBpUV7p3LiBoMSSXdUPajMzhJEUU1huhNPg6tyrMYQ=</string>
 	<key>TheAllPreviousNamespace</key>
 	<string>$(THEALL_PREVIOUS_NAMESPACE)</string>
 </dict>

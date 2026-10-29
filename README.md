@@ -58,7 +58,7 @@ Both platforms need an API connection and the [Claude Code CLI](https://code.cla
 
 - **macOS:** v0.1.6 is signed with a local development certificate and is **not notarized by Apple**. macOS may block the first launch. After verifying the download and choosing to trust it, follow [Apple’s guidance](https://support.apple.com/en-us/102445) and use **System Settings → Privacy & Security → Open Anyway** if macOS offers it. Keep system security protections enabled. The Mac build is arm64 only.
 - **Windows:** the preview packages are **unsigned**. Windows may show a SmartScreen notice, and organization policy may prevent them from running. ARM64 is cross-built and not device-tested. Windows CI covers the x64 runtime and credential/history restoration; installed-package upgrades, real provider CLIs and physical phone/watch delivery still need device acceptance.
-- [SHA-256 checksums](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.6/SHA256SUMS.txt) cover both platforms. Automatic updates are not configured.
+- [SHA-256 checksums](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.6/SHA256SUMS.txt) cover both platforms. This published version requires manual updates. The current source adds automatic update checks and a download/install button above Connect Phone; install a future release containing this feature once to receive subsequent updates in the app.
 
 **Execution behavior:** coding-agent tools run automatically, including file changes, deletion, dependency installation, and Git pushes. Use a project and API connection you intend the agent to operate. Questions that require your answer still pause for input.
 

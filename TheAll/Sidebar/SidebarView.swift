@@ -62,6 +62,7 @@ struct SidebarView: View {
             // lg + xs(20) 让 workspace 列表距 trafficLightInset 下沿有足够喘息——
             // tab 行新增 4pt 上间距、整体顶区下移后，第一行随之多让 4pt 才不显得贴交通灯。
             .padding(.top, DT.Space.lg + DT.Space.xs)
+            if updateStore.showsSidebarNotice { updateButton }
             connectPhoneButton
             footer
         }
@@ -117,6 +118,72 @@ struct SidebarView: View {
     }
 
     // MARK: - Footer
+
+    private var updateButton: some View {
+        VStack(alignment: .leading, spacing: DT.Space.xs) {
+            Button {
+                switch updateStore.state {
+                case .updateAvailable: SparkleBridge.shared.downloadAndInstall()
+                case .readyToInstall, .waitingToInstall: SparkleBridge.shared.continueInstallation()
+                case .error: SparkleBridge.shared.retry()
+                default: break
+                }
+            } label: {
+                HStack(alignment: .top, spacing: DT.Space.sm) {
+                    Image(systemName: "arrow.down.circle")
+                        .font(.system(size: 16, weight: .semibold))
+                    VStack(alignment: .leading, spacing: DT.Space.xs) {
+                        Text(updateTitle).font(Font(DT.Font.bodyB))
+                        if case .downloading(let progress) = updateStore.state {
+                            ProgressView(value: progress).tint(Color(theme.accent))
+                            Text("\(Int(progress * 100))%").font(Font(DT.Font.mono))
+                        } else if case .updateAvailable = updateStore.state {
+                            Text(L10n.string(SparkleBridge.shared.canInstall ? "update.downloadAction" : "update.development"))
+                                .font(Font(DT.Font.small))
+                        } else if case .waitingToInstall = updateStore.state {
+                            Text(L10n.string("update.waitingDetail")).font(Font(DT.Font.small))
+                        }
+                    }
+                    Spacer(minLength: 0)
+                }
+                .multilineTextAlignment(.leading)
+                .foregroundStyle(Color(theme.accent))
+                .padding(DT.Space.md)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color(theme.accentMuted), in: RoundedRectangle(cornerRadius: DT.Radius.card))
+                .overlay(RoundedRectangle(cornerRadius: DT.Radius.card).strokeBorder(Color(theme.border), lineWidth: DT.Stroke.hairline))
+            }
+            .buttonStyle(.plain)
+            .disabled(updateActionDisabled)
+            .accessibilityIdentifier("sidebar-update")
+            if updateStore.canCancelDownload || updateStore.canCancelInstallation {
+                Button(L10n.string("update.cancel")) { SparkleBridge.shared.cancel() }
+                    .buttonStyle(.borderless).font(Font(DT.Font.small))
+                    .foregroundStyle(Color(theme.textSecondary))
+            }
+        }
+        .padding(.horizontal, DT.Space.md)
+        .padding(.top, DT.Space.sm)
+    }
+
+    private var updateTitle: String {
+        switch updateStore.state {
+        case .updateAvailable(let version, _): return L10n.string("update.available", version)
+        case .downloading: return L10n.string("settings.update.downloading")
+        case .waitingToInstall: return L10n.string("update.waiting")
+        case .readyToInstall: return L10n.string("update.ready")
+        case .installing: return L10n.string("settings.update.installing")
+        case .error: return L10n.string("update.retry")
+        default: return L10n.string("settings.update.checking")
+        }
+    }
+    private var updateActionDisabled: Bool {
+        switch updateStore.state {
+        case .updateAvailable: return !SparkleBridge.shared.canInstall
+        case .error, .readyToInstall, .waitingToInstall: return false
+        default: return true
+        }
+    }
 
     private var connectPhoneButton: some View {
         Button(action: onConnectPhone) {

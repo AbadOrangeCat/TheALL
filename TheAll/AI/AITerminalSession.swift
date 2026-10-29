@@ -184,6 +184,15 @@ final class AITerminalSession {
         historyStore?.flush()
     }
 
+    func flushHistoryForUpdate() throws {
+        guard chat != nil else { return }
+        guard !historyLoadFailed, let historyStore, terminalID != nil else {
+            throw AIChatHistoryStore.HistoryError.saveFailed
+        }
+        saveHistory()
+        try historyStore.flushForUpdate()
+    }
+
     func selectModel(_ model: String) {
         guard let chat, let provider, let connection = activeConnection else { return }
         chat.model = model

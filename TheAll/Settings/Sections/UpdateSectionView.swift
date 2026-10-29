@@ -48,6 +48,7 @@ struct UpdateSectionView: View {
                             SparkleBridge.shared.downloadAndInstall()
                         }
                         .buttonStyle(.borderedProminent)
+                        .disabled(!SparkleBridge.shared.canInstall)
 
                         Button(String(localized: L10n.Settings.Update.skipThisVersion.withLocale(locale))) {
                             SparkleBridge.shared.skipVersion()
@@ -61,9 +62,9 @@ struct UpdateSectionView: View {
             }
 
             // Debug 构建下显式说明自动更新被禁用，行风格与其它 LabeledContent 对齐。
-            if updatesUnavailable {
+            if !SparkleBridge.shared.canInstall {
                 LabeledContent(String(localized: L10n.Settings.Update.debugBuild.withLocale(locale))) {
-                    Text(L10n.Settings.Update.debugDisabled)
+                    Text(L10n.string("update.development"))
                         .font(Font(DT.Font.small))
                         .foregroundColor(Color(theme.textTertiary))
                 }
@@ -118,13 +119,29 @@ struct UpdateSectionView: View {
                     ProgressView(value: progress)
                         .tint(Color(theme.accent))
                         .frame(minWidth: 120)
+                    if updateStore.canCancelDownload {
+                        Button(L10n.string("update.cancel")) { SparkleBridge.shared.cancel() }
+                    }
                     Text("\(Int(progress * 100))%")
                         .font(Font(DT.Font.body).monospacedDigit())
                         .frame(width: DT.Space.xl * 2, alignment: .trailing)
                 }
             }
 
-        case .readyToInstall:
+        case .readyToInstall, .waitingToInstall:
+            LabeledContent(String(localized: L10n.Settings.Update.status.withLocale(locale))) {
+                VStack(alignment: .trailing, spacing: DT.Space.sm) {
+                    Text(L10n.string(updateStore.state == .waitingToInstall ? "update.waitingDetail" : "update.ready"))
+                        .foregroundStyle(Color(theme.textSecondary))
+                    HStack {
+                        Button(L10n.string("update.cancel")) { SparkleBridge.shared.cancel() }
+                        Button(L10n.string("update.ready")) { SparkleBridge.shared.continueInstallation() }
+                            .disabled(updateStore.state == .waitingToInstall)
+                    }
+                }
+            }
+
+        case .installing:
             LabeledContent(String(localized: L10n.Settings.Update.status.withLocale(locale))) {
                 HStack(spacing: DT.Space.sm) {
                     ProgressView().controlSize(.small)
@@ -143,6 +160,9 @@ struct UpdateSectionView: View {
                     .lineLimit(3)
             }
             LabeledContent("") {
+                if updateStore.canCancelInstallation {
+                    Button(L10n.string("update.cancel")) { SparkleBridge.shared.cancel() }
+                }
                 Button(String(localized: L10n.Settings.Update.retry.withLocale(locale))) {
                     SparkleBridge.shared.retry()
                 }

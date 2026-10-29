@@ -73,6 +73,8 @@ export async function createRuntime({ dataDir, webRoot, desktopRoot, encrypt, de
   const entryGeneration = { desktop: 0, lan: 0, relay: 0 };
   let desktopServer, lanServer, relay, relayState = { state: 'stopped', connected: false }, invitation, attempts = [], closed = false;
   let saveTimer, eventTimer, storageError, relayKeysPromise, relayConfiguration=0, lanTransition=Promise.resolve();
+  let updateInstalling = false;
+  const updateBusy = () => pending.size > 0 || starting.size > 0 || changingProviders.size > 0 || [...sessions.values()].some(s => s.isBusy || s.questions?.length);
   const notifications = new PushNotifications({ store, save, send: pushSender, authorized: (record, chatId) => {
     if (closed || !(lanServer?.origin === record.origin || (relay?.origin === record.origin && relayState.connected))) return false;
     const device = state.devices.find(d => d.id === record.deviceId && d.origin === record.origin && d.expiresAt > Date.now());
@@ -275,7 +277,7 @@ export async function createRuntime({ dataDir, webRoot, desktopRoot, encrypt, de
         const stat = fs.lstatSync(file); demand(stat.isFile() && stat.size <= 2 * 1024 * 1024,'Photo not found',404);
         return { status:200, headers:{'content-type':image.mimeType,'content-disposition':'inline'},body:fs.readFileSync(file) };
       }
-      demand(method === 'POST','Not found',404); demand(device.access.writable,'This device has read-only access',403);
+      demand(method === 'POST','Not found',404); demand(!updateInstalling,'TheAll is installing an update',503); demand(device.access.writable,'This device has read-only access',403);
       demand(typeof input.requestId === 'string' && UUID.test(input.requestId), 'Invalid request identity');
       demand(input.bootID === bootID,'TheAll restarted. Review the conversation before trying again.',409);
       if (route === '/api/chats') {
@@ -410,6 +412,7 @@ export async function createRuntime({ dataDir, webRoot, desktopRoot, encrypt, de
   function tabFor(payload){const w=workspace(payload.workspaceId),t=w.tabs.find(t=>t.id===(payload.tabId||payload.id));demand(t,'Tab not found',404);return[w,t];}
   async function desktop(method,payload={}) {
     demand(!closed,'TheAll is closing',503);
+    demand(!updateInstalling || ['draft.save','draft.get','settings.get','workspace.metadata','mobile.info','mobile.devices'].includes(method), 'TheAll is installing an update', 503);
     switch(method){
       case 'settings.get':return{...state.settings,version,connections:Object.fromEntries([...providers].map(p=>[p,store.publicConnection(p)])),mobile:{url:lanServer?.origin||null,relay:relayState}};
       case 'settings.save':{
@@ -557,8 +560,20 @@ export async function createRuntime({ dataDir, webRoot, desktopRoot, encrypt, de
   desktopServer=await listen('127.0.0.1',0,'desktop');
   if(state.settings.relayURL)try{await desktop('mobile.relay.configure',{url:state.settings.relayURL});}catch(e){relayState={state:'disconnected',connected:false,error:safeError(e)};}
   return {url:desktopServer.origin,desktopToken,bootID,desktop,enableLAN,
-    async close(){save();closed=true;notifications.close();relayConfiguration++;entryGeneration.relay++;clearTimeout(saveTimer);clearTimeout(eventTimer);invitation=null;
-      await relay?.close();await Promise.allSettled([...relayTransitions]);await lanTransition.catch(()=>{});await Promise.allSettled([...starting.values()]);for(const s of sessions.values())await s.close();save();
-      for(const event of [...events])event.close();await lanServer?.close();await desktopServer.close();},
+    tryBeginUpdate() { if (closed || updateInstalling || updateBusy()) return false; updateInstalling = true; return true; },
+    abortUpdate() { updateInstalling = false; },
+    async close(){
+      save(); closed=true; clearTimeout(saveTimer); clearTimeout(eventTimer); eventTimer=undefined;
+      // Keep listeners and notification/relay services intact until the final
+      // history save succeeds. A disk error can then cancel an update and retry.
+      try {
+        await lanTransition.catch(()=>{}); await Promise.allSettled([...starting.values()]);
+        for(const s of sessions.values())await s.close();
+        save();
+      } catch(error) { closed=false; updateInstalling=false; changed(); throw error; }
+      notifications.close();relayConfiguration++;entryGeneration.relay++;invitation=null;
+      await relay?.close();await Promise.allSettled([...relayTransitions]);
+      for(const event of [...events])event.close();await lanServer?.close();await desktopServer.close();
+    },
   };
 }

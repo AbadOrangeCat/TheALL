@@ -21,8 +21,14 @@ enum UpdateState: Equatable {
     /// - progress: 0.0 ... 1.0
     case downloading(progress: Double)
 
-    /// Transient (milliseconds) between download-complete and app relaunch.
+    /// Download verified. A restart can now be requested.
     case readyToInstall
+
+    /// Hold the installation until every active AI turn has finished.
+    case waitingToInstall
+
+    /// Sparkle is performing the normal quit/install/relaunch handoff.
+    case installing
 
     /// Any failure. Shows red card + Retry.
     case error(String)

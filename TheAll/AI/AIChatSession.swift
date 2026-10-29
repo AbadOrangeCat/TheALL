@@ -114,8 +114,13 @@ final class AIChatSession {
     }
     var showsThinkingPlaceholder: Bool { isBusy && approvals.isEmpty && activeThinkingID == nil }
     var canChangeDirectory: Bool { !isBusy && approvals.isEmpty && responses.isEmpty }
+    @ObservationIgnored private var isStartingForUpdate = false
+    var hasPendingWorkForUpdate: Bool {
+        isBusy || remoteSubmission != nil || !responses.isEmpty || !approvals.isEmpty
+            || pendingClaudeWrite || (isStartingForUpdate && errorMessage == nil)
+    }
     var canSend: Bool {
-        isReady && !isBusy && approvals.isEmpty &&
+        !UpdateStore.shared.blocksNewMessages && isReady && !isBusy && approvals.isEmpty &&
         (!input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !draftImages.isEmpty)
     }
     var needsConfirmClose: Bool {
@@ -202,6 +207,7 @@ final class AIChatSession {
         appliedClaudeModel = model
         backendModels = []
         self.configuration = configuration
+        isStartingForUpdate = true
         stopped = false
         isReady = false
         errorMessage = nil
@@ -218,6 +224,7 @@ final class AIChatSession {
             self.transportGeneration = UUID()
             self.clearPendingClaudeWrite()
             self.isReady = false
+            self.isStartingForUpdate = false
             if self.errorMessage == nil, self.isBusy || status != 0 { self.errorMessage = L10n.string("ai.chat.exit", status) }
             self.completeRemoteSubmission(self.remoteRequestWasWritten ? .uncertain : .rejected)
             self.finishTurn()
@@ -299,6 +306,7 @@ final class AIChatSession {
                     guard sessionID == nil || sessionID == id else { throw ChatError.protocolError }
                     self.conversationID = id
                     if self.defaultModel == nil, self.model.isEmpty { self.defaultModel = value["model"] as? String }
+                    self.isStartingForUpdate = false
                     self.isReady = true
                 } catch { self.fail(error) }
             }
@@ -309,6 +317,7 @@ final class AIChatSession {
         do {
             let value = try result.get()
             backendModels = AIModelOption.cliModels(value["models"] as? [[String: Any]] ?? [], provider: .claude)
+            isStartingForUpdate = false
             isReady = true
         }
         catch { fail(error) }
@@ -324,7 +333,7 @@ final class AIChatSession {
     func sendRemote(_ prompt: String, images: [AIChatImage] = [], model selectedModel: String? = nil, reasoningEffort selectedEffort: String? = nil,
                     stillAuthorized: @escaping () -> Bool = { true },
                     completion: @escaping (RemoteSubmissionResult) -> Void = { _ in }) -> Bool {
-        guard stillAuthorized(), remoteSubmission == nil, isReady, !isBusy, approvals.isEmpty,
+        guard !UpdateStore.shared.blocksNewMessages, stillAuthorized(), remoteSubmission == nil, isReady, !isBusy, approvals.isEmpty,
               (!prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !images.isEmpty)
         else { completion(.rejected); return false }
         let nextModel = selectedModel ?? model
@@ -340,7 +349,7 @@ final class AIChatSession {
     @discardableResult
     private func submit(_ prompt: String, images: [AIChatImage], clearsComposer: Bool,
                         stillAuthorized: @escaping () -> Bool = { true }) -> Bool {
-        guard isReady, !isBusy, approvals.isEmpty,
+        guard !UpdateStore.shared.blocksNewMessages, isReady, !isBusy, approvals.isEmpty,
               (!prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !images.isEmpty) else { return false }
         guard reasoningEffort.isEmpty || supportedReasoningEfforts.contains(reasoningEffort) else {
             errorMessage = L10n.string("ai.effort.unsupported")
@@ -599,6 +608,7 @@ final class AIChatSession {
         input = saved.input
         draftImages = saved.draftImages
         secrets.removeAll()
+        isStartingForUpdate = false
         configuration = nil
     }
 
@@ -643,6 +653,7 @@ final class AIChatSession {
         DispatchQueue.main.asyncAfter(deadline: .now() + 30) { [weak self] in
             guard let self, let callback = self.responses.removeValue(forKey: id) else { return }
             self.isReady = false
+            self.isStartingForUpdate = false
             callback(.failure(ChatError.timeout))
         }
     }

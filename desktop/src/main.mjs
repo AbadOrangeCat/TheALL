@@ -9,6 +9,9 @@ import { externalWebURL, validDesktopURL } from '../renderer/security.mjs';
 import { imageDimensions } from '../renderer/image-headers.mjs';
 import { themeTokens } from '../renderer/theme.mjs';
 import { isTrustedDesktopSender } from './desktop-ipc.mjs';
+import { DesktopUpdater } from './updater.mjs';
+import { installationTarget, prepareInstaller, armInstaller, discardPrepared } from './update-installer.mjs';
+import { readFile, rm } from 'node:fs/promises';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const development = !app.isPackaged;
@@ -30,6 +33,7 @@ let runtime;
 let window;
 let quitting = false;
 let shutdownTask;
+let updater, pendingUpdate;
 
 function trustedSender(event) {
   return !!window && !window.isDestroyed() && !!runtime
@@ -98,13 +102,18 @@ else {
     event.preventDefault();
     if (shutdownTask) return;
     quitting = true;
+    let handoff;
     shutdownTask = (async () => {
+      if (pendingUpdate) handoff = await armInstaller(pendingUpdate);
       await Promise.race([
         window && !window.isDestroyed() ? window.webContents.executeJavaScript('window.theallFlushDrafts?.()') : Promise.resolve(),
         new Promise((_, reject) => setTimeout(() => reject(new Error('Saving your draft is taking longer than expected. Try closing again.')), 8000))
       ]);
-      await runtime.close(); runtime = undefined; app.quit();
-    })().catch(error => {
+      if (handoff) await handoff.go();
+      await runtime.close();
+      updater?.stop(); runtime = undefined; app.quit();
+    })().catch(async error => {
+      await handoff?.cancel().catch(() => {}); pendingUpdate = undefined; runtime?.abortUpdate(); updater?.failed(error);
       shutdownTask = undefined; quitting = false;
       dialog.showErrorBox('TheAll could not save its data', String(error.message || error));
     });
@@ -142,6 +151,9 @@ else {
     });
     ipcMain.handle('theall:desktop', async (event, method, payload) => {
       if (!runtime || !trustedSender(event)) throw new Error('Unauthorized desktop request');
+      if (method === 'update.status') return updater.status();
+      if (method === 'update.check') return updater.check();
+      if (method === 'update.install') return updater.install();
       if (method === 'app.info') return { version: app.getVersion(), platform: process.platform, development };
       if (method === 'clipboard.writeText') {
         if (typeof payload?.text !== 'string' || Buffer.byteLength(payload.text) > 128 * 1024) throw new Error('Selection is too large');
@@ -161,7 +173,23 @@ else {
       }
       return result;
     });
+    const updatesEnabled = !development && process.platform === 'win32' && !process.env.THEALL_TEST_DATA_DIR;
+    let target;
+    try { if (updatesEnabled) target = await installationTarget(process.execPath); } catch {}
+    updater = new DesktopUpdater({ version: app.getVersion(), arch: process.arch, kind: target?.kind || 'nsis',
+      enabled: updatesEnabled && !!target, cacheDir: path.join(dataDir, 'Updates'),
+      prepare: download => prepareInstaller(download, target, { userData: dataDir }),
+      discard: discardPrepared, beginInstall: () => runtime?.tryBeginUpdate(), onFailure: () => runtime?.abortUpdate(),
+      onInstall: async prepared => { pendingUpdate = prepared; app.quit(); }
+    });
+    try {
+      const resultFile = path.join(dataDir, 'Updates', 'last-result.json');
+      const result = JSON.parse(await readFile(resultFile, 'utf8'));
+      await rm(resultFile);
+      if (!result.ok) updater.previousError = String(result.error || 'The previous update could not be installed').slice(0,300);
+    } catch {}
     await openWindow();
+    updater.start();
   }).catch(fatal);
 }
 function fatal(error) {

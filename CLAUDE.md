@@ -128,10 +128,10 @@ TheAll/
 │   ├── WorkspaceListView.swift        — AppKit 列表 + private WorkspaceRowItemView
 │   └── WorkspacePasteboardType.swift  — .theAllWorkspace UTI 常量
 ├── Update/
-│   ├── UpdateState.swift         — 自动更新 UI 状态枚举（idle / checking / upToDate / updateAvailable / downloading / readyToInstall / error）
-│   ├── UpdateStore.swift         — @Observable，自动更新状态存储（sidebar 红点 + Settings Update section 都读这个）
-│   ├── SparkleBridge.swift       — 单例，持有 SPUUpdater，对外暴露 checkForUpdates/downloadAndInstall/skip/dismiss/retry；Debug 下为空 stub
-│   └── UpdateUserDriver.swift    — 实现 Sparkle 的 SPUUserDriver，事件 → UpdateStore 变更（MainActor，Release-only）
+│   ├── UpdateState.swift         — 自动更新 UI 状态（检查、可用、下载、等待任务、安装、错误）
+│   ├── UpdateStore.swift         — @Observable，共享自动更新状态与等待回合/保存后安装协调器
+│   ├── SparkleBridge.swift       — 单例，持有 SPUUpdater，启动/定时检查与下载；Debug 禁止安装正式包
+│   └── UpdateUserDriver.swift    — 实现 Sparkle 的 SPUUserDriver，事件 → UpdateStore 与安装协调器（MainActor）
 └── Theme/
     ├── AppTheme.swift               — 设计 token 结构体（sidebar / canvas / border / accent / ...）
     ├── DesignTokens.swift           — token 定义与 spacing / radius / layout 常量
@@ -183,7 +183,7 @@ TheAll/
 | 旧自定义快捷操作 | Settings → Quick Actions 保留历史配置；当前 AI 入口不执行这些命令，详见 `docs/ai-terminals.md` |
 | 接入新的 ghostty C API | `Ghostty/GhosttyBridge.swift`，需同步更新 `docs/ghostty-integration.md` |
 | 改自动更新 UI / 行为 | `TheAll/Update/UpdateStore.swift`, `TheAll/Update/UpdateUserDriver.swift`, `TheAll/Settings/Sections/UpdateSectionView.swift`, `TheAll/Sidebar/SidebarView.swift`（footer） |
-| 改发布流水线 / appcast 格式 | `.github/workflows/release.yml`, `.github/scripts/render-appcast.sh`, `docs/build.md` |
+| 改发布流水线 / appcast 格式 | `scripts/prepare-update-feed.mjs`、`scripts/verify-release-bundle.py`、`.github/workflows/release.yml`、`docs/build.md` |
 | 发新版本 | `./scripts/sync-version.py <新版本>`（改 `project.yml` 版本并把 build 号 +1，同步 Xcode 工程、`desktop/package.json`、README、网站与分享卡片）→ 按需更新标有 `version:keep` 的版本亮点 → commit；仅在用户授权发版后手动运行 Release workflow（详见 `docs/build.md#版本号`） |
 | 同步版本号 | `./scripts/sync-version.py`（按 `project.yml` 同步；`--check` 为只读校验，CI drift check 会调用；重新渲染网站 PNG 需要 Chrome） |
 | 新增设置项 | `Settings/Sections/<对应>.swift`, `Settings/SettingsConfigStore.swift`（默认值/校验）, `docs/settings-reference.md` |

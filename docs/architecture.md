@@ -272,7 +272,7 @@ language is documented there.
 
 ## Auto-Update
 
-基于 [Sparkle](https://sparkle-project.org) 2.6+。Sparkle 只负责"下载、EdDSA 校验、重启安装"引擎，UI 完全自绘以对齐 theall 其它 settings 面板。
+macOS 使用 [Sparkle](https://sparkle-project.org) 2.9.6+ 完成下载、Ed25519 校验和重启安装；Windows 使用主进程更新服务检查同一 GitHub 仓库的稳定 Release，选择当前架构与安装方式对应的资产。两端启动后检查，并每 6 小时复查；只有用户点击后才下载，安装前等待所有 AI 回合完成并保存草稿和历史。
 
 ```
 Sparkle internal ─► UpdateUserDriver (SPUUserDriver)
@@ -280,7 +280,7 @@ Sparkle internal ─► UpdateUserDriver (SPUUserDriver)
                        ▼
                    UpdateStore (@Observable)
                        │
-                       ├─► SidebarView footer (红点)
+                       ├─► SidebarView (手机连接按钮上方的更新卡片)
                        └─► UpdateSectionView (主面板)
 
 User click ──► SparkleBridge.{checkForUpdates | downloadAndInstall | skipVersion | dismiss | retry}
@@ -291,10 +291,12 @@ User click ──► SparkleBridge.{checkForUpdates | downloadAndInstall | skipV
 
 **关键约束:**
 - Sparkle 符号只在 `TheAll/Update/SparkleBridge.swift` 和 `UpdateUserDriver.swift` 里 `import`，与 ghostty 约定对齐。
-- `UpdateStore` 是唯一写入口；所有 UI 通过它读状态。
-- Debug 构建 `#if !DEBUG` 守卫掉整个 Sparkle 调用链，`SparkleBridge.isActive` 为 false，不发任何网络请求。
-- TheAll 暂未配置自有 Feed/公钥，Release 也保持 `isActive == false`；不使用上游更新源。将来配置自有源后，appcast 仅含当前版本一个 `<item>`，历史版本由 GitHub Releases 承载。
-- 配置自有更新源之后才启用静默检查及 Sparkle 定时检查。
+- `UpdateStore` 为应用级共享状态，多窗口读同一个更新流程。下载、等待、安装与错误显示使用现有主题 token。
+- macOS feed 固定为 `https://github.com/AbadOrangeCat/TheALL/releases/latest/download/appcast.xml`；公钥随应用分发，私钥不进入仓库和安装包。`scripts/prepare-update-feed.mjs` 生成签名 enclosure 与校验文件。新版本的 build 号必须递增。
+- Debug 可检查，但不能被正式发布包自动替换；测试宿主默认不联网。Release 通过 Sparkle 正常退出安装，保留原 bundle identifier、签名身份以及 Application Support 数据。
+- Windows 更新操作只在受信任桌面主框架的 IPC 中提供，手机 API 和对话窗格不能指定更新 URL、命令或目标路径。下载验证 GitHub 资产 SHA-256 与大小，安装仅使用主进程选择的已验证文件。
+- 安装交接时阻止新回合进入；失败必须解除安装门闩并保留当前程序和用户数据。不能为了更新强制终止正在运行的 AI 任务。
+- 已发布旧客户端没有这项能力，须先手动安装一次包含更新支持的版本。GitHub 代码提交不会触发更新，只有正式发布的新版本和完整更新资产才会触发。
 
 ## AI 终端入口
 

@@ -20,11 +20,8 @@ struct ContentView: View {
     /// 在视图层覆盖为 1.0，避免半透明层叠在 macOS 全屏纯黑背景上显灰。
     @State private var isFullScreen: Bool = false
     @State private var hookListener: HookSocketListener?
-    @State private var updateStore = UpdateStore(
-        currentVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.0"
-    )
+    @State private var updateStore = UpdateStore.shared
     @State private var pendingSettingsSection: SettingsSection?
-    @State private var didScheduleLaunchUpdateCheck: Bool = false
     @Environment(ThemeManager.self) private var themeManager
     @Environment(LanguageStore.self) private var languageStore
     @Environment(\.locale) private var locale
@@ -306,19 +303,8 @@ struct ContentView: View {
                     print("[TheAll] Failed to start hook socket listener: \(error)")
                 }
             }
-            // Auto-update: wire SparkleBridge and schedule the silent launch check.
-            // SparkleBridge.startUpdater is internally idempotent, but the 3 s delayed
-            // Task is not — guard the schedule so a re-entry into .onAppear doesn't
-            // stack multiple in-flight silent checks.
-            SparkleBridge.shared.store = updateStore
+            // Shared across windows; start() owns its one launch check and timer.
             SparkleBridge.shared.start()
-            if !didScheduleLaunchUpdateCheck {
-                didScheduleLaunchUpdateCheck = true
-                Task { @MainActor in
-                    try? await Task.sleep(nanoseconds: 3_000_000_000)
-                    SparkleBridge.shared.checkForUpdates(silently: true)
-                }
-            }
         }
         .onChange(of: store.workspaces) { _, workspaces in
             let live = Set(workspaces.flatMap { ws in

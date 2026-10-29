@@ -1,6 +1,6 @@
 const { contextBridge, ipcRenderer } = require('electron');
 const methods = new Set([
-  'app.info', 'clipboard.writeText', 'mobile.exportCertificate', 'settings.get', 'connection.save', 'connection.remove', 'models.list',
+  'update.status', 'update.check', 'update.install', 'app.info', 'clipboard.writeText', 'mobile.exportCertificate', 'settings.get', 'connection.save', 'connection.remove', 'models.list',
   'folder.select', 'chat.update', 'workspace.rename', 'workspace.delete',
   'mobile.enable', 'mobile.disable', 'mobile.pair', 'mobile.devices', 'mobile.revoke',
   'draft.get', 'draft.save', 'workspace.create', 'workspace.select', 'workspace.reorder',

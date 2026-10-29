@@ -62,6 +62,30 @@ final class AIChatTests: XCTestCase {
         chat.stop()
     }
 
+    func testUpdaterWaitsForStartupAndRemoteSubmissionAndBlocksNewTurnsAtHandoff() {
+        let pipe = Transport()
+        let chat = AIChatSession(provider: .claude, model: "startup-model", directory: "/tmp", transport: pipe)
+        defer { UpdateStore.shared.resetToIdle(); chat.stop() }
+        XCTAssertFalse(chat.hasPendingWorkForUpdate)
+        chat.start(configuration)
+        XCTAssertTrue(chat.hasPendingWorkForUpdate)
+        pipe.respond()
+        XCTAssertFalse(chat.hasPendingWorkForUpdate)
+        XCTAssertTrue(chat.sendRemote("remote question", model: "different-model"))
+        XCTAssertTrue(chat.hasPendingWorkForUpdate)
+        pipe.respond()
+        pipe.emit(["type": "result", "session_id": "same-session", "is_error": false])
+        XCTAssertFalse(chat.hasPendingWorkForUpdate)
+        chat.input = "keep this draft"
+        let writes = pipe.sent.count
+        UpdateStore.shared.setInstalling()
+        XCTAssertFalse(chat.canSend)
+        chat.send()
+        XCTAssertFalse(chat.sendRemote("must wait"))
+        XCTAssertEqual(pipe.sent.count, writes)
+        XCTAssertEqual(chat.input, "keep this draft")
+    }
+
     func testFailedModelChangeRetainsDraftAndDoesNotSendPrompt() {
         let pipe = Transport()
         let chat = AIChatSession(provider: .claude, model: "startup-model", directory: "/tmp", transport: pipe)

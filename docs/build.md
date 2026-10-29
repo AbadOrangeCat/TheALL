@@ -72,8 +72,7 @@ Vendor/
 版本号以 `project.yml` 的 `MARKETING_VERSION` 为准（见[版本号](#版本号)），产物为 `TheAll.app`（Debug 显示名 `TheAll dev`）。
 工程、target 和 module 统一为 `TheAll`，测试宿主为 TheAll.app。
 本地测试使用 `./scripts/test-local.sh`，输出固定在 `../work/TestDerivedData`；不能在用户开发版的 `../work/DerivedData` 中运行测试，以免测试身份覆盖开发应用并显示空工作区。
-应用没有配置自动更新：发布前需设置自有 `SUFeedURL` 和 `SUPublicEDKey`，
-不能复用其他项目的更新源或签名。当前提供手动下载安装包，未启用 Sparkle 自动更新。
+源码已配置 TheAll 自有更新源和 Ed25519 公钥。Debug 可检查但不能安装正式更新包，测试宿主禁用网络检查；Release 使用 Sparkle 验签安装。发布时必须随包提供签名 `appcast.xml`，不能复用其他项目的源或私钥。已发布旧版用户仍需先手动安装一次包含更新客户端的版本。
 
 ## TheAll 本地签名与钥匙串
 
@@ -126,7 +125,7 @@ target 也使用同一证书，独立启用 hardened runtime，不注入调试 e
 
 当前 GitHub 仓库为 `AbadOrangeCat/TheALL`。当前本地构建目标为 **macOS 14+ / Apple Silicon（arm64）**；不要把当前只含 arm64 的 Ghostty 静态库打包成 universal。下文的 `<version>` 指 `MARKETING_VERSION`，例如 `0.1.7`。
 
-现有本地证书不属于 Apple Developer ID，不能提供 Apple 公证。安装包使用固定本地证书签名，未经过 Apple 公证；源码使用与分发遵循当前 LICENSE、单独授予的书面许可及第三方组件许可证。应用内自动更新尚未配置，因此不生成 Sparkle appcast。
+现有本地证书不属于 Apple Developer ID，不能提供 Apple 公证。安装包使用固定本地证书签名，未经过 Apple 公证；源码使用与分发遵循当前 LICENSE、单独授予的书面许可及第三方组件许可证。Sparkle 使用独立 Ed25519 更新签名，不需要更换现有本地应用签名证书；公钥在 `project.yml`，私钥必须在仓库与发布目录之外单独保管和备份。
 
 1. 用 `./scripts/sync-version.py <version>` 更新版本号，运行测试、文档漂移检查，并核对 `MARKETING_VERSION` 与发布 tag。
 2. 将 **同一次 Ghostty 构建**的 `libghostty.a` 和 `.zig-cache` 中的 `libintl.a` 分离。`GHOSTTY_ARCHIVE`、`GETTEXT_ARCHIVE` 应为这两个文件的绝对路径，`RUNTIME_DIR` 为新的输出目录：
@@ -158,8 +157,16 @@ target 也使用同一证书，独立启用 hardened runtime，不注入调试 e
    ```
 
    脚本检查签名、identity、arm64、动态 gettext、许可证和源码包，阻止测试文件或本地配置混入。将 app、LICENSE、ThirdPartyLicenses 和安装说明打包为 `TheAll-<version>-macos-arm64.dmg` / `.zip`。与 `TheAll-<version>-third-party-sources.tar.gz` 一起生成 `SHA256SUMS.txt`。
-5. 提交代码，给对应提交打 `v<version>` annotated tag，用 `gh release create --verify-tag --notes-file <发布说明>` 上传二进制、对应源码和校验文件。发布说明必须明确未公证、Apple Silicon/macOS 14 要求，以及 Claude Code/Codex 需另行安装。发布说明采用双语：完整的 `## English` 部分在前，`## 中文` 部分在后，不要按段落中英混排。
-6. 核对远端提交、tag、发布页及安装包下载校验和一致。不要在发布验证时重新启动用户正在使用的开发版。
+5. 将 macOS DMG/ZIP、Windows 两个架构的 NSIS/portable/ZIP、对应源码和 BUILD-INFO 放入同一发布目录，再生成更新元数据：
+   ```bash
+   node scripts/prepare-update-feed.mjs \
+     --release-dir /path/to/release \
+     --key-file /private/location/theall-ed25519.key \
+     --notes-file /path/to/release-notes.md
+   ```
+   私钥文件是 Sparkle 兼容的 base64 Ed25519 32 字节 seed，权限 0600。脚本核对公钥匹配、读取 `project.yml` 的版本/build、签名 DMG，写入 `appcast.xml` 并重新生成 `SHA256SUMS.txt`。不会生成标签、上传文件或发布版本。发布文件准备完后不得再修改被签名的 DMG；修改后必须重新签名。可用 Sparkle `sign_update --verify --ed-key-file <私钥文件> <DMG> <enclosure签名>` 独立验签。
+6. 获得发版授权后提交代码，给对应提交打 `v<version>` annotated tag，用 `gh release create --verify-tag --notes-file <发布说明>` 上传全部资产，包含 `appcast.xml`、二进制、对应源码和校验文件。应先创建 draft、上传完整资产并核对，再公开为稳定 Release，避免客户端发现不完整更新。发布说明必须明确未公证、Apple Silicon/macOS 14 要求，以及 Claude Code/Codex 需另行安装。发布说明采用双语：完整的 `## English` 部分在前，`## 中文` 部分在后。
+7. 核对远端提交、tag、发布页、GitHub 资产 digest、安装包校验和以及最新 appcast 下载一致。不要在发布验证时重新启动用户正在使用的开发版。只推送源码不发版时，不改变版本、tag 或更新 feed。
 
 ### 未来的 Developer ID / 公证发布
 
@@ -168,7 +175,7 @@ target 也使用同一证书，独立启用 hardened runtime，不注入调试 e
 - `APPLE_DEVELOPER_ID_CERT_P12`、`APPLE_DEVELOPER_ID_CERT_PASSWORD`
 - `APPLE_SIGNING_IDENTITY`、`APPLE_TEAM_ID`
 - `APPLE_API_KEY_ID`、`APPLE_API_ISSUER_ID`、`APPLE_API_KEY_P8`
-- `SPARKLE_ED_PRIVATE_KEY`，以及应用自己的 `SUFeedURL` 和 `SUPublicEDKey`
+- `SPARKLE_ED_PRIVATE_KEY`（必须匹配应用内的 `SUPublicEDKey`；源地址已在 `project.yml` 配置）
 
 工作流模板尚需接入上述动态 gettext 分离步骤及对应源码包上传（当前校验会阻止静态 gettext 发布），并按架构调整校验脚本，才能执行 universal 发布。它还包含签名、公证、DMG 打包和 Sparkle 签名。保留 app/helper 的各自签名参数，并在提交公证前验证两者的 identifier 和证书。仅本地签名的安装包不能宣称已公证。
 

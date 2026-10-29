@@ -91,22 +91,16 @@ try XCTSkipIf(ProcessInfo.processInfo.environment["SKIP_GHOSTTY_INTEGRATION"] ==
 > `WorkspaceMetadata` 但当前 `WorkspaceRowItemView` 不渲染——后续若决定恢复
 > 显示，需要扩展 row 高度并补回测试。
 
-## 手动 QA：自动更新
+## 自动更新验证
 
-依赖已经发布到 GitHub Releases 的 v0.1.0 + 一个本地构建的"伪低版本"。
+- `./scripts/test-local.sh -only-testing:TheAllTests/UpdateStoreTests -only-testing:TheAllTests/UpdateLifecycleTests`：共享状态、重复检查、下载取消、错误回调、开发版安装限制、运行回合结束后才安装。测试注入安装回调，不重启真实应用，不访问线上 feed。
+- `node --test scripts/prepare-update-feed.test.mjs`：更新包签名、错误私钥、篡改检测、XML 内容、私钥权限以及校验文件不包含私钥。
+- `npm test --prefix desktop`：稳定版/架构/资产选择、下载校验、IPC 权限、安装门闩和历史保存。Windows 专用 helper 测试必须使用临时 fixture，不可将真实程序目录作为替换目标。
+- `npm run test:desktop --prefix desktop`：隔离 Electron profile、fake CLI 和真实 UI 操作；不能给开发实例打开线上自动安装开关来代替测试。
 
-1. 把 `project.yml` 里 `MARKETING_VERSION` 临时改成 `0.0.9`，`xcodegen generate`，构建 Release：
-   ```bash
-   xcodebuild -project TheAll.xcodeproj -scheme TheAll -configuration Release build
-   ```
-2. 启动产物。~3 s 内 sidebar 左下角红点应亮起。
-3. 点版本号，Settings 应直接定位到 Update section，显示 `Version 0.1.0 is available` + release notes。
-4. 点 `Download & Install`：进度 0-100%，app 退出并重启。重启后版本显示 `v0.1.0`，红点消失。
-5. 重复 1-3。点 `Skip This Version`：红点立刻消失，关闭 app 再开不再提醒 0.1.0。发布一个 0.1.1（测试用）后红点重新出现。
-6. 断网，点 `Check for Updates`：显示红色错误卡 + Retry 按钮。
-7. Debug 构建：启动后无论如何不应发 appcast 请求；Update section 的 button 为 disabled，hint 行可见。
+手工验收使用独立的旧/新测试 app、独立 bundle ID / profile 和临时目录。正常路径验证侧栏手机按钮上方的新版本卡片、下载进度、任务运行时等待、任务结束后保存/安装/重启及原会话恢复；异常路径验证网络中断、错误 hash/签名、磁盘写入失败和安装失败可恢复。macOS Debug 允许检查但禁止替换为正式发布应用；无新版或后台检查失败时不应出现“有新版本”卡片，设置页仍保留真实错误。手机 API 不得调用安装接口。
 
-完事把 `MARKETING_VERSION` 改回。
+发布验收核对最新稳定 Release 的所有资产先完整上传，再对外公开；macOS appcast 的版本/build、Ed25519 签名和下载 URL 必须匹配同一包。Windows 应分别验收 x64/ARM64 与 NSIS/portable/ZIP；跨构建成功不代表 ARM64 实机安装已验证。保留当前运行的开发应用，不能用它做真实自更新测试。
 
 ## Completion notifications, timing and reasoning effort
 
