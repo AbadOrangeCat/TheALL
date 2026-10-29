@@ -54,7 +54,7 @@ test('Windows portable helper waits for exit, replaces the outer executable and 
 });
 test('Windows ZIP helper swaps a dedicated app directory and rejects unsafe archive paths',{skip:!windows,timeout:90000},async t=>{
  const f=await fixture(t),target=path.join(f.root,'TheAll app'),source=path.join(f.root,'package'),file=path.join(f.folder,'package.zip');
- for(const folder of [target,source]){await fs.mkdir(path.join(folder,'resources'),{recursive:true});await fs.writeFile(path.join(folder,'resources','app.asar'),'fixture');}
+ for(const folder of [target,source]){await fs.mkdir(path.join(folder,'resources'),{recursive:true});await fs.writeFile(path.join(folder,'resources','app.asar'),'fixture');await fs.writeFile(path.join(folder,'electron_wer.dll'),'Electron crash reporter fixture');}
  await executable(path.join(target,'TheAll.exe'),path.join(f.root,'old-started'));await executable(path.join(source,'TheAll.exe'),path.join(f.root,'new-started'));
  await powershell(`Add-Type -AssemblyName System.IO.Compression.FileSystem; [IO.Compression.ZipFile]::CreateFromDirectory(${quote(source)},${quote(file)})`);
  const prepared=await prepareInstaller({file,asset:await asset(file,'zip'),folder:f.folder},{kind:'zip',target},{userData:f.userData});

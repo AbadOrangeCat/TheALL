@@ -34,7 +34,7 @@ function Assert-ApplicationFolder([string]$Root) {
   # ZIP replacement is only safe in a dedicated application directory. Preserve
   # user-created files by refusing a mixed directory instead of deleting them.
   foreach ($item in Get-ChildItem -LiteralPath $Root -Force) {
-    if ($item.Name -notmatch '^(TheAll\.exe|chrome_[0-9]+_percent\.pak|d3dcompiler_47\.dll|dxcompiler\.dll|dxil\.dll|ffmpeg\.dll|icudtl\.dat|libEGL\.dll|libGLESv2\.dll|LICENSE|LICENSES\.chromium\.html|LICENSE\.electron\.txt|locales|resources|resources\.pak|snapshot_blob\.bin|v8_context_snapshot\.bin|vk_swiftshader\.dll|vk_swiftshader_icd\.json|vulkan-1\.dll|swiftshader|version)$') { throw 'Move the ZIP build into its own application folder before updating' }
+    if ($item.Name -notmatch '^(TheAll\.exe|chrome_[0-9]+_percent\.pak|d3dcompiler_47\.dll|dxcompiler\.dll|dxil\.dll|electron_wer\.dll|ffmpeg\.dll|icudtl\.dat|libEGL\.dll|libGLESv2\.dll|LICENSE|LICENSES\.chromium\.html|LICENSE\.electron\.txt|locales|resources|resources\.pak|snapshot_blob\.bin|v8_context_snapshot\.bin|vk_swiftshader\.dll|vk_swiftshader_icd\.json|vulkan-1\.dll|swiftshader|version)$') { throw 'Move the ZIP build into its own application folder before updating' }
   }
 }
 function Assert-Staged {
