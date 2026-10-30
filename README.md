@@ -20,22 +20,24 @@
   <a href="README.zh-CN.md">简体中文</a>
 </p>
 
-![TheAll feature overview: native AI conversations, organized workspaces, a model picker, and phone access to your Mac](landing-page/assets/overview.png)
+![TheAll feature overview: native AI conversations, organized workspaces, a model picker, and phone access to your computer](landing-page/assets/overview.png)
 <p align="center"><sub>Feature illustration; not an application screenshot.</sub></p>
 
 ## An AI coding workspace that keeps your context
 
-**TheAll is a desktop app for Claude Code and OpenAI Codex on macOS and Windows.** It brings a graphical chat interface to these coding agents, with workspaces, tabs, split panes, saved conversations, and a model dropdown. Bring your own API connection, choose a project folder, and start working.
+**TheAll is a desktop app for Claude Code and OpenAI Codex on macOS and Windows.** It brings a graphical chat interface to these coding agents, with workspaces, tabs, split panes, saved conversations, model and reasoning-effort pickers, attachments, and phone access. Bring your own API connection, choose a project folder, and start working.
 
 | Work the way you think | What TheAll does |
 | --- | --- |
 | **Keep projects organized** | Workspaces, tabs, and splits; a workspace gets a name from your first question. |
-| **Change models, keep the conversation** | Choose from a dropdown without losing chat history or an unsent draft. Official endpoints and compatible custom Base URLs are supported. |
+| **Change models, keep the conversation** | Choose a model and reasoning effort beside the composer without losing chat history or an unsent draft. Official endpoints and compatible custom Base URLs are supported. |
 | **Pick up where you left off** | Reopen saved conversations, working folders, model choices, and desktop drafts. Use ↑ / ↓ to recall previous questions. |
 | **Share files and photos** | Use one attachment button, drag files into chat, or paste. Attach up to 5 files and 4 photos, with saved drafts and history. Photos require an image-capable model. |
 | **Steer work as it happens** | Add instructions and attachments during a running task without losing its context; keep a separate Stop control. |
-| **Read the answer clearly** | Distinct question cards, conversation dividers, collapsible thinking and progress, and a jump-to-latest button. |
-| **Continue from your phone** | An iOS/Android Web App can read history, reply, start conversations, and stop tasks running on your Mac or Windows PC. |
+| **Read the answer clearly** | Distinct question cards, conversation dividers, collapsible thinking and progress, and a jump-to-latest button. Each finished turn shows when it completed and how long it took. |
+| **Continue from your phone** | An iOS/Android Web App can read history, reply, start conversations, and stop tasks running on your Mac or Windows PC. Opt into task-completion alerts; compatible watches mirror them. |
+| **Stay up to date** | Update checks run automatically; download and install from the button above Connect Phone. Installation waits for running tasks and saves drafts. |
+| **Make it yours** | Choose from about 500 bundled Ghostty color themes and adjust opacity, blur and fonts. |
 | **Use your language** | English, 简体中文, Français, 日本語, and 한국어 on desktop and mobile. |
 
 API connections are saved through macOS Keychain on Mac and Windows system encryption on Windows. Chat history stays on your computer; conversations are sent to the AI endpoint you configure. The Mac app uses SwiftUI, AppKit, and Ghostty's terminal engine; the Windows preview in [`desktop/`](desktop/) uses Electron with the same workspace, tab, split-pane and chat layout.
@@ -53,7 +55,7 @@ Both platforms need an API connection and the [Claude Code CLI](https://code.cla
 1. Install TheAll. **Mac:** move **TheAll.app** to Applications. **Windows:** run the installer or portable EXE, or extract the full ZIP and run `TheAll.exe`.
 2. Open TheAll, create a workspace, and select a working folder and **Claude / OpenAI**.
 3. Enter your API key and, if needed, a custom Base URL. Later conversations can reuse the saved connection.
-4. Choose a model and send your first question. The folder control and model dropdown stay beside the composer.
+4. Choose a model, optionally a reasoning effort, and send your first question. The folder control and the model and effort pickers stay beside the composer.
 
 **About this release:**
 
@@ -62,7 +64,9 @@ Both platforms need an API connection and the [Claude Code CLI](https://code.cla
 - [SHA-256 checksums](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.9/SHA256SUMS.txt) cover both platforms.
 - Automatic update checks and a download/install button above Connect Phone are included. Mac v0.1.7 and Windows v0.1.8 or later update in the app; older releases need one manual installation. Active tasks and drafts are saved before installation. <!-- version:keep -->
 
-**Execution behavior:** coding-agent tools run automatically, including file changes, deletion, dependency installation, and Git pushes. Use a project and API connection you intend the agent to operate. Questions that require your answer still p## New in v0.1.9 <!-- version:keep -->
+**Execution behavior:** coding-agent tools run automatically, including file changes, deletion, dependency installation, and Git pushes. Use a project and API connection you intend the agent to operate. Questions that require your answer still pause for input.
+
+## New in v0.1.9 <!-- version:keep -->
 
 **The Windows app now looks and works like the Mac app:**
 
@@ -95,20 +99,28 @@ Use TheAll Mobile in a browser on **iPhone, iPad, and Android**. HTTPS connectio
 | **Same Wi-Fi / LAN** | Click **Connect phone** in the desktop sidebar, then scan and open the QR link. Quick connect needs no certificate, server, or domain. Use trusted Wi-Fi; optional HTTPS is in Advanced settings. |
 | **Away from home** | Deploy the included relay on your own server and domain. The desktop app connects out over WSS; the phone uses HTTPS. No extra VPN app or router port forwarding required. |
 
+Over HTTPS, turn on task-completion alerts: iPhone needs the Home Screen Web App, Android a Push-capable browser, and compatible watches mirror the phone's notifications. Quick HTTP pairing cannot deliver background alerts.
+
 Pair a phone with access to all workspaces or just one, and choose **read-only** or **control** access. Revoke devices from the desktop app. API keys are not sent to the phone. The computer must stay running and awake; a self-hosted relay can read the traffic it forwards, so deploy it on infrastructure you trust. No hosted relay service is included.
 
 [Mobile connection guide](docs/mobile-access.md) · [Relay deployment](mobile-relay/README.md)
 
 ## A few useful keys
 
-| Key | Action |
-| --- | --- |
-| **⌘ Return** (Windows: **Ctrl Enter**) | Send a message, or steer the running task. |
-| **Return** (Windows: **Enter**) | Insert a new line. |
-| **↑** on the first visual line | Recall an older question in this conversation. |
-| **↓** on the last visual line | Move toward newer questions, then restore your unsent draft. |
+| Action | Mac | Windows |
+| --- | --- | --- |
+| Send a message, or steer the running task | **⌘ Return** | **Ctrl Enter** |
+| Insert a new line | **Return** | **Enter** |
+| Recall an older / newer question | **↑** on the first line · **↓** on the last line | same |
+| New workspace · New tab | **⌘N** · **⌘T** | **Ctrl N** · **Ctrl T** |
+| Split left/right · top/bottom | **⌘D** · **⇧⌘D** | **Ctrl D** · **Ctrl Shift D** |
+| Close pane | **⌘W** | **Ctrl W** |
+| Focus next / previous pane | **⌥⌘→** / **⌥⌘←** | **Ctrl Alt →** / **Ctrl Alt ←** |
+| Next / previous tab | **⇧⌘]** / **⇧⌘[** | **Ctrl Shift ]** / **Ctrl Shift [** |
+| Workspace 1–9 · Tab 1–9 | **⌘1–9** · **⌥⌘1–9** | **Ctrl 1–9** · **Ctrl Alt 1–9** |
+| Settings | **⌘,** | **Ctrl ,** |
 
-Recalled questions are editable copies. Original messages stay intact, and multiline editing and input-method selection remain native.
+Recalled questions are editable copies; original messages stay intact, and multiline editing and input-method selection remain native. Middle-click a tab or use its right-click menu to close it; on Windows the tab menu also splits and closes panes.
 
 ## Build and explore
 
