@@ -1,6 +1,6 @@
 # AI chats
 
-The app product is **TheAll.app**, version **0.1.7**. Debug windows and menus use **TheAll dev**; Release uses **TheAll**. Every new tab, split pane,
+The app product is **TheAll.app**; its version comes from `MARKETING_VERSION` in `project.yml`. Debug windows and menus use **TheAll dev**; Release uses **TheAll**. Every new tab, split pane,
 and workspace starts at a Claude / OpenAI selector. Restored leaves reopen their saved chat. Existing panes
 retain their connection form, process, conversation, and draft across navigation.
 
