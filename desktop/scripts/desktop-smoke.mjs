@@ -34,6 +34,16 @@ if(packageDir){
 const dataDir=path.join(temporary,'profile'),working=path.join(temporary,'project');
 await fs.mkdir(working);
 const cli=path.join(temporary,'fake-claude.mjs');
+const richAnswer = [
+ 'The Windows desktop conversation is working. This response is from an offline test fixture.',
+ '## Embedding performance',
+ '| Scenario | Titan calls | Time |',
+ '|---|---:|---:|',
+ '| Build KB | 49,191 → 13,864 (**−71.8%**) | 52.2 → 12.9 min |',
+ '| **Total** | **74,087 → 17,113** | |',
+ '```javascript\n  const value = "<script>literal</script>";\n\tconsole.log(value);\n```',
+ '![External image](https://example.com/photo.png)'
+].join('\n\n');
 await fs.writeFile(cli,`import readline from 'node:readline';import{randomUUID}from'node:crypto';
 let effort='medium',waitingForSteer=null;
 const send=m=>process.stdout.write(JSON.stringify(m)+'\\n');
@@ -46,7 +56,7 @@ readline.createInterface({input:process.stdin}).on('line',line=>{const m=JSON.pa
  const text=typeof m.message.content==='string'?m.message.content:JSON.stringify(m.message.content);
  if(text.startsWith('Wait for steering')){waitingForSteer=m.uuid;return;}
  const covered=[m.uuid,...(waitingForSteer?[waitingForSteer]:[])];waitingForSteer=null;
- setTimeout(()=>{send({type:'assistant',message:{id:randomUUID(),content:[{type:'text',text:'The Windows desktop conversation is working. This response is from an offline test fixture.'}],stop_reason:'end_turn'}});send({type:'result',uuid:randomUUID(),user_message_uuids:covered,subtype:'success',session_id:session,result:'The Windows desktop conversation is working. This response is from an offline test fixture.',is_error:false});},120);}
+ setTimeout(()=>{send({type:'assistant',message:{id:randomUUID(),content:[{type:'text',text:${JSON.stringify(richAnswer)}}],stop_reason:'end_turn'}});send({type:'result',uuid:randomUUID(),user_message_uuids:covered,subtype:'success',session_id:session,result:${JSON.stringify(richAnswer)},is_error:false});},120);}
 });`);
 await fs.chmod(cli,0o700);
 // Exercise the documented case where IPC exposes a fresh wrapper for a live
@@ -136,6 +146,12 @@ try{
  await pane.waitForFunction(()=>document.querySelectorAll('.file-download').length===1 && document.querySelectorAll('#file-previews .file-chip').length===0);
  assert.equal(await pane.locator('.file-download').getAttribute('download'),'中文报告.pdf');
  await pane.waitForFunction(()=>document.querySelector('.message-timing'));
+ assert.equal(await pane.locator('.markdown-table-scroll th').count(),3);
+ assert.equal(await pane.locator('.markdown-table-scroll tbody tr').count(),2);
+ assert.equal(await pane.locator('.markdown-code pre code').textContent(),'  const value = "<script>literal</script>";\n\tconsole.log(value);\n');
+ assert.equal(await pane.locator('.message-body script').count(),0);
+ assert.equal(await pane.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+ await pane.locator('.markdown-table-scroll').scrollIntoViewIfNeeded();
  await shot('3-conversation');
  await pane.locator('#effort').waitFor({state:'visible'});
  await pane.locator('#effort').selectOption('high');

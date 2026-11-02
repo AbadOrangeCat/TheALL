@@ -327,6 +327,8 @@ User click ──► SparkleBridge.{checkForUpdates | downloadAndInstall | skipV
 含普通文件的历史或草稿使用快照 v3，只有照片时使用 v2，纯文字继续使用 v1；当前构建兼容三者，旧构建拒绝未知版本，避免丢掉附件后覆盖原记录。`AIChatProcess` 通过每个进程独立的后台串行队列写入非阻塞管道，限制单条 16 MiB、待写总量 32 MiB、写入 30 秒；取消不等待主线程。退出前结算所有已排队写入回调。Claude 仅在完整消息写入后清空提交的草稿，提前到达的 stdout 暂存至用户消息入历史；跨进程代次回调被丢弃。
 
 `AIChatView` 的消息滚动区域与输入框独立，模型下拉框位于输入框下方、紧邻 Send/Stop 左侧，工作目录靠左。聊天区自动加载模型列表，不显示刷新按钮；连接表单保留刷新功能。阅读旧消息时不强制滚动到底部，回答区右下角仅在未到底部时显示跳转按钮。通过原生 NSScrollView 的 clip bounds/document frame 观察计算底部位置，兼容 macOS 14，并随窗口大小和折叠后的内容高度更新。每轮新提问前用加粗分界线分隔上一轮。`AIModelCatalog` 使用用户配置的 API 地址和相同认证方式请求模型列表，支持 Anthropic 分页，拒绝重定向且不缓存凭据；配置改变时丢弃旧请求结果。
+聊天回复由 `AIChatMarkdownDocument` 使用 Foundation 完整 Markdown 解析，并由 `AIChatMarkdown` 按块布局：表格保留列对齐、行边界和横向滚动；代码块保留缩进、换行、语言标记和原文复制；图片通过后台 ImageIO 限量读取本地文件或内嵌栅格数据，按比例显示并可单独预览。远程图片显示明确的外部链接，不自动请求。用户提问仍为纯文本，持久化历史保留原始 Markdown，展开的 Thinking 共用渲染器。只在已确认的表格范围内兼容行间空行，代码和转义文本保持原样。Windows 与手机共用 `MobileWeb.bundle/markdown.js` 的安全 DOM 渲染器。
+
 
 首条消息成功提交后，`AIChatSession` → `AITerminalSession` → `TabContentView` 通知 `WorkspaceStore`，按 terminalId 找到实际归属工作区，将首问的简短主题作为名称（本地提取，不额外调用 API）。`needsAutomaticName` 随工作区持久化，一次自动命名或任意手动确认名称后关闭，后续提问、其他分屏及重启不覆盖。旧数据按 Default/workspace N 等默认名称识别是否待命名，自定义名称保留。Claude 在消息写入成功后通知，Codex 等待 `turn/start` 成功，失败提交不命名。
 
