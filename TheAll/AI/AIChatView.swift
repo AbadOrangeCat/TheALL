@@ -304,7 +304,7 @@ struct AIChatView: View {
                                     .accessibilityHidden(true)
                             }
                             if message.isIntermediate {
-                                AIThinkingMessage(text: message.text, theme: theme, isActive: false,
+                                    AIThinkingMessage(text: message.text, directory: chat.directory, theme: theme, isActive: false,
                                     title: L10n.string(message.role == .thinking ? "ai.chat.thinking" : "ai.chat.progress"),
                                     expanded: expansion(for: message))
                             } else if message.role == .tool {
@@ -315,7 +315,7 @@ struct AIChatView: View {
                                         .font(.caption).lineLimit(1)
                                 }.foregroundStyle(Color(nsColor: theme.textSecondary))
                             } else if message.role == .thinking {
-                                AIThinkingMessage(text: message.text, theme: theme, isActive: chat.activeThinkingID == message.id,
+                                AIThinkingMessage(text: message.text, directory: chat.directory, theme: theme, isActive: chat.activeThinkingID == message.id,
                                     title: L10n.string("ai.chat.thinking"), expanded: expansion(for: message))
                             } else {
                                 VStack(alignment: .leading, spacing: DT.Space.sm) {
@@ -330,10 +330,12 @@ struct AIChatView: View {
                                         AIChatFiles(files: message.files, store: chat.fileStore, theme: theme)
                                     }
                                     if !message.text.isEmpty {
-                                    Text(message.role == .user ? AttributedString(message.text) :
-                                        (try? AttributedString(markdown: message.text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(message.text))
-                                        .textSelection(.enabled).font(.system(size: 14)).lineSpacing(4)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        if message.role == .user {
+                                            Text(verbatim: message.text).textSelection(.enabled).font(.system(size: 14)).lineSpacing(4)
+                                                .frame(maxWidth: .infinity, alignment: .leading)
+                                        } else {
+                                            AIChatMarkdown(text: message.text, directory: chat.directory, theme: theme).equatable()
+                                        }
                                     }
                                     if message.isSteering && message.isError {
                                         Text(L10n.string("ai.chat.steerNotApplied"))
@@ -547,6 +549,7 @@ private struct AIChatScrollPosition: NSViewRepresentable {
 
 private struct AIThinkingMessage: View {
     let text: String
+    let directory: String
     let theme: AppTheme
     let isActive: Bool
     let title: String
@@ -554,9 +557,7 @@ private struct AIThinkingMessage: View {
 
     var body: some View {
         DisclosureGroup(isExpanded: $expanded) {
-            Text((try? AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(text))
-                .font(.callout).lineSpacing(3).textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading).padding(.top, 6)
+            AIChatMarkdown(text: text, directory: directory, theme: theme).equatable().padding(.top, 6)
         } label: {
             HStack(spacing: 6) {
                 if isActive { ProgressView().controlSize(.small) }

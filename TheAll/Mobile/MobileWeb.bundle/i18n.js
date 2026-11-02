@@ -156,6 +156,17 @@ export const catalog = Object.fromEntries(Object.keys(supportedLanguages).map((c
   index < 2 ? Object.fromEntries(Object.entries(strings).map(([key, values]) => [key, values[index]]))
     : ({ fr: french, ja: japanese, ko: korean })[code]
 ]));
+const markdownStrings = {
+  markdownCopy: ['Copy code', '复制代码', 'Copier le code', 'コードをコピー', '코드 복사'],
+  markdownCopied: ['Copied', '已复制', 'Copié', 'コピーしました', '복사됨'],
+  markdownCopyFailed: ['Select the code to copy it.', '请选中代码后复制。', 'Sélectionnez le code pour le copier.', 'コードを選択してコピーしてください。', '코드를 선택하여 복사하세요.'],
+  markdownCode: ['Code', '代码', 'Code', 'コード', '코드'],
+  markdownTable: ['Table; scroll horizontally for more columns', '表格，可横向滚动查看更多列', 'Tableau ; faites défiler pour voir les autres colonnes', '表：横にスクロールして他の列を表示', '표: 가로로 스크롤하여 다른 열 보기'],
+  markdownOpenImage: ['Open image', '打开图片', 'Ouvrir l’image', '画像を開く', '이미지 열기']
+};
+for (const [key, values] of Object.entries(markdownStrings)) {
+  Object.keys(supportedLanguages).forEach((code, index) => { catalog[code][key] = values[index]; });
+}
 const photoStrings = {
   photosAdd: ['Add photos', '添加照片', 'Ajouter des photos', '写真を追加', '사진 추가'],
   photosRemove: ['Remove photo', '移除照片', 'Retirer la photo', '写真を削除', '사진 제거'],

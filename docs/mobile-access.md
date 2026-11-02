@@ -172,3 +172,9 @@ Xcode 的 `MobileAccessTests` 验证配对/撤销、请求校验、共享会话�
 ### Steering a running task
 
 Chat snapshots include `canSteer` and an opaque `steerToken`. `POST /api/chats/:id/steer` accepts `text`, optional `images`/`files`, the current `steerToken`, `requestId` and `bootID`. It applies only to the running task and never starts/resumes a session. The token and authorization are rechecked after attachment preparation; repeated request IDs replay the original response. Model and effort changes are reserved for ordinary `/send` requests. The phone and Windows chat show Steer beside Stop while running, and preserve the draft on explicit rejection. Messages marked `isSteering` remain within the original round; later refused/cancelled messages have `isError` and a not-applied caption.
+
+## 回复中的表格、代码与图片
+
+Windows 与手机聊天共用安全的 Markdown 展示层：表格显示表头、行列分界及数字对齐，窄屏下表格在框内横向滚动；代码块保留缩进和换行，显示语言并支持复制原始代码，局域网 HTTP 也支持选择复制回退。用户提问保持原文，不作为 Markdown 解析。
+
+已授权聊天图片和内嵌 PNG/JPEG/GIF/WebP 可按比例显示并点击预览，附件图片不再裁切。远程 Markdown 图片显示可点击的外部链接，不自动向第三方请求图片；原始 HTML 和脚本不会被执行。展示层不修改已保存消息或模型输入。

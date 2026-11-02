@@ -1,4 +1,5 @@
-import { APIError, request, chatPath, mergePage, turns, operation, readPairToken, safeLink, isPrivateLANHTTP } from './core.js';
+import { renderMarkdown } from './markdown.js';
+import { APIError, request, chatPath, mergePage, turns, operation, readPairToken, isPrivateLANHTTP } from './core.js';
 
 import { NotificationPreferences, readNotificationChat, notificationMessage } from './notifications.js';
 import { turnTiming } from './timing.js';
@@ -433,21 +434,6 @@ function restoreAnchor(anchor, fallback) {
   if (node) $('transcript').scrollTop += node.getBoundingClientRect().top - $('transcript').getBoundingClientRect().top - anchor.offset;
   else $('transcript').scrollTop = fallback;
 }
-function appendText(parent, text) {
-  // Safe lightweight formatting: code fences and clickable http(s) URLs; never parse HTML.
-  const pieces = String(text || '').split(/(```[^\n]*\n[\s\S]*?(?:```|$))/g);
-  for (const piece of pieces) {
-    if (piece.startsWith('```')) {
-      const code = piece.replace(/^```[^\n]*\n/, '').replace(/```$/, ''); parent.append(el('pre', '', code));
-    } else {
-      for (const part of piece.split(/(https?:\/\/[^\s<>]+)/g)) {
-        const link = /^https?:/.test(part) && safeLink(part);
-        if (link) { const a = el('a', '', part); a.href = link; a.target = '_blank'; a.rel = 'noopener noreferrer'; parent.append(a); }
-        else parent.append(document.createTextNode(part));
-      }
-    }
-  }
-}
 function messageNode(message, provider, chatID, previousNodes) {
   const signature = JSON.stringify([message, provider, chatID, language()]);
   const previous = previousNodes.get(message.id);
@@ -456,7 +442,10 @@ function messageNode(message, provider, chatID, previousNodes) {
   node.dataset.messageId = message.id;
   node.dataset.renderSignature = signature;
   node.append(el('div', 'author', message.role === 'user' ? t('you') : provider === 'openai' ? 'Codex' : 'Claude Code'));
-  const body = el('div', 'message-body'); appendText(body, message.text); node.append(body);
+  const body = el('div', 'message-body');
+  if (message.role === 'user') body.textContent = message.text || '';
+  else renderMarkdown(body, message.text, { t, chatID, openImage });
+  node.append(body);
   if (message.images?.length) {
     const images = el('div', 'message-photos');
     for (const photo of message.images) {
@@ -650,11 +639,14 @@ function closePhoto() {
 }
 $('close-photo').onclick = closePhoto;
 $('photo-dialog').addEventListener('close', () => $('photo-full').removeAttribute('src'));
+function openImage(source, name) {
+  $('photo-full').src = source; $('photo-full').alt = name; $('photo-dialog').showModal();
+}
 function photoButton(source, name) {
   const button = el('button', 'photo-open'); button.type = 'button'; button.ariaLabel = `${t('photosPreview')}: ${name}`;
   const image = el('img'); image.src = source; image.alt = name; image.loading = 'lazy'; image.decoding = 'async';
   image.onerror = () => { image.hidden = true; button.classList.add('photo-unavailable'); button.textContent = t('photosUnavailable'); button.disabled = true; };
-  button.append(image); button.onclick = () => { $('photo-full').src = source; $('photo-full').alt = name; $('photo-dialog').showModal(); };
+  button.append(image); button.onclick = () => openImage(source, name);
   return button;
 }
 function renderPhotoDrafts() {

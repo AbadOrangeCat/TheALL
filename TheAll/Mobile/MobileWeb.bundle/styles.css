@@ -899,3 +899,44 @@ dialog>p {
 }
 
 .message .steer-status { margin:8px 0 0; }
+
+/* Structured answers preserve the active palette and keep wide content inside
+   its own scroll region instead of widening the conversation/composer. */
+.markdown-body { white-space:normal; min-width:0; }
+.markdown-body> :first-child { margin-top:0; }
+.markdown-body> :last-child { margin-bottom:0; }
+.markdown-body p,.markdown-body blockquote { white-space:pre-wrap; margin:0 0 14px; }
+.markdown-body h2,.markdown-body h3,.markdown-body h4,.markdown-body h5,.markdown-body h6 { line-height:1.4; margin:22px 0 10px; font-size:1.08em; font-weight:650; }
+.markdown-body h2 { font-size:1.24em; }
+.markdown-body h3 { font-size:1.14em; }
+.markdown-body ul,.markdown-body ol { margin:10px 0 16px; padding-left:1.65em; }
+.markdown-body li { margin:6px 0; white-space:pre-wrap; }
+.markdown-body blockquote { border-left:3px solid var(--border); padding:2px 0 2px 14px; color:var(--muted); }
+.markdown-body hr { border:0; border-top:1px solid var(--border); margin:20px 0; }
+.markdown-body .inline-code { font-family:ui-monospace,SFMono-Regular,Consolas,monospace; font-size:.9em; background:var(--panel); border:1px solid var(--border); border-radius:4px; padding:1px 4px; overflow-wrap:anywhere; }
+.markdown-table-scroll { width:100%; max-width:100%; overflow-x:auto; margin:16px 0; border:1px solid var(--border); border-radius:10px; overscroll-behavior-x:contain; scrollbar-width:thin; }
+.markdown-table-scroll table { border-collapse:separate; border-spacing:0; min-width:100%; width:max-content; max-width:none; font-size:.92em; line-height:1.6; font-variant-numeric:tabular-nums; }
+.markdown-table-scroll th,.markdown-table-scroll td { min-width:100px; max-width:360px; padding:11px 14px; vertical-align:top; white-space:normal; overflow-wrap:anywhere; border-bottom:1px solid var(--border); border-right:1px solid var(--border); }
+.markdown-table-scroll th { background:var(--panel); font-weight:650; }
+.markdown-table-scroll tr:nth-child(even) td { background:var(--panel); }
+.markdown-table-scroll tr:last-child td { border-bottom:0; }
+.markdown-table-scroll th:last-child,.markdown-table-scroll td:last-child { border-right:0; }
+.markdown-table-scroll .align-left { text-align:left; }
+.markdown-table-scroll .align-right { text-align:right; }
+.markdown-table-scroll .align-center { text-align:center; }
+.markdown-code { min-width:0; border:1px solid var(--border); border-radius:10px; overflow:hidden; background:var(--panel); margin:16px 0; }
+.markdown-code-bar { display:flex; align-items:center; gap:12px; padding:6px 12px; min-height:38px; border-bottom:1px solid var(--border); color:var(--muted); font-size:12px; }
+.markdown-code-bar>span:first-child { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.markdown-copy-status { margin-left:auto; font-size:11px; }
+.markdown-copy { flex:none; padding:4px 8px; min-height:28px; font-size:12px; background:transparent; color:var(--text); border:1px solid var(--border); border-radius:6px; }
+.message-body .markdown-code pre { border:0; border-radius:0; padding:14px 16px; margin:0; max-height:480px; font-size:13px; line-height:1.65; tab-size:4; overflow:auto; overflow-wrap:normal; }
+.markdown-code pre code { font:inherit; white-space:pre; }
+.markdown-copy-buffer { position:fixed; top:0; left:-9999px; }
+.markdown-image { display:block; margin:16px 0; max-width:100%; }
+.markdown-image-open { display:block; padding:8px; width:fit-content; max-width:100%; background:var(--panel); border:1px solid var(--border); border-radius:10px; cursor:zoom-in; }
+.markdown-image img { display:block; max-width:100%; max-height:360px; width:auto; height:auto; object-fit:contain; }
+.markdown-caption { display:block; margin-top:6px; color:var(--muted); font-size:12px; line-height:1.5; }
+.message-photos .photo-open { width:min(300px,100%); height:auto; min-height:80px; max-height:260px; padding:6px; cursor:zoom-in; }
+.message-photos .photo-open img { width:auto; height:auto; max-width:100%; max-height:248px; object-fit:contain; margin:auto; }
+.markdown-table-scroll:focus-visible,.markdown-code pre:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+@media(max-width:480px) { .markdown-table-scroll th,.markdown-table-scroll td { padding:9px 11px; max-width:240px; } }

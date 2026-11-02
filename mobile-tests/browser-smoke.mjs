@@ -39,6 +39,22 @@ const steers = [];
 const requests = []; let rejectFileSend = false; const uploadedFiles = new Map();
 const all = Array.from({ length: 122 }, (_, n) => ({ id: `m${n}`, role: n % 2 ? 'assistant' : 'user', text: `Historical message ${n}`, isIntermediate: false }));
 all.push({ id: 'u', role: 'user', text: '查看当前项目的状态，并运行测试。' }, { id: 'p', role: 'assistant', isIntermediate: true, text: '正在检查工作目录与提交状态。' }, { id: 'a', role: 'assistant', completedAt: '2026-10-28T00:01:02.123Z', durationMs: 65432, completionStatus: 'completed', reasoningEffort: 'high', reasoningEffortVerified: true, text: '检查已完成，所有测试通过。\n\n```sh\nnpm test\n```\nhttps://example.com\n<script>alert("xss")</script>' });
+const richCode = '  const result = "<script>not HTML</script>";\n\n\tconsole.log(result, "| **literal** |");\n';
+const richImage = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j/1sAAAAASUVORK5CYII=';
+all.at(-1).text = [
+  '## 耗时和调用次数',
+  '| 场景 | Titan 调用（旧 → 新） | 耗时（旧 → 新） |',
+  '|---|---:|---:|',
+  '| S1 建 KB（50,416 段文本） | 49,191 → 13,864（**−71.8%**） | 52.2 → 12.9 分钟（**−75.2%**） |',
+  '| S2 第一次扫描 | 12,448 → 3,249（**−73.9%**） | 13.6 → 3.4 分钟 |',
+  '| **合计** | **74,087 → 17,113（−76.9%）** | |',
+  '```javascript\n' + richCode + '```',
+  '![本地图片](' + richImage + ')',
+  '![External image](https://example.com/photo.png)',
+  '**准确率和覆盖率完全没有变化**。`x | y` [Read more](https://example.com)',
+  '<script>alert("xss")</script> [unsafe](javascript:alert(1))'
+].join('\n\n');
+all.find(message => message.id === 'u').text += '\n**literal prompt** <script>not HTML</script>';
 const server = createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost');
   const json = (status, body, headers = {}) => { res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...headers }); res.end(JSON.stringify(body)); };
@@ -174,6 +190,30 @@ try {
   assert.equal(await evaluate('document.querySelector(".progress").open'), false);
   assert.equal(await evaluate('document.querySelector(".message-body script")'), null);
   assert.equal(await evaluate('document.documentElement.scrollWidth <= innerWidth'), true);
+  assert.equal(await evaluate('document.querySelectorAll(".markdown-table-scroll th").length'), 3);
+  assert.equal(await evaluate('document.querySelectorAll(".markdown-table-scroll tbody tr").length'), 3);
+  assert.equal(await evaluate('document.querySelector(".markdown-table-scroll tbody tr:last-child strong").textContent'), '合计');
+  assert.equal(await evaluate('document.querySelector(".markdown-code pre code").textContent'), richCode);
+  assert.equal(await evaluate('document.querySelector(".message.user .message-body").querySelector("strong,script")'), null);
+  assert.equal(await evaluate('document.querySelector(".markdown-code-bar span").textContent'), 'javascript');
+  assert.equal(await evaluate('document.querySelectorAll("a[href^=javascript],.message-body script").length'), 0);
+  assert.equal(await evaluate('document.querySelectorAll(".markdown-image img[src^=https]").length'), 0);
+  assert.equal(await evaluate('[...document.querySelectorAll("a")].some(link => link.href === "https://example.com/photo.png")'), true);
+  assert.equal(await evaluate('document.querySelector(".markdown-table-scroll").scrollWidth > document.querySelector(".markdown-table-scroll").clientWidth'), true);
+  await evaluate('document.querySelector(".markdown-image-open").click()');
+  assert.equal(await evaluate('document.getElementById("photo-dialog").open'), true);
+  await evaluate('document.getElementById("close-photo").click()');
+  // Exercise the exact copy bytes on both secure-context and private-LAN pages.
+  // CDP cannot grant clipboard in LAN HTTP, so observe the actual selection fallback.
+  await evaluate('window.copiedCode = null; document.execCommand = name => { if(name === "copy") { window.copiedCode = document.activeElement.value; return true; } return false; }; Object.defineProperty(navigator, "clipboard", {configurable:true, value:{writeText:async text => { window.copiedCode=text; }}}); document.querySelector(".markdown-copy").click()');
+  await until(() => evaluate('window.copiedCode !== null'), 'code copied');
+  assert.equal(await evaluate('window.copiedCode'), richCode);
+  await call('Emulation.setDeviceMetricsOverride', { width: 320, height: 844, deviceScaleFactor: 1, mobile: true });
+  assert.equal(await evaluate('document.documentElement.scrollWidth <= innerWidth'), true);
+  await evaluate('document.querySelector(".markdown-table-scroll").scrollIntoView({block:"start"})');
+  const richShot = await call('Page.captureScreenshot', { format:'png' });
+  await writeFile(process.env.RICH_SCREENSHOT_PATH || join(tmpdir(), 'theall-markdown-mobile.png'), Buffer.from(richShot.data, 'base64'));
+  await call('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
   await evaluate('document.getElementById("load-older").click()');
   await until(() => evaluate('document.querySelectorAll(".message").length === 125'), 'history pagination');
   assert.equal(await evaluate('document.getElementById("load-older").hidden'), true);

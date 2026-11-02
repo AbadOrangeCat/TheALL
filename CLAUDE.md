@@ -77,6 +77,8 @@ TheAll/
 │   ├── AIChatFileViews.swift     — 统一照片/文件选择、拖放、粘贴与文件卡片
 │   ├── AIChatLegacyHistory.swift — 只读导入应用旧版 Claude 会话，用户明确选择后恢复
 │   ├── AIChatProcess.swift       — 常驻 CLI 的逐行 JSON 进程通信
+│   ├── AIChatMarkdown.swift      — Foundation Markdown 块解析、表格兼容与链接校验
+│   ├── AIChatMarkdownViews.swift — 原生表格、可复制代码块与图片预览
 │   └── AIChatView.swift          — 聊天记录、原生输入框、模型下拉框和用户提问
 ├── Mobile/
 │   ├── MobileAccessController.swift — 一键 LAN 扫码、连接模式、配对鉴权和静态资源
