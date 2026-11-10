@@ -152,6 +152,49 @@ final class AICompletionTests: XCTestCase {
         session.stop()
     }
 
+    func testClaudePickerOrdersFamiliesThenNewestVersionsAfterMerging() {
+        let ids = ["claude-haiku-5-5", "claude-opus-4-8", "claude-fable-5", "claude-sonnet-5-5", "claude-opus-5", "claude-fable-5-1", "claude-opus-5-5", "claude-opus-5-10", "claude-3-7-sonnet-20250219", "custom-model", ""]
+        let options = ids.map { AIModelOption(id: $0, title: $0) }
+        let sorted = AIModelOption.merge(catalog: Array(options.prefix(3)), backend: Array(options.dropFirst(3)))
+        XCTAssertEqual(sorted.map(\.id), ["", "claude-fable-5-1", "claude-fable-5", "claude-opus-5-10", "claude-opus-5-5", "claude-opus-5", "claude-opus-4-8", "claude-sonnet-5-5", "claude-3-7-sonnet-20250219", "claude-haiku-5-5", "custom-model"])
+        XCTAssertEqual(AIModelOption.merge(catalog: sorted.reversed(), backend: []).map(\.id), sorted.map(\.id))
+    }
+
+    func testCodexPickerOrdersFamiliesThenNewestVersionsAfterMerging() {
+        let ids = ["gpt-6-luna", "gpt-6.1-sol", "gpt-5.6-sol", "gpt-6-astra", "gpt-6.1-terra", "gpt-5-mini", "gpt-5.4", "gpt-5.4-pro", "gpt-5.4-nano", "gpt-4o-mini", "gpt-4", "gpt-4.1", "gpt-4o", "custom"]
+        let options = ids.map { AIModelOption(id: $0, title: $0) }
+        let sorted = AIModelOption.merge(catalog: Array(options.prefix(3)), backend: Array(options.dropFirst(3)))
+        XCTAssertEqual(sorted.map(\.id), ["gpt-6-astra", "gpt-6.1-sol", "gpt-5.6-sol", "gpt-6.1-terra", "gpt-6-luna", "gpt-5.4-pro", "gpt-5.4", "gpt-5.4-nano", "gpt-5-mini", "gpt-4.1", "gpt-4o", "gpt-4o-mini", "gpt-4", "custom"])
+        XCTAssertEqual(AIModelOption.merge(catalog: sorted.reversed(), backend: []).map(\.id), sorted.map(\.id))
+    }
+
+    func testModelOrderingPreservesGatewayNamesCapabilitiesAndExplicitResolution() throws {
+        let catalog: [AIModelOption] = [
+            .init(id: "claude-opus-4-20250514", title: "Dated Opus"),
+            .init(id: "claude-opus-4-6", title: "Newer Opus"),
+            .init(id: "custom-alias", title: "My chosen model", reasoningEfforts: ["low", "high"]),
+            .init(id: "opaque-id", title: "Gateway flagship", line: "fable"),
+            .init(id: "claude-opus-5", title: "AAA"),
+            .init(id: "custom-2", title: "Custom 2"), .init(id: "custom-10", title: "Custom 10")
+        ]
+        let backend: [AIModelOption] = [.init(id: "custom-alias", title: "Alias", reasoningEfforts: ["high"],
+            defaultReasoningEffort: "high", resolvedModel: "claude-opus-5-5")]
+        let result = AIModelOption.merge(catalog: catalog, backend: backend)
+        XCTAssertEqual(result.map(\.id), ["opaque-id", "custom-alias", "claude-opus-5", "claude-opus-4-6", "claude-opus-4-20250514", "custom-2", "custom-10"])
+        let alias = try XCTUnwrap(result.first { $0.id == "custom-alias" })
+        XCTAssertEqual(alias.title, "My chosen model")
+        XCTAssertEqual(alias.reasoningEfforts, ["high"])
+        XCTAssertEqual(alias.defaultReasoningEffort, "high")
+        XCTAssertEqual(alias.resolvedModel, "claude-opus-5-5")
+        let page = try JSONDecoder().decode(AIModelCatalog.Page.self,
+            from: Data(#"{"data":[{"id":"opaque-id","line":"fable"}]}"#.utf8))
+        XCTAssertEqual(page.data.first?.line, "fable")
+        let malformed = try JSONDecoder().decode(AIModelCatalog.Page.self,
+            from: Data(#"{"data":[{"id":"number","line":123},{"id":"object","line":{}},{"id":"missing"}]}"#.utf8))
+        XCTAssertEqual(malformed.data.count, 3)
+        XCTAssertTrue(malformed.data.allSatisfy { $0.line == nil })
+    }
+
     func testCapabilitiesComeFromExactModelAndSnapshotPreservesEffort() throws {
         let backend = AIModelOption.cliModels([
             ["value": "default", "supportsEffort": true, "supportedEffortLevels": ["low", "medium", "high"]],

@@ -206,6 +206,7 @@ test('API model catalog merges with CLI models and the saved default applies to 
   const chat = (await f.api(`/api/chats/${id}`)).body;
   assert.equal(chat.model, 'configured-default'); assert.equal(f.stats.instances[0].connection.model, 'configured-default');
   assert.deepEqual(new Set(chat.models.map(m => m.id)), new Set(['cli-only', 'api-only', 'shared']));
+  assert.deepEqual(chat.models.map(m => m.id), ['api-only', 'shared', 'cli-only'], 'Desktop and mobile API expose the sorted merged catalog');
   assert.equal(chat.models.filter(m => m.id === 'shared').length, 1);
   assert.equal(chat.models.find(m => m.id === 'shared').title, 'API shared title');
   assert.deepEqual(requests, [{ path: '/v1/models', apiKey: 'regression-fake-secret' }]);

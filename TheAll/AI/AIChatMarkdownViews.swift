@@ -84,7 +84,7 @@ struct AIChatCodeBlock: View {
             .foregroundStyle(Color(nsColor: theme.textSecondary)).padding(.horizontal, 12).padding(.vertical, 9)
             .background(Color(nsColor: theme.sidebar))
             Rectangle().fill(Color(nsColor: theme.border)).frame(height: 1)
-            ScrollView(.horizontal) {
+            AIChatHorizontalOverflow {
                 Text(verbatim: code).font(.system(size: 13, design: .monospaced)).lineSpacing(4)
                     .textSelection(.enabled).fixedSize(horizontal: true, vertical: true).padding(12)
             }.fixedSize(horizontal: false, vertical: true)
@@ -121,7 +121,7 @@ struct AIChatMarkdownTable: View {
 
     var body: some View {
         let widths = widths
-        ScrollView(.horizontal) {
+        AIChatHorizontalOverflow {
             VStack(spacing: 0) {
                 row(headers, widths: widths, header: true)
                     .background(Color(nsColor: theme.sidebar))
@@ -155,6 +155,20 @@ struct AIChatMarkdownTable: View {
                     .fixedSize(horizontal: false, vertical: true).padding(12)
             }
         }
+    }
+}
+
+/// Most replies fit the pane. Avoid giving every code block and table its own
+/// scroll view (and scroll geometry updates) when there is nothing to scroll.
+private struct AIChatHorizontalOverflow<Content: View>: View {
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            content().fixedSize(horizontal: true, vertical: true)
+            ScrollView(.horizontal) { content() }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

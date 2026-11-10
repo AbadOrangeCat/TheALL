@@ -6,14 +6,14 @@
 <p align="center"><strong>把 Claude Code 和 Codex，放进同一个 Mac 与 Windows 工作台。</strong><br />项目、AI 对话和模型集中管理。离开电脑，也能在手机上继续。</p>
 
 <p align="center">
-  <a href="https://github.com/AbadOrangeCat/TheALL/releases/tag/v0.1.10"><img alt="版本 v0.1.10" src="https://img.shields.io/badge/release-v0.1.10-176B68?style=flat-square" /></a>
+  <a href="https://github.com/AbadOrangeCat/TheALL/releases/tag/v0.1.11"><img alt="版本 v0.1.11" src="https://img.shields.io/badge/release-v0.1.11-176B68?style=flat-square" /></a>
   <img alt="macOS 14 及以上，Apple Silicon" src="https://img.shields.io/badge/macOS-14%2B_%C2%B7_Apple_Silicon-263C3B?style=flat-square" />
   <img alt="Windows 预览版：Windows 10 1809 及以上与 Windows 11，x64 和 ARM64" src="https://img.shields.io/badge/Windows_preview-10%2B_%C2%B7_x64_%26_ARM64-263C3B?style=flat-square" />
   <img alt="支持 iOS 和 Android 手机 Web App" src="https://img.shields.io/badge/mobile-iOS_%26_Android-263C3B?style=flat-square" />
 </p>
 
 <p align="center">
-  <a href="https://github.com/AbadOrangeCat/TheALL/releases/tag/v0.1.10"><strong>下载 macOS 与 Windows 版</strong></a> ·
+  <a href="https://github.com/AbadOrangeCat/TheALL/releases/tag/v0.1.11"><strong>下载 macOS 与 Windows 版</strong></a> ·
   <a href="docs/windows.md">Windows 说明</a> ·
   <a href="https://abadorangecat.github.io/TheALL/">项目主页</a> ·
   <a href="docs/mobile-access.md">手机连接</a> ·
@@ -48,7 +48,7 @@ API 连接在 Mac 上通过 macOS Keychain 保存，在 Windows 上使用系统�
 | --- | --- | --- |
 | **系统** | macOS 14 及以上 | Windows 10 1809 及以上，或 Windows 11（推荐） |
 | **处理器** | Apple Silicon（arm64） | x64；另提供 ARM64 |
-| **v0.1.10 下载** | [DMG](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.10/TheAll-0.1.10-macos-arm64.dmg) · [ZIP](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.10/TheAll-0.1.10-macos-arm64.zip) | x64：[安装包](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.10/TheAll-0.1.10-windows-x64-nsis.exe) · [便携 EXE](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.10/TheAll-0.1.10-windows-x64-portable.exe) · [ZIP](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.10/TheAll-0.1.10-windows-x64-zip.zip)<br />ARM64：[安装包](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.10/TheAll-0.1.10-windows-arm64-nsis.exe) · [便携 EXE](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.10/TheAll-0.1.10-windows-arm64-portable.exe) · [ZIP](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.10/TheAll-0.1.10-windows-arm64-zip.zip) |
+| **v0.1.11 下载** | [DMG](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.11/TheAll-0.1.11-macos-arm64.dmg) · [ZIP](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.11/TheAll-0.1.11-macos-arm64.zip) | x64：[安装包](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.11/TheAll-0.1.11-windows-x64-nsis.exe) · [便携 EXE](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.11/TheAll-0.1.11-windows-x64-portable.exe) · [ZIP](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.11/TheAll-0.1.11-windows-x64-zip.zip)<br />ARM64：[安装包](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.11/TheAll-0.1.11-windows-arm64-nsis.exe) · [便携 EXE](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.11/TheAll-0.1.11-windows-arm64-portable.exe) · [ZIP](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.11/TheAll-0.1.11-windows-arm64-zip.zip) |
 
 两个平台都需要可用的 API 连接，以及在同一台电脑上单独安装对应提供商的 [Claude Code CLI](https://code.claude.com/docs/en/setup) 或 [Codex CLI](https://developers.openai.com/codex/cli)。Windows 版直接在本机运行 Claude Code / Codex，不需要 Mac 或 WSL；CLI 安装方法见 [Windows 说明](docs/windows.md)。
 
@@ -59,14 +59,21 @@ API 连接在 Mac 上通过 macOS Keychain 保存，在 Windows 上使用系统�
 
 **本版安装说明：**
 
-- **macOS：** v0.1.10 使用本地开发证书签名，**尚未经过 Apple 公证**。macOS 可能阻止首次打开；核对下载并确认信任后，可按 [Apple 官方说明](https://support.apple.com/en-us/102445)，使用系统提供的「系统设置 → 隐私与安全性 → 仍要打开」。请保留系统安全保护。Mac 版仅提供 arm64 构建。
+- **macOS：** v0.1.11 使用本地开发证书签名，**尚未经过 Apple 公证**。macOS 可能阻止首次打开；核对下载并确认信任后，可按 [Apple 官方说明](https://support.apple.com/en-us/102445)，使用系统提供的「系统设置 → 隐私与安全性 → 仍要打开」。请保留系统安全保护。Mac 版仅提供 arm64 构建。
 - **Windows：** 预览安装包**未签名**，Windows 可能显示 SmartScreen 提示，组织策略也可能阻止运行。ARM64 为交叉构建、尚未实机测试；Windows CI 验证 x64 运行、凭据和历史恢复，安装升级、真实 CLI 与手机/手表仍需实机验收。
-- [SHA-256 校验文件](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.10/SHA256SUMS.txt)涵盖两个平台。
+- [SHA-256 校验文件](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.11/SHA256SUMS.txt)涵盖两个平台。
 - 已加入自动检查更新与下载/安装按钮，位于「连接手机」上方。Mac v0.1.7、Windows v0.1.8 及以上可在应用内更新，更早的版本需手动安装一次；安装前会等待任务完成并保存草稿。 <!-- version:keep -->
 
 **执行方式：** 编程 Agent 的工具操作会自动执行，包括修改和删除文件、安装依赖及 Git 推送。请选用你准备让 Agent 操作的项目与 API 连接；需要用户回答的问题仍会暂停等待输入。
 
-## v0.1.10 更新 <!-- version:keep -->
+## v0.1.11 更新 <!-- version:keep -->
+
+- **Mac 原生滚动：** 聊天记录改用 AppKit 原生滚动视图，缓存消息视图，减少滚动与流式输出时的重复布局。
+- **聊天显示修复：** 发送消息、调整窗格大小和返回已缓存的标签页后，聊天记录直接更新，无需滚动才能显示；阅读旧消息时保留位置，点击跳到底部后继续跟随输出。
+- **模型列表排序：** Mac、Windows 和手机端按模型系列能力排序，同系列中新版本在前；保留 API/CLI 返回的可用模型和思考强度选项。
+- 保留现有主题、配色、对话记录与保存的连接。
+
+### 此前的 v0.1.10 更新 <!-- version:keep -->
 
 **Mac、Windows 和手机端的回答更易阅读：**
 

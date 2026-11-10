@@ -25,6 +25,14 @@ final class AIChatTests: XCTestCase {
     }
     private let configuration = AILaunchConfiguration(command: "unused", environment: [:], executable: "/usr/bin/true")
 
+    @MainActor private func scrollTranscript(_ scroll: NSScrollView, pixels: Int32) throws {
+        let cgEvent = try XCTUnwrap(CGEvent(scrollWheelEvent2Source: nil, units: .pixel,
+            wheelCount: 1, wheel1: pixels, wheel2: 0, wheel3: 0))
+        let event = try XCTUnwrap(NSEvent(cgEvent: cgEvent))
+        // Deliver to the test view only, never to the system event queue.
+        scroll.scrollWheel(with: event)
+    }
+
     func testClaudeSwitchKeepsProcessConversationAndUnsentDraft() {
         let pipe = Transport()
         let chat = AIChatSession(provider: .claude, model: "startup-model", directory: "/tmp", transport: pipe)
@@ -691,7 +699,242 @@ final class AIChatTests: XCTestCase {
         }
     }
 
+    @MainActor func testTranscriptRemainsVisibleAfterSendingAndCollapsingLongProgress() throws {
+        // Standalone hosting roots create their AX nodes only when assistive
+        // access is active. Enable it in this isolated test process.
+        let enhanced = NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface")
+        let oldAccessibility = NSApp.accessibilityAttributeValue(enhanced)
+        NSApp.accessibilitySetValue(true, forAttribute: enhanced)
+        defer { NSApp.accessibilitySetValue(oldAccessibility, forAttribute: enhanced) }
+
+        let pipe = Transport()
+        let imageContext = try XCTUnwrap(CGContext(data: nil, width: 1024, height: 512, bitsPerComponent: 8,
+            bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        imageContext.setFillColor(AppTheme.systemFallback(isDark: false).accent.cgColor)
+        imageContext.fill(CGRect(x: 0, y: 0, width: 1024, height: 512))
+        let image = try XCTUnwrap(imageContext.makeImage())
+        let png = try XCTUnwrap(NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]))
+        let imageMarkdown = "![Preview](data:image/png;base64,\(png.base64EncodedString()))"
+        let history = (0..<150).flatMap { index in [
+            AIChatMessage(id: "question-\(index)", role: .user, text: "Question \(index)"),
+            AIChatMessage(id: "answer-\(index)", role: .assistant,
+                text: String(repeating: "An earlier answer with variable height.\n\n", count: index % 5 + 1)
+                    + (index % 25 == 0 ? imageMarkdown : ""),
+                completedAt: "2026-11-08T07:00:00.000Z", durationMs: 12345, completionStatus: "completed")
+        ] }
+        let snapshot = AIChatSnapshot(provider: .claude, directory: "/tmp", model: "", input: "",
+            messages: history, conversationID: "scroll-fixture")
+        final class Store: AICredentialStore {
+            func load(for provider: AIProvider) throws -> AIConnection? { AIConnection(apiKey: "fake") }
+            func save(_ connection: AIConnection, for provider: AIProvider) throws {}
+            func delete(for provider: AIProvider) throws {}
+        }
+        let session = AITerminalSession(credentials: Store(), makeLaunch: { _, _ in self.configuration }, loadModels: { _, _ in [] })
+        session.theme = .systemFallback(isDark: false)
+        let host = AITerminalPaneView(session: session, makeTransport: { pipe })
+        session.restore(snapshot, transport: pipe); pipe.respond()
+        let chat = try XCTUnwrap(session.chat)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 760, height: 640),
+            styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let container = NSView()
+        container.wantsLayer = true
+        container.layer?.masksToBounds = true
+        window.contentView = container
+        host.frame = container.bounds
+        host.autoresizingMask = [.width, .height]
+        container.addSubview(host)
+        window.orderFront(nil)
+        defer { chat.stop(); window.contentView = nil; window.close() }
+        func settle() { RunLoop.current.run(until: Date().addingTimeInterval(0.2)) }
+        func descendants<T: NSView>(_ view: NSView, _: T.Type) -> [T] {
+            (view as? T).map { [$0] } ?? view.subviews.flatMap { descendants($0, T.self) }
+        }
+        settle()
+        let scroll = try XCTUnwrap(descendants(host, NSScrollView.self).max { $0.bounds.height < $1.bounds.height })
+        let document = try XCTUnwrap(scroll.documentView)
+        let editor = try XCTUnwrap(descendants(host, AIChatComposer.Editor.self).first)
+        func assertVisible(_ phase: String, expected: String? = nil, file: StaticString = #filePath, line: UInt = #line) {
+            let viewport = window.convertToScreen(scroll.convert(scroll.bounds, to: nil))
+            func containsText(_ element: Any, depth: Int = 0) -> Bool {
+                guard depth < 40, let accessible = element as? any NSAccessibilityProtocol else { return false }
+                let text = (accessible.accessibilityLabel() ?? "") + (accessible.accessibilityValue() as? String ?? "")
+                if accessible.accessibilityRole() == .staticText, !text.isEmpty,
+                   expected.map({ text.contains($0) }) ?? true, accessible.accessibilityFrame().intersects(viewport) { return true }
+                return (accessible.accessibilityChildren() ?? []).contains { containsText($0, depth: depth + 1) }
+            }
+            func remaining() -> CGFloat {
+                document.isFlipped ? document.bounds.maxY - scroll.documentVisibleRect.maxY
+                    : scroll.documentVisibleRect.minY - document.bounds.minY
+            }
+            // Image decoding and a restored pane may require more than one run
+            // loop. Wait for content, without forcing layout, display or scrolling.
+            let deadline = Date().addingTimeInterval(1)
+            while (!containsText(document) || abs(remaining()) > 2), Date() < deadline {
+                RunLoop.current.run(until: Date().addingTimeInterval(0.02))
+            }
+            XCTAssertTrue(containsText(document), "\(phase): transcript must materialize text before any scroll or forced display", file: file, line: line)
+            let visible = scroll.documentVisibleRect
+            XCTAssertGreaterThan(visible.intersection(document.bounds).height, scroll.contentView.bounds.height - 2,
+                "\(phase): blank viewport outside document: \(visible), document \(document.bounds)", file: file, line: line)
+            XCTAssertLessThanOrEqual(abs(remaining()), 2, "\(phase): latest content must be visible without a wheel event (distance \(remaining()))", file: file, line: line)
+            if let bitmap = scroll.bitmapImageRepForCachingDisplay(in: scroll.bounds) {
+                scroll.cacheDisplay(in: scroll.bounds, to: bitmap)
+                if let png = bitmap.representation(using: .png, properties: [:]) {
+                    let attachment = XCTAttachment(data: png, uniformTypeIdentifier: "public.png")
+                    attachment.name = phase; attachment.lifetime = .keepAlways; add(attachment)
+                }
+            }
+        }
+        assertVisible("restored", expected: "An earlier answer")
+        for turn in 0..<5 {
+            if turn == 1 || turn == 3 {
+                try scrollTranscript(scroll, pixels: Int32(document.bounds.height))
+                settle()
+            }
+            if turn == 3 { window.setContentSize(NSSize(width: 420, height: 640)); settle() }
+            chat.input = "Next question \(turn)"
+            settle()
+            let event = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero,
+                modifierFlags: .command, timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber, context: nil, characters: "\r",
+                charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36))
+            editor.keyDown(with: event)
+            settle()
+            XCTAssertTrue(chat.isBusy)
+            assertVisible("send \(turn)")
+            pipe.emit(["type": "assistant", "message": ["id": "thinking-\(turn)", "content": [
+                ["type": "thinking", "thinking": String(repeating: "Working through the project step by step.\n\n", count: 55)]
+            ]]])
+            settle()
+            assertVisible("thinking \(turn)")
+            // Cached tabs detach their pane while their background turn continues.
+            if turn == 2 { host.removeFromSuperview() }
+            let longAnswer = (0..<12).map { index in
+                "## Result \(index)\n\n" + String(repeating: "A detailed review with a recommendation.\n\n", count: 3)
+                    + "```swift\n" + String(repeating: "let result = inspectProject()\n", count: 8) + "```\n\n"
+                    + "| Item | Result |\n|---|---|\n| Check | Passed |\n\n"
+            }.joined()
+            pipe.emit(["type": "assistant", "message": ["id": "final-\(turn)", "content": [
+                ["type": "text", "text": longAnswer + imageMarkdown + "\n\nVisible final answer \(turn)"]
+            ]]])
+            pipe.emit(["type": "result", "session_id": "scroll-fixture", "is_error": false])
+            settle()
+            if turn == 2 { container.addSubview(host); settle() }
+            assertVisible("collapsed \(turn)", expected: "Visible final answer \(turn)")
+        }
+        // Warm, unchanged long history: measure view-local wheel handling plus
+        // a short run-loop drain. This is a comparative metric, not a frame rate.
+        var scrollDurations: [Double] = []
+        for step in 0..<180 {
+            let start = ProcessInfo.processInfo.systemUptime
+            try scrollTranscript(scroll, pixels: step < 90 ? 90 : -90)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.001))
+            scrollDurations.append((ProcessInfo.processInfo.systemUptime - start) * 1000)
+        }
+        let samples = scrollDurations.sorted()
+        print("SCROLL_BENCH count=\(samples.count) p50=\(samples[samples.count / 2]) p95=\(samples[samples.count * 95 / 100]) max=\(samples.last!) total=\(samples.reduce(0, +))")
+        try scrollTranscript(scroll, pixels: -Int32(document.bounds.height))
+        settle()
+        // A small wheel-sized step must leave the bottom rather than snap back.
+        let smallStep = scroll.contentView.bounds.minY + (document.isFlipped ? -10 : 10)
+        try scrollTranscript(scroll, pixels: 10)
+        settle()
+        XCTAssertEqual(scroll.contentView.bounds.minY, smallStep, accuracy: 1,
+            "Small upward scrolls must not be cancelled by bottom following")
+        // Reading older messages must survive background output and its image
+        // layout; only the local Send/jump action opts back into following.
+        try scrollTranscript(scroll, pixels: Int32(document.bounds.height))
+        settle()
+        let readingOrigin = scroll.contentView.bounds.origin
+        chat.input = "A remote follow-up while reading history"
+        chat.send()
+        pipe.emit(["type": "assistant", "message": ["id": "background-answer", "content": [
+            ["type": "text", "text": String(repeating: "Background output.\n\n", count: 25) + imageMarkdown]
+        ]]])
+        pipe.emit(["type": "result", "session_id": "scroll-fixture", "is_error": false])
+        settle()
+        XCTAssertEqual(scroll.contentView.bounds.origin.y, readingOrigin.y, accuracy: 1,
+            "New output must not pull the reader away from older messages")
+        XCTAssertEqual(chat.messages.filter { $0.role == .user }.count, 156)
+
+        // Real histories contain completion labels. Stream new text while the
+        // reader scrolls older replies, allowing roughly one 120Hz frame per step.
+        chat.input = "Continue the background review"
+        chat.send()
+        var streamingDurations: [Double] = []
+        for step in 0..<120 {
+            let start = ProcessInfo.processInfo.systemUptime
+            pipe.emit(["type": "stream_event", "api_message_id": "live-scroll-answer", "event": [
+                "type": "content_block_delta", "delta": ["type": "text_delta", "text": "Update \(step). "]
+            ]])
+            try scrollTranscript(scroll, pixels: step < 60 ? -40 : 40)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.008))
+            streamingDurations.append((ProcessInfo.processInfo.systemUptime - start) * 1000)
+        }
+        let streaming = streamingDurations.sorted()
+        print("STREAM_SCROLL_BENCH count=\(streaming.count) p50=\(streaming[streaming.count / 2]) p95=\(streaming[streaming.count * 95 / 100]) max=\(streaming.last!) total=\(streaming.reduce(0, +))")
+        pipe.emit(["type": "result", "session_id": "scroll-fixture", "is_error": false])
+        settle()
+        XCTAssertTrue(chat.messages.last?.text.contains("Update 119.") == true)
+        XCTAssertLessThan(scroll.documentVisibleRect.maxY, document.bounds.maxY - 100,
+            "Streaming while scrolling history must not pull the reader to the bottom")
+
+        // Compare synthetic phase/momentum events with an unmodified native
+        // scroll view. Responsive AppKit may clamp synthetic events instead of
+        // rubber-banding; it must not be compared with SwiftUI's old wheel path.
+        final class ReferenceDocument: NSView { override var isFlipped: Bool { true } }
+        let reference = NSScrollView(frame: scroll.frame)
+        reference.hasVerticalScroller = true
+        reference.scrollerStyle = .overlay
+        reference.verticalScrollElasticity = .automatic
+        reference.horizontalScrollElasticity = .none
+        let referenceDocument = ReferenceDocument(frame: document.bounds)
+        referenceDocument.wantsLayer = true
+        reference.documentView = referenceDocument
+        container.addSubview(reference)
+        defer { reference.removeFromSuperview() }
+        settle()
+        for atTop in [false, true] {
+            let edge = atTop ? document.bounds.minY : document.bounds.maxY - scroll.contentView.bounds.height
+            scroll.contentView.scroll(to: NSPoint(x: 0, y: edge))
+            scroll.reflectScrolledClipView(scroll.contentView)
+            reference.contentView.scroll(to: NSPoint(x: 0, y: edge))
+            reference.reflectScrolledClipView(reference.contentView)
+            settle()
+            XCTAssertEqual(scroll.contentView.bounds.minY, edge, accuracy: 1)
+            for (phase, momentum, pixels) in [(1, 0, 0), (2, 0, -35), (2, 0, -35), (4, 0, 0),
+                                              (0, 1, -25), (0, 2, -15), (0, 3, 0)] {
+                let cgEvent = try XCTUnwrap(CGEvent(scrollWheelEvent2Source: nil, units: .pixel,
+                    wheelCount: 1, wheel1: Int32(pixels) * (atTop ? -1 : 1), wheel2: 0, wheel3: 0))
+                cgEvent.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
+                cgEvent.setIntegerValueField(.scrollWheelEventScrollPhase, value: Int64(phase))
+                cgEvent.setIntegerValueField(.scrollWheelEventMomentumPhase, value: Int64(momentum))
+                let event = try XCTUnwrap(NSEvent(cgEvent: cgEvent))
+                if phase == 1 { XCTAssertEqual(event.phase, .began) }
+                if phase == 2 { XCTAssertEqual(event.phase, .changed) }
+                if phase == 4 { XCTAssertEqual(event.phase, .ended) }
+                if momentum == 1 { XCTAssertEqual(event.momentumPhase, .began) }
+                if momentum == 2 { XCTAssertEqual(event.momentumPhase, .changed) }
+                if momentum == 3 { XCTAssertEqual(event.momentumPhase, .ended) }
+                scroll.scrollWheel(with: event)
+                reference.scrollWheel(with: event)
+                RunLoop.current.run(until: Date().addingTimeInterval(0.03))
+                XCTAssertEqual(scroll.contentView.bounds.minY, reference.contentView.bounds.minY, accuracy: 1,
+                    "Gesture and momentum handling must match unmodified AppKit scrolling")
+            }
+            settle()
+        }
+    }
+
     @MainActor func testNativeChatLayoutWithModelsBelowEditorAndScrollableTranscript() throws {
+        // Standalone hosting roots create their AX nodes only when assistive
+        // access is active. Enable it in this isolated test process.
+        let enhanced = NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface")
+        let oldAccessibility = NSApp.accessibilityAttributeValue(enhanced)
+        NSApp.accessibilitySetValue(true, forAttribute: enhanced)
+        defer { NSApp.accessibilitySetValue(oldAccessibility, forAttribute: enhanced) }
+
         final class Store: AICredentialStore {
             func load(for provider: AIProvider) throws -> AIConnection? { AIConnection(apiKey: "fake", model: "model-a") }
             func save(_ connection: AIConnection, for provider: AIProvider) throws {}
@@ -718,7 +961,7 @@ final class AIChatTests: XCTestCase {
         pipe.emit(["type": "result", "session_id": "fixture-session", "is_error": false])
         for index in 0..<8 { pipe.emit(["type": "assistant", "message": ["id": "tool-preview-\(index)", "content": [["type": "tool_use", "id": "t-\(index)", "name": "Bash", "input": ["command": "ls"]]]]]) }
         chat.input = "This draft stays here when the model changes."
-        let hosting = NSHostingView(rootView: AIChatView(session: session, chat: chat, onFocus: {}, onEdit: {}))
+        var hosting = AIChatNativePane(session: session, chat: chat, onFocus: {}, onEdit: {})
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 760, height: 640), styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = hosting
@@ -760,11 +1003,14 @@ final class AIChatTests: XCTestCase {
             (view as? NSScrollView).map { [$0] } ?? view.subviews.flatMap(scrollViews)
         }
         let transcript = try XCTUnwrap(scrollViews(hosting).max(by: { $0.bounds.height < $1.bounds.height }))
+        XCTAssertFalse(String(reflecting: type(of: transcript)).hasPrefix("SwiftUI."),
+            "The transcript must use AppKit-owned scrolling without SwiftUI scroll layout")
         let document = try XCTUnwrap(transcript.documentView)
+        XCTAssertTrue(type(of: transcript).isCompatibleWithResponsiveScrolling)
+        XCTAssertTrue(type(of: transcript.contentView).isCompatibleWithResponsiveScrolling)
+        XCTAssertTrue(type(of: document).isCompatibleWithResponsiveScrolling)
         XCTAssertGreaterThan(document.bounds.height, transcript.contentView.bounds.height)
-        let top = document.isFlipped ? document.bounds.minY : document.bounds.maxY - transcript.contentView.bounds.height
-        transcript.contentView.scroll(to: NSPoint(x: 0, y: top))
-        transcript.reflectScrolledClipView(transcript.contentView)
+        try scrollTranscript(transcript, pixels: Int32(document.bounds.height))
         RunLoop.current.run(until: Date().addingTimeInterval(0.2))
         capture("TheAll jump button visible while reading older messages")
         let viewport = transcript.convert(transcript.bounds, to: nil)
@@ -785,7 +1031,6 @@ final class AIChatTests: XCTestCase {
         let expandedHeight = document.bounds.height
         capture("TheAll completed progress opened by an individual click")
         try click(progressPoint)
-        // LazyVStack refines offscreen row estimates while revealing content.
         XCTAssertLessThan(document.bounds.height, expandedHeight - 20)
         // Click the lower-right control through the real view hierarchy.
         let buttonPoint = NSPoint(x: viewport.maxX - 30, y: viewport.minY + 30)
@@ -797,13 +1042,36 @@ final class AIChatTests: XCTestCase {
         }
         XCTAssertEqual(chat.input, "This draft stays here when the model changes.")
         capture("TheAll jump button hidden at bottom")
+        transcript.pageUp(nil)
+        // AppKit animates Page Up. Sample only after the native animation has
+        // settled, so its remaining movement is not attributed to new output.
+        let scrollDeadline = Date().addingTimeInterval(2)
+        var previousOrigin = transcript.contentView.bounds.minY
+        var stableSamples = 0
+        while Date() < scrollDeadline && stableSamples < 4 {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+            let origin = transcript.contentView.bounds.minY
+            stableSamples = abs(origin - previousOrigin) < 0.01 ? stableSamples + 1 : 0
+            previousOrigin = origin
+        }
+        XCTAssertEqual(stableSamples, 4, "Native Page Up animation must settle")
+        XCTAssertLessThan(transcript.documentVisibleRect.maxY, document.bounds.maxY - 20)
+        let pageOrigin = transcript.contentView.bounds.minY
+        pipe.emit(["type": "assistant", "message": ["id": "keyboard-background", "content": [["type": "text", "text": "A background message while reading with Page Up."]]]])
+        RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+        XCTAssertEqual(transcript.contentView.bounds.minY, pageOrigin, accuracy: 1,
+            "Page Up must leave bottom-follow mode")
+        transcript.scrollToEndOfDocument(nil)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+        XCTAssertEqual(transcript.documentVisibleRect.maxY, document.bounds.maxY, accuracy: 1)
         session.startChat(configuration, directory: "/tmp/example-project", transport: pipe)
         pipe.respond(["models": [["value": "model-a", "displayName": "Model A", "supportsEffort": true, "supportedEffortLevels": ["low", "medium", "high"]]]])
         let active = try XCTUnwrap(session.chat)
         active.input = "Explain the project."
         active.send(); pipe.respond()
         pipe.emit(["type": "assistant", "message": ["id": "active-thinking", "content": [["type": "thinking", "thinking": "I will check the entry point and trace the session lifecycle."]]]])
-        hosting.rootView = AIChatView(session: session, chat: active, onFocus: {}, onEdit: {})
+        hosting = AIChatNativePane(session: session, chat: active, onFocus: {}, onEdit: {})
+        window.contentView = hosting
         RunLoop.current.run(until: Date().addingTimeInterval(0.2))
         capture("TheAll active Thinking indicator")
         window.setContentSize(NSSize(width: 420, height: 640))

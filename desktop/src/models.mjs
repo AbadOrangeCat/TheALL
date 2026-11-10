@@ -32,7 +32,7 @@ export async function fetchModels(provider, connection, fetcher = fetch) {
     const payload = JSON.parse(Buffer.concat(chunks).toString('utf8'));
     if (!Array.isArray(payload.data)) throw new Error('Invalid model catalog');
     for (const item of payload.data) if (typeof item.id === 'string' && item.id.length <= 256 && !seen.has(item.id)) {
-      seen.add(item.id); models.push({ id: item.id, title: String(item.display_name || item.id).slice(0,256), ...(provider === 'claude' ? apiModelCapabilities(item) : {}) });
+      seen.add(item.id); models.push({ id: item.id, title: String(item.display_name || item.id).slice(0,256), ...(provider === 'claude' ? { ...apiModelCapabilities(item), ...(typeof item.line === 'string' ? { line: item.line } : {}) } : {}) });
     }
     if (provider !== 'claude' || !payload.has_more || typeof payload.last_id !== 'string') break;
     const next = new URL(url); next.searchParams.set('after_id', payload.last_id);
@@ -66,15 +66,71 @@ export function mergeModelCatalog(apiModels = [], cliModels = []) {
     const reasoningEfforts = (matching[0]?.reasoningEfforts || []).filter(level => matching.every(model => model.reasoningEfforts?.includes(level)));
     byID.set(resolved, { id: resolved, title: resolved, resolvedModel: resolved, reasoningEfforts });
   }
-  return [...new Map([...byID.values(), ...apiModels.map(model => {
+  const merged = [...new Map([...byID.values(), ...apiModels.map(model => {
     const backend = byID.get(model.id);
     return { id: model.id, title: model.title, reasoningEfforts: backend?.reasoningEfforts ?? model.reasoningEfforts ?? [],
+      ...(backend?.resolvedModel || model.resolvedModel ? { resolvedModel: backend?.resolvedModel || model.resolvedModel } : {}),
+      ...(model.line || backend?.line ? { line: model.line || backend.line } : {}),
       ...(backend?.defaultReasoningEffort ? { defaultReasoningEffort: backend.defaultReasoningEffort } : {}) };
   })].map(model => [model.id, { ...model, reasoningEfforts: model.reasoningEfforts || [] }])).values()];
+  return orderModels(merged);
 }
 export function selectedReasoningEffort(models, model, value = '', defaultModel) {
   if (typeof value !== 'string' || (value && !(models.find(item => item.id === model) || (!model && models.find(item => item.id === defaultModel)))?.reasoningEfforts?.includes(value))) {
     throw Object.assign(new Error('This model does not support the selected thinking level. Choose Default or a supported level.'), { status: 400 });
   }
   return value;
+}
+
+// Presentation policy, not benchmark scores; mirrors AIModelOption.ordered.
+const CLAUDE_LINES = ['fable', 'opus', 'sonnet', 'haiku'];
+const GPT_LINES = ['astra', 'sol', 'terra', 'luna'];
+const modelNameOrder = new Intl.Collator('en-US', { numeric: true, sensitivity: 'variant' });
+const modelTokens = value => String(value || '').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+function modelFamily(tokens) {
+  const claude = CLAUDE_LINES.findIndex(line => tokens.includes(line));
+  if ((tokens.includes('claude') || tokens.length === 1) && claude >= 0) return claude;
+  if (tokens.includes('gpt')) {
+    const line = GPT_LINES.findIndex(line => tokens.includes(line));
+    if (line >= 0) return 10 + line;
+    if (/^(?:\d+|4o)$/.test(tokens[tokens.indexOf('gpt') + 1] || '')) return 20;
+  }
+  if (tokens.some(token => /^o\d+$/.test(token))) return 21;
+  if (tokens[0] === 'codex') return 22;
+  return null;
+}
+function modelVersion(tokens) {
+  const version = [];
+  for (const token of tokens) {
+    if (token === '4o') { version.push(4, 0, 1); continue; } // between GPT-4 and 4.1
+    const raw = token.replace(/^o/, '');
+    if (/^\d+$/.test(raw)) {
+      if (raw.length >= 4) break; // dates are not model generations
+      version.push(Number(raw));
+    } else if (version.length) break;
+  }
+  return version;
+}
+function modelOrder(model) {
+  const canonical = modelTokens(model.resolvedModel || model.id), display = modelTokens(model.title);
+  const explicit = CLAUDE_LINES.indexOf(typeof model.line === 'string' ? model.line.toLowerCase() : '');
+  const source = explicit >= 0 || modelFamily(canonical) !== null ? canonical : display;
+  const family = model.id === '' ? -1 : explicit >= 0 ? explicit : modelFamily(source) ?? 100;
+  let version = modelVersion(source);
+  if (!version.length && (explicit >= 0 || modelFamily(display) === family)) version = modelVersion(display);
+  const variant = source.includes('nano') ? 3 : source.includes('mini') ? 2 : source.includes('pro') || source.includes('max') ? 0 : 1;
+  return { family, version, variant, title: String(model.title || '').toLowerCase(), id: model.id };
+}
+export function orderModels(models) {
+  return models.map(model => ({ model, key: modelOrder(model) })).sort(({ key: a }, { key: b }) => {
+    if (a.family !== b.family) return a.family - b.family;
+    if (a.family < 100) {
+      for (let i = 0; i < Math.max(a.version.length, b.version.length); i++) {
+        const difference = (b.version[i] || 0) - (a.version[i] || 0);
+        if (difference) return difference;
+      }
+      if (a.variant !== b.variant) return a.variant - b.variant;
+    }
+    return modelNameOrder.compare(a.title, b.title) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+  }).map(({ model }) => model);
 }

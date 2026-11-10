@@ -137,7 +137,8 @@ final class AIChatMarkdownTests: XCTestCase {
             host.layoutSubtreeIfNeeded()
             XCTAssertEqual(host.bounds.width, width, accuracy: 1)
             let horizontal = scrollViews(host).filter { $0.documentView != nil }
-            XCTAssertEqual(horizontal.count, 2, "Table and code have independent horizontal scrolling")
+            XCTAssertEqual(horizontal.count, width == 880 ? 0 : 2,
+                "Only overflowing content needs independent horizontal scrolling")
             for scroll in horizontal {
                 let frame = scroll.convert(scroll.bounds, to: host)
                 XCTAssertGreaterThanOrEqual(frame.minX, 0)
@@ -156,6 +157,79 @@ final class AIChatMarkdownTests: XCTestCase {
                 let attachment = XCTAttachment(data: png, uniformTypeIdentifier: "public.png")
                 attachment.name = "Markdown \(Int(width)) \(dark ? "dark" : "light")"
                 attachment.lifetime = .keepAlways; add(attachment)
+            }
+        }
+    }
+
+    @MainActor func testOverflowAdaptsToResizingAndRoutesWheelInput() throws {
+        let source = """
+        ```swift
+        let result = compareEmbeddings(company, baseline: "previous_version")
+        print(result)
+        ```
+
+        | Company | Before | After |
+        |---|---:|---:|
+        | Example | 12,448 | 3,249 |
+        """
+        let view = ScrollView {
+            VStack {
+                Color.clear.frame(height: 600)
+                AIChatMarkdown(text: source, directory: "/tmp", theme: .systemFallback(isDark: false))
+                Color.clear.frame(height: 600)
+            }.padding(16)
+        }
+        let host = NSHostingView(rootView: view)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 880, height: 640),
+            styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = host; window.orderFront(nil)
+        defer { window.contentView = nil; window.close() }
+        func settle() { RunLoop.current.run(until: Date().addingTimeInterval(0.2)) }
+        func scrollViews(_ view: NSView) -> [NSScrollView] {
+            (view as? NSScrollView).map { [$0] + view.subviews.flatMap(scrollViews) } ?? view.subviews.flatMap(scrollViews)
+        }
+        func wheel(over point: NSPoint, vertical: Int32 = 0, horizontal: Int32 = 0) throws {
+            let target = try XCTUnwrap(host.hitTest(host.convert(point, to: host.superview)))
+            let cgEvent = try XCTUnwrap(CGEvent(scrollWheelEvent2Source: nil, units: .pixel,
+                wheelCount: 2, wheel1: vertical, wheel2: horizontal, wheel3: 0))
+            let screen = window.convertPoint(toScreen: host.convert(point, to: nil))
+            cgEvent.location = CGPoint(x: screen.x, y: (NSScreen.screens.first?.frame.maxY ?? 0) - screen.y)
+            // Hit-test the actual content, then deliver only to this test window.
+            let event = try XCTUnwrap(NSEvent(cgEvent: cgEvent))
+            target.scrollWheel(with: event)
+            settle()
+        }
+        settle()
+        let outer = try XCTUnwrap(scrollViews(host).first)
+        for width in [880.0, 320.0, 880.0, 320.0] {
+            window.setContentSize(NSSize(width: width, height: 640)); settle()
+            outer.contentView.scroll(to: NSPoint(x: 0, y: 500))
+            outer.reflectScrolledClipView(outer.contentView); settle()
+            let inner = scrollViews(host).filter { $0 !== outer }
+            XCTAssertEqual(inner.count, width == 880 ? 0 : 2)
+            if inner.isEmpty {
+                let before = outer.contentView.bounds.minY
+                try wheel(over: NSPoint(x: 100, y: 200), vertical: -30)
+                XCTAssertGreaterThan(outer.contentView.bounds.minY, before)
+            }
+            for scroll in inner {
+                let visible = scroll.convert(scroll.bounds, to: host).intersection(host.bounds)
+                XCTAssertGreaterThan(visible.height, 20)
+                let point = NSPoint(x: visible.midX, y: visible.midY)
+                let beforeY = outer.contentView.bounds.minY
+                let beforeX = scroll.contentView.bounds.minX
+                try wheel(over: point, vertical: -30)
+                XCTAssertGreaterThan(outer.contentView.bounds.minY, beforeY,
+                    "Vertical wheel input over code and tables must reach the transcript")
+                XCTAssertEqual(scroll.contentView.bounds.minX, beforeX, accuracy: 1)
+                let afterY = outer.contentView.bounds.minY
+                let moved = scroll.convert(scroll.bounds, to: host).intersection(host.bounds)
+                try wheel(over: NSPoint(x: moved.midX, y: moved.midY), horizontal: -30)
+                XCTAssertGreaterThan(scroll.contentView.bounds.minX, beforeX,
+                    "Overflowing content must still scroll horizontally")
+                XCTAssertEqual(outer.contentView.bounds.minY, afterY, accuracy: 1)
+                try wheel(over: NSPoint(x: moved.midX, y: moved.midY), vertical: 30)
+                XCTAssertLessThan(outer.contentView.bounds.minY, afterY)
             }
         }
     }

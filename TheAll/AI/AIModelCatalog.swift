@@ -6,6 +6,7 @@ struct AIModelOption: Identifiable, Equatable {
     var reasoningEfforts: [String] = []
     var defaultReasoningEffort: String? = nil
     var resolvedModel: String? = nil
+    var line: String? = nil
 
     static func cliModels(_ values: [[String: Any]], provider: AIProvider) -> [AIModelOption] {
         let aliases: [AIModelOption] = values.compactMap { value in
@@ -37,11 +38,89 @@ struct AIModelOption: Identifiable, Equatable {
         var result = catalog.map { item -> AIModelOption in
             guard let capability = backend.first(where: { $0.id == item.id }) else { return item }
             return AIModelOption(id: item.id, title: item.title, reasoningEfforts: capability.reasoningEfforts,
-                                 defaultReasoningEffort: capability.defaultReasoningEffort)
+                                 defaultReasoningEffort: capability.defaultReasoningEffort,
+                                 resolvedModel: capability.resolvedModel ?? item.resolvedModel, line: item.line ?? capability.line)
         }
         let ids = Set(result.map(\.id))
         result += backend.filter { !ids.contains($0.id) }
+        return ordered(result)
+    }
+
+    /// Presentation policy, not a benchmark score. Keep in sync with models.mjs.
+    /// Sort after merging so cached catalogs and CLI-only models use the same order.
+    static func ordered(_ models: [AIModelOption]) -> [AIModelOption] {
+        models.map { ($0, ModelOrder($0)) }.sorted { $0.1.precedes($1.1) }.map(\.0)
+    }
+
+}
+
+private struct ModelOrder {
+    let family: Int
+    let version: [Int]
+    let variant: Int
+    let title: String
+    let id: String
+    private static let claude = ["fable", "opus", "sonnet", "haiku"]
+    private static let gpt = ["astra", "sol", "terra", "luna"]
+
+    init(_ model: AIModelOption) {
+        let canonical = Self.tokens(model.resolvedModel ?? model.id)
+        let display = Self.tokens(model.title)
+        let explicit = model.line.flatMap { Self.claude.firstIndex(of: $0.lowercased()) }
+        let source = explicit != nil || Self.family(canonical) != nil ? canonical : display
+        family = model.id.isEmpty ? -1 : explicit ?? Self.family(source) ?? 100
+        let parsed = Self.version(source)
+        version = parsed.isEmpty && (explicit != nil || Self.family(display) == family) ? Self.version(display) : parsed
+        variant = source.contains("nano") ? 3 : source.contains("mini") ? 2 :
+            source.contains("pro") || source.contains("max") ? 0 : 1
+        title = model.title.lowercased()
+        id = model.id
+    }
+
+    private static func tokens(_ value: String) -> [String] {
+        value.lowercased().split { !$0.isASCII || !$0.isLetter && !$0.isNumber }.map(String.init)
+    }
+
+    private static func family(_ tokens: [String]) -> Int? {
+        if tokens.contains("claude") || tokens.count == 1,
+           let index = claude.firstIndex(where: tokens.contains) { return index }
+        if tokens.contains("gpt") {
+            if let index = gpt.firstIndex(where: tokens.contains) { return 10 + index }
+            if let index = tokens.firstIndex(of: "gpt"), tokens.indices.contains(index + 1),
+               (Int(tokens[index + 1]) != nil || tokens[index + 1] == "4o") { return 20 }
+        }
+        if tokens.contains(where: { $0.first == "o" && Int($0.dropFirst()) != nil }) { return 21 }
+        if tokens.first == "codex" { return 22 }
+        return nil
+    }
+
+    private static func version(_ tokens: [String]) -> [Int] {
+        var result: [Int] = []
+        for token in tokens {
+            // The older 4o line sits after 4.1 and before the original GPT-4.
+            if token == "4o" { result += [4, 0, 1]; continue }
+            let raw = token.first == "o" ? String(token.dropFirst()) : token
+            if let number = Int(raw) {
+                // Snapshot dates / Bedrock revisions are not model generations.
+                guard raw.count < 4 else { break }
+                result.append(number)
+            } else if !result.isEmpty { break }
+        }
         return result
+    }
+
+    func precedes(_ other: Self) -> Bool {
+        if family != other.family { return family < other.family }
+        if family < 100 {
+            for index in 0..<max(version.count, other.version.count) {
+                let lhs = index < version.count ? version[index] : 0
+                let rhs = index < other.version.count ? other.version[index] : 0
+                if lhs != rhs { return lhs > rhs }
+            }
+            if variant != other.variant { return variant < other.variant }
+        }
+        let comparison = title.compare(other.title, options: .numeric, locale: Locale(identifier: "en_US_POSIX"))
+        return comparison == .orderedSame ? id < other.id : comparison == .orderedAscending
     }
 }
 
@@ -95,7 +174,18 @@ final class AIModelCatalog: NSObject, URLSessionTaskDelegate, @unchecked Sendabl
             }
             let id: String
             let display_name: String?
+            let line: String?
             let capabilities: Capabilities?
+
+            private enum CodingKeys: String, CodingKey { case id, display_name, line, capabilities }
+            init(from decoder: Decoder) throws {
+                let values = try decoder.container(keyedBy: CodingKeys.self)
+                id = try values.decode(String.self, forKey: .id)
+                display_name = try values.decodeIfPresent(String.self, forKey: .display_name)
+                capabilities = try values.decodeIfPresent(Capabilities.self, forKey: .capabilities)
+                // Optional gateway metadata must not make the entire catalog unavailable.
+                line = try? values.decode(String.self, forKey: .line)
+            }
         }
         let data: [Model]
         let has_more: Bool?
@@ -132,10 +222,10 @@ final class AIModelCatalog: NSObject, URLSessionTaskDelegate, @unchecked Sendabl
                 throw CatalogError.invalidResponse
             }
             for model in page.data where !model.id.isEmpty && !model.id.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains) {
-                models[model.id] = AIModelOption(id: model.id, title: model.display_name ?? model.id, reasoningEfforts: model.capabilities?.effort?.levels ?? [])
+                models[model.id] = AIModelOption(id: model.id, title: model.display_name ?? model.id, reasoningEfforts: model.capabilities?.effort?.levels ?? [], line: provider == .claude ? model.line : nil)
             }
             if provider == .openai || page.has_more != true {
-                return models.values.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+                return AIModelOption.ordered(Array(models.values))
             }
             guard let next = page.last_id, !next.isEmpty, seenCursors.insert(next).inserted else {
                 throw CatalogError.invalidResponse
