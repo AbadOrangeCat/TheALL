@@ -1,7 +1,7 @@
 import Foundation
 import Observation
 
-struct AIChatMessage: Identifiable, Codable {
+struct AIChatMessage: Identifiable, Codable, Equatable {
     enum Role: String, Codable { case user, assistant, thinking, tool }
     let id: String
     let role: Role

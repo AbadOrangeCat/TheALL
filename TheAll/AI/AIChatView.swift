@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import Observation
 import UniformTypeIdentifiers
 
 struct AIModelPicker: View {
@@ -73,36 +74,62 @@ struct AIChatView: View {
     var onEdit: () -> Void
     var onChooseDirectory: () -> Void = {}
     var onRestoreLegacy: (AIChatLegacyConversation) -> Void = { _ in }
-    @State private var followOutput = true
-    @State private var isAtBottom = true
-    @State private var forceScroll = 0
-    @State private var expandedIntermediateIDs = Set<String>()
-    @State private var collapsedThinkingIDs = Set<String>()
-    @State private var showsPhotoPicker = false
-    @State private var importingPhotos = false
-    @State private var photoError: String?
-    @State private var previewPhoto: AIChatImage?
-    @State private var photoDropTargeted = false
-    @State private var editorPhotoDropTargeted = false
+    @Bindable var presentation: AIChatPresentation
+    let region: Region
+    var contentWidth: CGFloat? = nil
+    enum Region { case header, composer, welcome, status, jump }
     private var theme: AppTheme { session.theme }
 
     var body: some View {
         let _ = session.locale
-        VStack(spacing: 0) {
-            HStack {
-                Label(session.provider?.tool ?? "AI", systemImage: "sparkles")
-                    .font(Font(DT.Font.title))
-                Spacer(minLength: 8)
-                Button(action: onEdit) {
-                    Label(L10n.string("ai.settings"), systemImage: "slider.horizontal.3")
-                        .font(Font(DT.Font.smallB)).frame(minHeight: DT.Chat.controlHeight)
-                }.buttonStyle(.borderless)
+        Group {
+            switch region {
+            case .header: header
+            case .composer: composer
+            case .welcome: welcome
+            case .status: thinkingStatus
+            case .jump: jumpButton
             }
-            .padding(.horizontal, DT.Space.lg)
-            .padding(.vertical, DT.Space.xs)
-            .background(Color(nsColor: theme.sidebar))
-            .overlay(alignment: .bottom) { Rectangle().fill(Color(nsColor: theme.border)).frame(height: DT.Stroke.hairline) }
-            transcript
+        }
+        .frame(width: contentWidth)
+        .fixedSize(horizontal: false, vertical: true)
+        .foregroundStyle(Color(nsColor: theme.textPrimary))
+        .background { if region != .jump { Color(nsColor: theme.canvas) } }
+        .tint(Color(nsColor: theme.accent))
+        .environment(\.colorScheme, theme.isDark ? .dark : .light)
+        .onDrop(of: [.fileURL, .image], isTargeted: $presentation.photoDropTargeted, perform: dropPhotos)
+        .overlay {
+            if !presentation.importingPhotos, presentation.photoDropTargeted || presentation.editorPhotoDropTargeted {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 10).fill(Color(nsColor: theme.accentMuted).opacity(0.8))
+                    RoundedRectangle(cornerRadius: 10)
+                        .strokeBorder(Color(nsColor: theme.accent), style: StrokeStyle(lineWidth: 2, dash: [8, 5]))
+                    Label(L10n.string("ai.files.drop"), systemImage: "paperclip")
+                        .font(.headline).padding(16)
+                        .background(Color(nsColor: theme.sidebar), in: RoundedRectangle(cornerRadius: 8))
+                }.padding(6).allowsHitTesting(false)
+            }
+        }
+    }
+
+    private var header: some View {
+        HStack {
+            Label(session.provider?.tool ?? "AI", systemImage: "sparkles")
+                .font(Font(DT.Font.title))
+            Spacer(minLength: 8)
+            Button(action: onEdit) {
+                Label(L10n.string("ai.settings"), systemImage: "slider.horizontal.3")
+                    .font(Font(DT.Font.smallB)).frame(minHeight: DT.Chat.controlHeight)
+            }.buttonStyle(.borderless)
+        }
+        .padding(.horizontal, DT.Space.lg)
+        .padding(.vertical, DT.Space.xs)
+        .background(Color(nsColor: theme.sidebar))
+        .overlay(alignment: .bottom) { Rectangle().fill(Color(nsColor: theme.border)).frame(height: DT.Stroke.hairline) }
+    }
+
+    private var composer: some View {
+        VStack(spacing: 0) {
             if let error = chat.errorMessage {
                 Text(error).font(.caption).foregroundStyle(Color(nsColor: theme.danger))
                     .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 16).padding(.bottom, 8)
@@ -125,7 +152,7 @@ struct AIChatView: View {
             VStack(alignment: .leading, spacing: 8) {
                 if !chat.draftImages.isEmpty {
                     AIChatPhotos(images: chat.draftImages, store: chat.imageStore, theme: theme,
-                        onOpen: { previewPhoto = $0 }, onRemove: { image in
+                        onOpen: { presentation.previewPhoto = $0 }, onRemove: { image in
                             chat.draftImages.removeAll { $0.id == image.id }
                         })
                 }
@@ -134,20 +161,20 @@ struct AIChatView: View {
                         chat.draftFiles.removeAll { $0.id == file.id }
                     })
                 }
-                if importingPhotos {
+                if presentation.importingPhotos {
                     HStack(spacing: 6) {
                         ProgressView().controlSize(.small)
                         Text(L10n.string("ai.files.preparing")).font(.caption)
                     }
                 }
-                if let photoError {
+                if let photoError = presentation.photoError {
                     Text(photoError).font(.caption).foregroundStyle(Color(nsColor: theme.danger))
                 }
                 AIChatComposer(text: $chat.input, conversation: ObjectIdentifier(chat),
                     history: { chat.messages.filter { $0.role == .user }.map(\.text) },
                     theme: theme, onFocus: onFocus, onSend: send, onPasteImages: pastePhotos,
-                    acceptsPhotoDrops: !importingPhotos,
-                    onPhotoDragTargeted: { editorPhotoDropTargeted = $0 })
+                    acceptsPhotoDrops: !presentation.importingPhotos,
+                    onPhotoDragTargeted: { presentation.editorPhotoDropTargeted = $0 })
                     .frame(height: DT.Chat.editorHeight)
                     .clipShape(RoundedRectangle(cornerRadius: DT.Radius.card, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: DT.Radius.card, style: .continuous)
@@ -189,43 +216,26 @@ struct AIChatView: View {
             .background(Color(nsColor: theme.sidebar))
             .overlay(alignment: .top) { Rectangle().fill(Color(nsColor: theme.border)).frame(height: DT.Stroke.hairline) }
         }
-        .foregroundStyle(Color(nsColor: theme.textPrimary))
-        .background(Color(nsColor: theme.canvas))
-        .tint(Color(nsColor: theme.accent))
-        .environment(\.colorScheme, theme.isDark ? .dark : .light)
-        .onDrop(of: [.fileURL, .image], isTargeted: $photoDropTargeted, perform: dropPhotos)
-        .overlay {
-            if !importingPhotos, photoDropTargeted || editorPhotoDropTargeted {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 10).fill(Color(nsColor: theme.accentMuted).opacity(0.8))
-                    RoundedRectangle(cornerRadius: 10)
-                        .strokeBorder(Color(nsColor: theme.accent), style: StrokeStyle(lineWidth: 2, dash: [8, 5]))
-                    Label(L10n.string("ai.files.drop"), systemImage: "paperclip")
-                        .font(.headline).padding(16)
-                        .background(Color(nsColor: theme.sidebar), in: RoundedRectangle(cornerRadius: 8))
-                }.padding(6).allowsHitTesting(false)
-            }
-        }
         .onAppear { if chat.catalogModels.isEmpty, !session.isLoadingModels { session.refreshModels() } }
-        .fileImporter(isPresented: $showsPhotoPicker, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
+        .fileImporter(isPresented: $presentation.showsPhotoPicker, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
             switch result {
             case .success(let urls): attachPhotos(urls.map(AIChatAttachmentImport.file))
-            case .failure: photoError = L10n.string("ai.images.unavailable")
+            case .failure: presentation.photoError = L10n.string("ai.images.unavailable")
             }
         }
-        .sheet(item: $previewPhoto) { image in
+        .sheet(item: $presentation.previewPhoto) { image in
             AIChatPhotoPreview(image: image, store: chat.imageStore, theme: theme)
         }
     }
 
     private var directoryControls: some View {
         HStack(spacing: DT.Space.sm) {
-            Button { showsPhotoPicker = true } label: {
+            Button { presentation.showsPhotoPicker = true } label: {
                 Image(systemName: "paperclip")
                     .frame(width: DT.Chat.controlHeight, height: DT.Chat.controlHeight)
             }
             .buttonStyle(.borderless)
-            .disabled(importingPhotos || (chat.draftImages.count >= AIChatImageStore.maximumCount && chat.draftFiles.count >= AIChatFileStore.maximumCount))
+            .disabled(presentation.importingPhotos || (chat.draftImages.count >= AIChatImageStore.maximumCount && chat.draftFiles.count >= AIChatFileStore.maximumCount))
             .help(L10n.string("ai.files.add"))
             .accessibilityLabel(L10n.string("ai.files.add"))
             .accessibilityIdentifier("chat-add-photos")
@@ -261,7 +271,7 @@ struct AIChatView: View {
             .accessibilityIdentifier("chat-reasoning-effort")
             Button(L10n.string(chat.isBusy ? "ai.chat.steer" : "ai.chat.send"), action: send)
                 .buttonStyle(.borderedProminent)
-                .disabled(!chat.canSend || importingPhotos)
+                .disabled(!chat.canSend || presentation.importingPhotos)
                 .controlSize(.large).fixedSize()
                 .accessibilityIdentifier("chat-submit")
             if chat.isBusy && showsStop { stopButton }
@@ -281,141 +291,51 @@ struct AIChatView: View {
         .accessibilityIdentifier("chat-stop")
     }
 
-    private var transcript: some View {
-        GeometryReader { _ in
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: DT.Space.lg) {
-                        if chat.visibleMessages.isEmpty {
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text(L10n.string("ai.chat.welcome")).font(.title2.weight(.semibold))
-                                Text(L10n.string("ai.chat.welcomeDetail")).font(.callout)
-                                    .foregroundStyle(Color(nsColor: theme.textSecondary))
-                                if chat.provider == .claude, !chat.isBusy {
-                                    AILegacyHistoryButton(session: session, onRestore: onRestoreLegacy)
-                                        .padding(.top, 8)
-                                }
-                            }.padding(.vertical, 24)
-                        }
-                        ForEach(Array(chat.visibleMessages.enumerated()), id: \.element.id) { index, message in
-                            if message.role == .user, !message.isSteering, index > 0 {
-                                Rectangle().fill(Color(nsColor: theme.borderStrong))
-                                    .frame(height: 2).padding(.vertical, 12)
-                                    .accessibilityHidden(true)
-                            }
-                            if message.isIntermediate {
-                                    AIThinkingMessage(text: message.text, directory: chat.directory, theme: theme, isActive: false,
-                                    title: L10n.string(message.role == .thinking ? "ai.chat.thinking" : "ai.chat.progress"),
-                                    expanded: expansion(for: message))
-                            } else if message.role == .tool {
-                                DisclosureGroup {
-                                    Text(message.text).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
-                                } label: {
-                                    Label(L10n.string("ai.chat.toolFailed"), systemImage: "exclamationmark.triangle")
-                                        .font(.caption).lineLimit(1)
-                                }.foregroundStyle(Color(nsColor: theme.textSecondary))
-                            } else if message.role == .thinking {
-                                AIThinkingMessage(text: message.text, directory: chat.directory, theme: theme, isActive: chat.activeThinkingID == message.id,
-                                    title: L10n.string("ai.chat.thinking"), expanded: expansion(for: message))
-                            } else {
-                                VStack(alignment: .leading, spacing: DT.Space.sm) {
-                                    Text(message.role == .user ? L10n.string("ai.chat.you") : session.provider?.tool ?? "AI")
-                                        .font(.caption.weight(.semibold))
-                                        .foregroundStyle(Color(nsColor: message.role == .user ? theme.accent : theme.textSecondary))
-                                    if !message.images.isEmpty {
-                                        AIChatPhotos(images: message.images, store: chat.imageStore, theme: theme,
-                                            onOpen: { previewPhoto = $0 })
-                                    }
-                                    if !message.files.isEmpty {
-                                        AIChatFiles(files: message.files, store: chat.fileStore, theme: theme)
-                                    }
-                                    if !message.text.isEmpty {
-                                        if message.role == .user {
-                                            Text(verbatim: message.text).textSelection(.enabled).font(.system(size: 14)).lineSpacing(4)
-                                                .frame(maxWidth: .infinity, alignment: .leading)
-                                        } else {
-                                            AIChatMarkdown(text: message.text, directory: chat.directory, theme: theme).equatable()
-                                        }
-                                    }
-                                    if message.isSteering && message.isError {
-                                        Text(L10n.string("ai.chat.steerNotApplied"))
-                                            .font(.caption).foregroundStyle(Color(nsColor: theme.danger))
-                                    }
-                                    if let timing = AIChatCompletionLabel.text(for: message, locale: session.locale) {
-                                        Text(timing).font(.system(size: 11, design: .monospaced)).monospacedDigit()
-                                            .padding(.top, DT.Space.xs).lineSpacing(3)
-                                            .foregroundStyle(Color(nsColor: theme.textSecondary))
-                                            .textSelection(.enabled)
-                                            .accessibilityIdentifier("chat-completion-time")
-                                    }
-                                }
-                                .padding(DT.Space.lg)
-                                .background {
-                                    if message.role == .user {
-                                        RoundedRectangle(cornerRadius: DT.Chat.messageRadius, style: .continuous).fill(Color(nsColor: theme.accentMuted))
-                                    }
-                                }
-                                .overlay(alignment: .leading) {
-                                    if message.role == .user {
-                                        RoundedRectangle(cornerRadius: 2).fill(Color(nsColor: theme.accent))
-                                            .frame(width: 3).padding(.vertical, 8)
-                                    }
-                                }
-                            }
-                        }
-                        if chat.showsThinkingPlaceholder {
-                            HStack(spacing: 6) {
-                                ProgressView().controlSize(.small)
-                                Text(L10n.string("ai.chat.thinking")).font(.caption.weight(.medium))
-                            }.foregroundStyle(Color(nsColor: theme.textSecondary))
-                        }
-                        // Keep the bottom anchor at the actual end of the content.
-                        Color.clear.frame(height: 44).id("bottom")
-                    }.frame(maxWidth: DT.Chat.contentWidth)
-                        .padding(.horizontal, DT.Space.lg).padding(.top, DT.Space.lg)
-                        .frame(maxWidth: .infinity)
-                        .background(AIChatScrollPosition { atBottom, nearBottom in
-                            isAtBottom = atBottom
-                            followOutput = nearBottom
-                        })
-                }
-                .onAppear { proxy.scrollTo("bottom", anchor: .bottom) }
-                .onChange(of: chat.revision) { _, _ in
-                    if followOutput { proxy.scrollTo("bottom", anchor: .bottom) }
-                }
-                .onChange(of: forceScroll) { _, _ in
-                    followOutput = true
-                    proxy.scrollTo("bottom", anchor: .bottom)
-                }
-                .overlay(alignment: .bottomTrailing) {
-                    if !isAtBottom, !chat.visibleMessages.isEmpty {
-                        Button { forceScroll += 1 } label: {
-                            Image(systemName: "arrow.down.to.line")
-                                .font(.system(size: 15, weight: .semibold))
-                                .frame(width: 36, height: 36)
-                                .background(Color(nsColor: theme.sidebar), in: Circle())
-                                .overlay(Circle().stroke(Color(nsColor: theme.borderStrong), lineWidth: 1))
-                        }
-                        .buttonStyle(.plain).padding(12)
-                        .help(L10n.string("ai.chat.latest"))
-                        .accessibilityLabel(L10n.string("ai.chat.latest"))
-                        .accessibilityIdentifier("chat-scroll-to-bottom")
-                    }
-                }
+    private var welcome: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(L10n.string("ai.chat.welcome")).font(.title2.weight(.semibold))
+            Text(L10n.string("ai.chat.welcomeDetail")).font(.callout)
+                .foregroundStyle(Color(nsColor: theme.textSecondary))
+            if chat.provider == .claude, !chat.isBusy {
+                AILegacyHistoryButton(session: session, onRestore: onRestoreLegacy).padding(.top, 8)
             }
+        }.padding(.vertical, 24).frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var thinkingStatus: some View {
+        HStack(spacing: 6) {
+            ProgressView().controlSize(.small)
+            Text(L10n.string("ai.chat.thinking")).font(.caption.weight(.medium))
+            Spacer()
+        }.foregroundStyle(Color(nsColor: theme.textSecondary))
+    }
+
+    @ViewBuilder private var jumpButton: some View {
+        if !presentation.isAtBottom, !chat.visibleMessages.isEmpty {
+            Button { presentation.forceScroll += 1 } label: {
+                Image(systemName: "arrow.down.to.line")
+                    .font(.system(size: 15, weight: .semibold))
+                    .frame(width: 36, height: 36)
+                    .background(Color(nsColor: theme.sidebar), in: Circle())
+                    .overlay(Circle().stroke(Color(nsColor: theme.borderStrong), lineWidth: 1))
+            }
+            .buttonStyle(.plain)
+            .help(L10n.string("ai.chat.latest"))
+            .accessibilityLabel(L10n.string("ai.chat.latest"))
+            .accessibilityIdentifier("chat-scroll-to-bottom")
         }
     }
 
     private func send() {
-        guard !importingPhotos else { return }
+        guard !presentation.importingPhotos else { return }
         chat.send()
-        forceScroll += 1
+        presentation.forceScroll += 1
     }
 
-    private func pastePhotos(_ pasteboard: NSPasteboard) -> Bool {
+    fileprivate func pastePhotos(_ pasteboard: NSPasteboard) -> Bool {
         guard AIChatAttachmentImport.containsAttachments(pasteboard) else { return false }
         guard let photos = AIChatAttachmentImport.read(pasteboard), !photos.isEmpty else {
-            photoError = L10n.string("ai.files.invalid")
+            presentation.photoError = L10n.string("ai.files.invalid")
             return true
         }
         attachPhotos(photos)
@@ -423,7 +343,7 @@ struct AIChatView: View {
     }
 
     private func dropPhotos(_ providers: [NSItemProvider]) -> Bool {
-        guard !providers.isEmpty, !importingPhotos else { return false }
+        guard !providers.isEmpty, !presentation.importingPhotos else { return false }
         importPhotos(count: providers.count) { imageStore, fileStore in
             try await AIChatAttachmentImport.importProviders(providers, imageStore: imageStore, fileStore: fileStore)
         }
@@ -440,17 +360,17 @@ struct AIChatView: View {
     }
 
     private func importPhotos(count: Int, operation: @escaping (AIChatImageStore, AIChatFileStore) async throws -> AIChatAttachmentImport.Batch) {
-        guard !importingPhotos else { return }
+        guard !presentation.importingPhotos else { return }
         guard count <= AIChatImageStore.maximumCount + AIChatFileStore.maximumCount else {
-            photoError = L10n.string("ai.files.tooMany")
+            presentation.photoError = L10n.string("ai.files.tooMany")
             return
         }
         let target = chat
         guard target.beginAttachmentImport() else { return }
-        importingPhotos = true
-        photoError = nil
+        presentation.importingPhotos = true
+        presentation.photoError = nil
         Task { @MainActor in
-            defer { importingPhotos = false; target.endAttachmentImport() }
+            defer { presentation.importingPhotos = false; target.endAttachmentImport() }
             do {
                 let batch = try await operation(target.imageStore, target.fileStore)
                 do {
@@ -462,89 +382,459 @@ struct AIChatView: View {
                 }
                 target.draftImages.append(contentsOf: batch.images)
                 target.draftFiles.append(contentsOf: batch.files)
-            } catch { photoError = error.localizedDescription }
+            } catch { presentation.photoError = error.localizedDescription }
+        }
+    }
+
+
+}
+
+/// A text delta changes one message. Keep the remaining rows independent of the
+/// observable session so their layout, Markdown and completion labels stay intact.
+private struct AIChatMessageRow: View, Equatable {
+    let message: AIChatMessage
+    let showsDivider: Bool
+    let providerTitle: String
+    let directory: String
+    let theme: AppTheme
+    let locale: Locale
+    let imageStore: AIChatImageStore
+    let fileStore: AIChatFileStore
+    let isActive: Bool
+    let expanded: Bool
+    let onExpansionChange: (Bool) -> Void
+    let onOpenPhoto: (AIChatImage) -> Void
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.message == rhs.message && lhs.showsDivider == rhs.showsDivider &&
+        lhs.providerTitle == rhs.providerTitle && lhs.directory == rhs.directory &&
+        lhs.theme == rhs.theme && lhs.locale == rhs.locale &&
+        lhs.imageStore === rhs.imageStore && lhs.fileStore === rhs.fileStore &&
+        lhs.isActive == rhs.isActive && lhs.expanded == rhs.expanded
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: DT.Space.lg) {
+            if showsDivider {
+                Rectangle().fill(Color(nsColor: theme.borderStrong))
+                    .frame(height: 2).padding(.vertical, 12)
+                    .accessibilityHidden(true)
+            }
+            if message.isIntermediate {
+                AIThinkingMessage(text: message.text, directory: directory, theme: theme, isActive: false,
+                    title: L10n.string(message.role == .thinking ? "ai.chat.thinking" : "ai.chat.progress"),
+                    expanded: Binding(get: { expanded }, set: onExpansionChange))
+            } else if message.role == .tool {
+                DisclosureGroup {
+                    Text(message.text).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
+                } label: {
+                    Label(L10n.string("ai.chat.toolFailed"), systemImage: "exclamationmark.triangle")
+                        .font(.caption).lineLimit(1)
+                }.foregroundStyle(Color(nsColor: theme.textSecondary))
+            } else if message.role == .thinking {
+                AIThinkingMessage(text: message.text, directory: directory, theme: theme, isActive: isActive,
+                    title: L10n.string("ai.chat.thinking"), expanded: Binding(get: { expanded }, set: onExpansionChange))
+            } else {
+                VStack(alignment: .leading, spacing: DT.Space.sm) {
+                    Text(message.role == .user ? L10n.string("ai.chat.you") : providerTitle)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(Color(nsColor: message.role == .user ? theme.accent : theme.textSecondary))
+                    if !message.images.isEmpty {
+                        AIChatPhotos(images: message.images, store: imageStore, theme: theme,
+                            onOpen: onOpenPhoto)
+                    }
+                    if !message.files.isEmpty {
+                        AIChatFiles(files: message.files, store: fileStore, theme: theme)
+                    }
+                    if !message.text.isEmpty {
+                        if message.role == .user {
+                            Text(verbatim: message.text).textSelection(.enabled).font(.system(size: 14)).lineSpacing(4)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        } else {
+                            AIChatMarkdown(text: message.text, directory: directory, theme: theme).equatable()
+                        }
+                    }
+                    if message.isSteering && message.isError {
+                        Text(L10n.string("ai.chat.steerNotApplied"))
+                            .font(.caption).foregroundStyle(Color(nsColor: theme.danger))
+                    }
+                    if let timing = AIChatCompletionLabel.text(for: message, locale: locale) {
+                        Text(timing).font(.system(size: 11, design: .monospaced)).monospacedDigit()
+                            .padding(.top, DT.Space.xs).lineSpacing(3)
+                            .foregroundStyle(Color(nsColor: theme.textSecondary))
+                            .textSelection(.enabled)
+                            .accessibilityIdentifier("chat-completion-time")
+                    }
+                }
+                .padding(DT.Space.lg)
+                .background {
+                    if message.role == .user {
+                        RoundedRectangle(cornerRadius: DT.Chat.messageRadius, style: .continuous).fill(Color(nsColor: theme.accentMuted))
+                    }
+                }
+                .overlay(alignment: .leading) {
+                    if message.role == .user {
+                        RoundedRectangle(cornerRadius: 2).fill(Color(nsColor: theme.accent))
+                            .frame(width: 3).padding(.vertical, 8)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Observable
+final class AIChatPresentation {
+    var isAtBottom = true
+    var forceScroll = 0
+    var expandedIntermediateIDs = Set<String>()
+    var collapsedThinkingIDs = Set<String>()
+    var showsPhotoPicker = false
+    var importingPhotos = false
+    var photoError: String?
+    var previewPhoto: AIChatImage?
+    var photoDropTargeted = false
+    var editorPhotoDropTargeted = false
+}
+
+/// AppKit owns scrolling and row geometry. Stable, individually hosted messages
+/// keep a streaming update from invalidating the entire SwiftUI transcript.
+final class AIChatNativePane: NSView {
+    private let presentation: AIChatPresentation
+    private let session: AITerminalSession
+    private let chat: AIChatSession
+    private let scroll = AIChatNativeScrollView()
+    private let document = AIChatNativeDocument()
+    private let stack = NSStackView()
+    private var rows: [String: NSHostingView<AIChatNativeRow>] = [:]
+    private var welcome: NSView!
+    private var status: NSView!
+    private var chromeHosts: [NSHostingView<AIChatView>] = []
+    private var layoutWidth: CGFloat = 0
+    private var importAttachments: (NSPasteboard) -> Bool = { _ in false }
+
+    init(session: AITerminalSession, chat: AIChatSession, onFocus: @escaping () -> Void,
+         onEdit: @escaping () -> Void, onChooseDirectory: @escaping () -> Void = {},
+         onRestoreLegacy: @escaping (AIChatLegacyConversation) -> Void = { _ in }) {
+        let presentation = AIChatPresentation()
+        self.presentation = presentation
+        self.session = session
+        self.chat = chat
+        super.init(frame: .zero)
+        func host(_ region: AIChatView.Region) -> NSHostingView<AIChatView> {
+            let view = NSHostingView(rootView: AIChatView(session: session, chat: chat, onFocus: onFocus,
+                onEdit: onEdit, onChooseDirectory: onChooseDirectory, onRestoreLegacy: onRestoreLegacy,
+                presentation: presentation, region: region))
+            view.sizingOptions = [.intrinsicContentSize]
+            view.safeAreaRegions = []
+            view.translatesAutoresizingMaskIntoConstraints = false
+            return view
+        }
+        let header = host(.header), composer = host(.composer), jump = host(.jump)
+        chromeHosts = [header, composer]
+        welcome = host(.welcome)
+        status = host(.status)
+        importAttachments = { [weak composer] in composer?.rootView.pastePhotos($0) ?? false }
+        registerForDraggedTypes(AIChatPhotoImport.draggedTypes)
+        jump.isHidden = true
+        header.setContentHuggingPriority(.required, for: .vertical)
+        composer.setContentHuggingPriority(.required, for: .vertical)
+        scroll.translatesAutoresizingMaskIntoConstraints = false
+        document.translatesAutoresizingMaskIntoConstraints = false
+        document.wantsLayer = true
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = DT.Space.lg
+        stack.detachesHiddenViews = true
+        document.addSubview(stack)
+        addSubview(header)
+        addSubview(scroll)
+        addSubview(composer)
+        addSubview(jump)
+        scroll.documentView = document
+        NSLayoutConstraint.activate([
+            header.leadingAnchor.constraint(equalTo: leadingAnchor),
+            header.trailingAnchor.constraint(equalTo: trailingAnchor),
+            header.topAnchor.constraint(equalTo: topAnchor),
+            composer.leadingAnchor.constraint(equalTo: leadingAnchor),
+            composer.trailingAnchor.constraint(equalTo: trailingAnchor),
+            composer.bottomAnchor.constraint(equalTo: bottomAnchor),
+            scroll.leadingAnchor.constraint(equalTo: leadingAnchor),
+            scroll.trailingAnchor.constraint(equalTo: trailingAnchor),
+            scroll.topAnchor.constraint(equalTo: header.bottomAnchor),
+            scroll.bottomAnchor.constraint(equalTo: composer.topAnchor),
+            document.widthAnchor.constraint(equalTo: scroll.contentView.widthAnchor),
+            document.leadingAnchor.constraint(equalTo: scroll.contentView.leadingAnchor),
+            stack.leadingAnchor.constraint(equalTo: document.leadingAnchor, constant: DT.Space.lg),
+            stack.trailingAnchor.constraint(equalTo: document.trailingAnchor, constant: -DT.Space.lg),
+            stack.topAnchor.constraint(equalTo: document.topAnchor, constant: DT.Space.lg),
+            stack.bottomAnchor.constraint(equalTo: document.bottomAnchor, constant: -44),
+            jump.widthAnchor.constraint(equalToConstant: 36),
+            jump.heightAnchor.constraint(equalToConstant: 36),
+            jump.trailingAnchor.constraint(equalTo: scroll.trailingAnchor, constant: -12),
+            jump.bottomAnchor.constraint(equalTo: scroll.bottomAnchor, constant: -12)
+        ])
+        scroll.onBottomChange = { [weak jump] atBottom in
+            presentation.isAtBottom = atBottom
+            jump?.isHidden = atBottom
+        }
+        scroll.observeDocument()
+        observeScrollRequest()
+        observeTranscript()
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    override var isFlipped: Bool { true }
+
+    override func layout() {
+        super.layout()
+        // Width is a content input, not scroll position. Giving SwiftUI a finite
+        // width lets intrinsic height include wrapping before AppKit lays out rows.
+        guard bounds.width > 0, layoutWidth != bounds.width else { return }
+        layoutWidth = bounds.width
+        for host in chromeHosts { host.rootView.contentWidth = layoutWidth }
+        for host in [welcome, status].compactMap({ $0 as? NSHostingView<AIChatView> }) {
+            host.rootView.contentWidth = max(1, layoutWidth - 2 * DT.Space.lg)
+        }
+        updateTranscript()
+    }
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        let accepts = !presentation.importingPhotos && sender.draggingSourceOperationMask.contains(.copy)
+            && AIChatAttachmentImport.containsAttachments(sender.draggingPasteboard)
+        presentation.photoDropTargeted = accepts
+        return accepts ? .copy : []
+    }
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation { draggingEntered(sender) }
+    override func draggingExited(_ sender: NSDraggingInfo?) { presentation.photoDropTargeted = false }
+    override func draggingEnded(_ sender: NSDraggingInfo) { presentation.photoDropTargeted = false }
+    override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool { draggingEntered(sender) == .copy }
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        defer { presentation.photoDropTargeted = false }
+        guard draggingEntered(sender) == .copy else { return false }
+        return importAttachments(sender.draggingPasteboard)
+    }
+
+    private func observeScrollRequest() {
+        let request = withObservationTracking { presentation.forceScroll } onChange: { [weak self] in
+            DispatchQueue.main.async { self?.observeScrollRequest() }
+        }
+        scroll.requestBottom(request)
+    }
+
+    private func observeTranscript() {
+        withObservationTracking {
+            updateTranscript()
+        } onChange: { [weak self] in
+            DispatchQueue.main.async { self?.observeTranscript() }
+        }
+    }
+
+    private func updateTranscript() {
+        let messages = chat.visibleMessages
+        let activeID = chat.activeThinkingID
+        var views: [NSView] = messages.isEmpty ? [welcome] : []
+        let ids = Set(messages.map(\.id))
+        rows = rows.filter { ids.contains($0.key) }
+        for (index, message) in messages.enumerated() {
+            let row = AIChatNativeRow(width: max(1, (layoutWidth > 0 ? layoutWidth : 760) - 2 * DT.Space.lg),
+                row: AIChatMessageRow(message: message,
+                showsDivider: message.role == .user && !message.isSteering && index > 0,
+                providerTitle: session.provider?.tool ?? "AI", directory: chat.directory,
+                theme: session.theme, locale: session.locale, imageStore: chat.imageStore, fileStore: chat.fileStore,
+                isActive: activeID == message.id, expanded: expansion(for: message).wrappedValue,
+                onExpansionChange: { [weak self] in self?.expansion(for: message).wrappedValue = $0 },
+                onOpenPhoto: { [weak self] in self?.presentation.previewPhoto = $0 }))
+            let host: NSHostingView<AIChatNativeRow>
+            if let existing = rows[message.id] {
+                host = existing
+                if host.rootView != row { host.rootView = row }
+            } else {
+                host = NSHostingView(rootView: row)
+                host.sizingOptions = [.intrinsicContentSize]
+                host.safeAreaRegions = []
+                host.translatesAutoresizingMaskIntoConstraints = false
+                host.setContentHuggingPriority(.required, for: .vertical)
+                rows[message.id] = host
+            }
+            views.append(host)
+        }
+        if chat.showsThinkingPlaceholder { views.append(status) }
+        arrange(views)
+        document.layer?.backgroundColor = session.theme.canvas.cgColor
+        scroll.backgroundColor = session.theme.canvas
+        scroll.drawsBackground = true
+    }
+
+    private func arrange(_ views: [NSView]) {
+        guard stack.arrangedSubviews != views else { return }
+        for view in stack.arrangedSubviews where !views.contains(where: { $0 === view }) {
+            stack.removeArrangedSubview(view)
+            view.removeFromSuperview()
+        }
+        for (index, view) in views.enumerated() where stack.arrangedSubviews.indices.contains(index) == false || stack.arrangedSubviews[index] !== view {
+            if view.superview != nil {
+                stack.removeArrangedSubview(view)
+                view.removeFromSuperview()
+            }
+            stack.insertArrangedSubview(view, at: index)
+            view.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
         }
     }
 
     private func expansion(for message: AIChatMessage) -> Binding<Bool> {
-        Binding(get: {
-            message.isIntermediate ? expandedIntermediateIDs.contains(message.id) : !collapsedThinkingIDs.contains(message.id)
+        let presentation = presentation
+        return Binding(get: {
+            message.isIntermediate ? presentation.expandedIntermediateIDs.contains(message.id) : !presentation.collapsedThinkingIDs.contains(message.id)
         }, set: { expanded in
             if message.isIntermediate {
-                if expanded { expandedIntermediateIDs.insert(message.id) }
-                else { expandedIntermediateIDs.remove(message.id) }
+                if expanded { presentation.expandedIntermediateIDs.insert(message.id) }
+                else { presentation.expandedIntermediateIDs.remove(message.id) }
             } else {
-                if expanded { collapsedThinkingIDs.remove(message.id) }
-                else { collapsedThinkingIDs.insert(message.id) }
+                if expanded { presentation.collapsedThinkingIDs.remove(message.id) }
+                else { presentation.collapsedThinkingIDs.insert(message.id) }
             }
         })
     }
 }
 
-/// Native clip offsets stay accurate when SwiftUI lazily lays out messages,
-/// resizes a split pane, or collapses completed progress.
-private struct AIChatScrollPosition: NSViewRepresentable {
-    let onChange: (Bool, Bool) -> Void
-
-    func makeNSView(context: Context) -> Probe { Probe(onChange: onChange) }
-    func updateNSView(_ view: Probe, context: Context) { view.onChange = onChange; view.scheduleUpdate() }
-
-    final class Probe: NSView {
-        var onChange: (Bool, Bool) -> Void
-        private weak var scrollView: NSScrollView?
-        private var observers: [NSObjectProtocol] = []
-        private var updatePending = false
-        private var lastPosition: (Bool, Bool)?
-
-        init(onChange: @escaping (Bool, Bool) -> Void) { self.onChange = onChange; super.init(frame: .zero) }
-        required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-        override func hitTest(_ point: NSPoint) -> NSView? { nil }
-        override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); scheduleUpdate() }
-        override func viewDidMoveToSuperview() { super.viewDidMoveToSuperview(); scheduleUpdate() }
-        override func layout() { super.layout(); scheduleUpdate() }
-
-        func scheduleUpdate() {
-            guard !updatePending else { return }
-            updatePending = true
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                self.updatePending = false
-                self.updatePosition()
-            }
-        }
-
-        private func updatePosition() {
-            let enclosing = enclosingScrollView
-            if scrollView !== enclosing {
-                observers.forEach { NotificationCenter.default.removeObserver($0) }
-                observers.removeAll()
-                scrollView = enclosing
-                lastPosition = nil
-                if let enclosing, let document = enclosing.documentView {
-                    enclosing.contentView.postsBoundsChangedNotifications = true
-                    enclosing.contentView.postsFrameChangedNotifications = true
-                    document.postsFrameChangedNotifications = true
-                    for (name, view) in [(NSView.boundsDidChangeNotification, enclosing.contentView),
-                                         (NSView.frameDidChangeNotification, enclosing.contentView),
-                                         (NSView.frameDidChangeNotification, document)] {
-                        observers.append(NotificationCenter.default.addObserver(forName: name, object: view, queue: .main) { [weak self] _ in
-                            self?.scheduleUpdate()
-                        })
-                    }
-                }
-            }
-            guard let scrollView, let document = scrollView.documentView else { return }
-            let remaining = document.isFlipped
-                ? document.bounds.maxY - scrollView.documentVisibleRect.maxY
-                : scrollView.documentVisibleRect.minY - document.bounds.minY
-            let position = (remaining <= 1, remaining <= 45)
-            guard lastPosition?.0 != position.0 || lastPosition?.1 != position.1 else { return }
-            lastPosition = position
-            onChange(position.0, position.1)
-        }
-
-        deinit { observers.forEach { NotificationCenter.default.removeObserver($0) } }
+private struct AIChatNativeRow: View, Equatable {
+    let width: CGFloat
+    let row: AIChatMessageRow
+    var body: some View {
+        row.equatable()
+            .frame(maxWidth: DT.Chat.contentWidth)
+            .frame(width: width, alignment: .center)
+            .fixedSize(horizontal: false, vertical: true)
+            .foregroundStyle(Color(nsColor: row.theme.textPrimary))
+            .tint(Color(nsColor: row.theme.accent))
+            .environment(\.colorScheme, row.theme.isDark ? .dark : .light)
     }
+}
+
+private final class AIChatNativeDocument: NSView {
+    override var isFlipped: Bool { true }
+}
+
+private final class AIChatNativeScrollView: NSScrollView {
+    var onBottomChange: (Bool) -> Void = { _ in }
+    private var observers: [NSObjectProtocol] = []
+    private var followsBottom = true
+    private var lastRequest: Int?
+    private var lastAtBottom: Bool?
+    private var updatePending = false
+    private var layoutChanged = true
+    private var adjustingPosition = false
+    private var viewportSize = NSSize.zero
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        drawsBackground = false
+        hasVerticalScroller = true
+        hasHorizontalScroller = false
+        autohidesScrollers = true
+        scrollerStyle = .overlay
+        horizontalScrollElasticity = .none
+        verticalScrollElasticity = .automatic
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    func observeDocument() {
+        guard let documentView else { return }
+        documentView.postsFrameChangedNotifications = true
+        contentView.postsBoundsChangedNotifications = true
+        let center = NotificationCenter.default
+        observers.append(center.addObserver(forName: NSView.frameDidChangeNotification, object: documentView, queue: .main) { [weak self] _ in
+            self?.scheduleUpdate(layout: true)
+        })
+        observers.append(center.addObserver(forName: NSView.boundsDidChangeNotification, object: contentView, queue: .main) { [weak self] _ in
+            self?.scheduleUpdate()
+        })
+        observers.append(center.addObserver(forName: NSScrollView.didLiveScrollNotification, object: self, queue: .main) { [weak self] _ in
+            guard let self, !self.adjustingPosition else { return }
+            self.followsBottom = self.atBottom
+            self.scheduleUpdate()
+        })
+    }
+
+    override func tile() {
+        super.tile()
+        if viewportSize != contentView.bounds.size {
+            viewportSize = contentView.bounds.size
+            scheduleUpdate(layout: true)
+        }
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window != nil { scheduleUpdate(layout: true) }
+    }
+
+    func requestBottom(_ request: Int) {
+        guard lastRequest != request else { return }
+        lastRequest = request
+        followsBottom = true
+        scheduleUpdate(layout: true)
+    }
+
+    override func scrollToBeginningOfDocument(_ sender: Any?) {
+        guard let documentView else { return }
+        followsBottom = false
+        let top = documentView.isFlipped ? documentView.bounds.minY
+            : max(documentView.bounds.minY, documentView.bounds.maxY - contentView.bounds.height)
+        contentView.scroll(to: NSPoint(x: 0, y: top))
+        reflectScrolledClipView(contentView)
+        scheduleUpdate()
+    }
+
+    override func scrollToEndOfDocument(_ sender: Any?) {
+        followsBottom = true
+        scheduleUpdate(layout: true)
+    }
+
+    private var atBottom: Bool {
+        guard let documentView else { return true }
+        if documentView.bounds.height <= contentView.bounds.height { return true }
+        let distance = documentView.isFlipped
+            ? documentView.bounds.maxY - documentVisibleRect.maxY
+            : documentVisibleRect.minY - documentView.bounds.minY
+        return distance <= 1
+    }
+
+    private func scheduleUpdate(layout: Bool = false) {
+        layoutChanged = layoutChanged || layout
+        guard !updatePending else { return }
+        updatePending = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.updatePending = false
+            self.updatePosition()
+        }
+    }
+
+    private func updatePosition() {
+        guard window != nil, let documentView, contentView.bounds.width > 0 else { return }
+        let shouldFollow = layoutChanged && followsBottom
+        layoutChanged = false
+        if shouldFollow {
+            let bottom = documentView.isFlipped
+                ? max(documentView.bounds.minY, documentView.bounds.maxY - contentView.bounds.height)
+                : documentView.bounds.minY
+            if abs(contentView.bounds.minY - bottom) > 0.5 {
+                adjustingPosition = true
+                contentView.scroll(to: NSPoint(x: 0, y: bottom))
+                reflectScrolledClipView(contentView)
+                adjustingPosition = false
+            }
+        }
+        let position = atBottom
+        if lastAtBottom != position {
+            lastAtBottom = position
+            onBottomChange(position)
+        }
+    }
+
+    deinit { observers.forEach { NotificationCenter.default.removeObserver($0) } }
 }
 
 private struct AIThinkingMessage: View {

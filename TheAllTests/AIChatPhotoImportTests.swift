@@ -175,7 +175,7 @@ final class AIChatPhotoImportTests: XCTestCase {
         let chat = AIChatSession(provider: .claude, model: "model-a", directory: snapshot.directory,
             restoring: snapshot, imageStore: store)
         let session = AITerminalSession(credentials: Credentials(), loadModels: { _, _ in [] })
-        let hosting = NSHostingView(rootView: AIChatView(session: session, chat: chat, onFocus: {}, onEdit: {}))
+        let hosting = AIChatNativePane(session: session, chat: chat, onFocus: {}, onEdit: {})
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 420, height: 640),
             styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -202,6 +202,29 @@ final class AIChatPhotoImportTests: XCTestCase {
         attachment.name = "TheAll photo history and four draft attachments at 420px"
         attachment.lifetime = .keepAlways
         add(attachment)
+
+        // Native transcript, row gaps and empty viewport share the pane drop
+        // destination. It adds a draft attachment without submitting a message.
+        chat.draftImages = []
+        let board = NSPasteboard(name: .init("TheAllPaneDropTests-" + UUID().uuidString))
+        defer { board.releaseGlobally() }
+        board.setData(try png(), forType: .png)
+        let drag = PhotoDragInfo(board)
+        drag.draggingDestinationWindow = window
+        XCTAssertTrue(hosting.registeredDraggedTypes.contains(.fileURL))
+        XCTAssertEqual(hosting.draggingEntered(drag), .copy)
+        XCTAssertTrue(hosting.performDragOperation(drag))
+        let deadline = Date().addingTimeInterval(2)
+        while chat.draftImages.isEmpty, Date() < deadline {
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        XCTAssertEqual(chat.draftImages.count, 1)
+        XCTAssertEqual(chat.messages.count, 1)
+        XCTAssertEqual(chat.input, snapshot.input)
+        board.clearContents()
+        board.setString("ordinary text", forType: .string)
+        XCTAssertEqual(hosting.draggingEntered(drag), [])
+        XCTAssertFalse(hosting.performDragOperation(drag))
     }
 }
 

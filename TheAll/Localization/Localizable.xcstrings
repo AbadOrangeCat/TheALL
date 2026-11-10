@@ -12981,31 +12981,31 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Table · scroll horizontally for more columns"
+            "value": "Table"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "表格 · 可横向滚动查看其他列"
+            "value": "表格"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tableau · défilez horizontalement pour voir les autres colonnes"
+            "value": "Tableau"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "表 · 横にスクロールして他の列を表示"
+            "value": "表"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "표 · 가로로 스크롤하여 다른 열 보기"
+            "value": "표"
           }
         }
       }

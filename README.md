@@ -6,14 +6,14 @@
 <p align="center"><strong>Claude Code and Codex. One workspace for Mac and Windows.</strong><br />Keep your projects, AI conversations, and models together. Continue from your phone.</p>
 
 <p align="center">
-  <a href="https://github.com/AbadOrangeCat/TheALL/releases/tag/v0.1.10"><img alt="Release v0.1.10" src="https://img.shields.io/badge/release-v0.1.10-176B68?style=flat-square" /></a>
+  <a href="https://github.com/AbadOrangeCat/TheALL/releases/tag/v0.1.11"><img alt="Release v0.1.11" src="https://img.shields.io/badge/release-v0.1.11-176B68?style=flat-square" /></a>
   <img alt="macOS 14 or later on Apple Silicon" src="https://img.shields.io/badge/macOS-14%2B_%C2%B7_Apple_Silicon-263C3B?style=flat-square" />
   <img alt="Windows preview: Windows 10 version 1809 or later and Windows 11, x64 and ARM64" src="https://img.shields.io/badge/Windows_preview-10%2B_%C2%B7_x64_%26_ARM64-263C3B?style=flat-square" />
   <img alt="Mobile web app for iOS and Android" src="https://img.shields.io/badge/mobile-iOS_%26_Android-263C3B?style=flat-square" />
 </p>
 
 <p align="center">
-  <a href="https://github.com/AbadOrangeCat/TheALL/releases/tag/v0.1.10"><strong>Download for macOS &amp; Windows</strong></a> ·
+  <a href="https://github.com/AbadOrangeCat/TheALL/releases/tag/v0.1.11"><strong>Download for macOS &amp; Windows</strong></a> ·
   <a href="docs/windows.md">Windows guide</a> ·
   <a href="https://abadorangecat.github.io/TheALL/">Website</a> ·
   <a href="docs/mobile-access.md">Mobile setup</a> ·
@@ -48,7 +48,7 @@ API connections are saved through macOS Keychain on Mac and Windows system encry
 | --- | --- | --- |
 | **System** | macOS 14 or later | Windows 10 version 1809 or later, or Windows 11 (recommended) |
 | **Processor** | Apple Silicon (arm64) | x64; ARM64 is also available |
-| **v0.1.10 downloads** | [DMG](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.10/TheAll-0.1.10-macos-arm64.dmg) · [ZIP](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.10/TheAll-0.1.10-macos-arm64.zip) | x64: [installer](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.10/TheAll-0.1.10-windows-x64-nsis.exe) · [portable EXE](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.10/TheAll-0.1.10-windows-x64-portable.exe) · [ZIP](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.10/TheAll-0.1.10-windows-x64-zip.zip)<br />ARM64: [installer](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.10/TheAll-0.1.10-windows-arm64-nsis.exe) · [portable EXE](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.10/TheAll-0.1.10-windows-arm64-portable.exe) · [ZIP](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.10/TheAll-0.1.10-windows-arm64-zip.zip) |
+| **v0.1.11 downloads** | [DMG](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.11/TheAll-0.1.11-macos-arm64.dmg) · [ZIP](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.11/TheAll-0.1.11-macos-arm64.zip) | x64: [installer](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.11/TheAll-0.1.11-windows-x64-nsis.exe) · [portable EXE](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.11/TheAll-0.1.11-windows-x64-portable.exe) · [ZIP](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.11/TheAll-0.1.11-windows-x64-zip.zip)<br />ARM64: [installer](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.11/TheAll-0.1.11-windows-arm64-nsis.exe) · [portable EXE](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.11/TheAll-0.1.11-windows-arm64-portable.exe) · [ZIP](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.11/TheAll-0.1.11-windows-arm64-zip.zip) |
 
 Both platforms need an API connection and the [Claude Code CLI](https://code.claude.com/docs/en/setup) or [Codex CLI](https://developers.openai.com/codex/cli) for your chosen provider, installed separately on the same computer. Claude Code and Codex run locally on Windows; no Mac or WSL is needed. See the [Windows guide](docs/windows.md) for CLI setup.
 
@@ -59,14 +59,21 @@ Both platforms need an API connection and the [Claude Code CLI](https://code.cla
 
 **About this release:**
 
-- **macOS:** v0.1.10 is signed with a local development certificate and is **not notarized by Apple**. macOS may block the first launch. After verifying the download and choosing to trust it, follow [Apple’s guidance](https://support.apple.com/en-us/102445) and use **System Settings → Privacy & Security → Open Anyway** if macOS offers it. Keep system security protections enabled. The Mac build is arm64 only.
+- **macOS:** v0.1.11 is signed with a local development certificate and is **not notarized by Apple**. macOS may block the first launch. After verifying the download and choosing to trust it, follow [Apple’s guidance](https://support.apple.com/en-us/102445) and use **System Settings → Privacy & Security → Open Anyway** if macOS offers it. Keep system security protections enabled. The Mac build is arm64 only.
 - **Windows:** the preview packages are **unsigned**. Windows may show a SmartScreen notice, and organization policy may prevent them from running. ARM64 is cross-built and not device-tested. Windows CI covers the x64 runtime and credential/history restoration; installed-package upgrades, real provider CLIs and physical phone/watch delivery still need device acceptance.
-- [SHA-256 checksums](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.10/SHA256SUMS.txt) cover both platforms.
+- [SHA-256 checksums](https://github.com/AbadOrangeCat/TheALL/releases/download/v0.1.11/SHA256SUMS.txt) cover both platforms.
 - Automatic update checks and a download/install button above Connect Phone are included. Mac v0.1.7 and Windows v0.1.8 or later update in the app; older releases need one manual installation. Active tasks and drafts are saved before installation. <!-- version:keep -->
 
 **Execution behavior:** coding-agent tools run automatically, including file changes, deletion, dependency installation, and Git pushes. Use a project and API connection you intend the agent to operate. Questions that require your answer still pause for input.
 
-## New in v0.1.10 <!-- version:keep -->
+## New in v0.1.11 <!-- version:keep -->
+
+- **Native Mac scrolling:** the chat transcript uses AppKit's native scroll view, with cached message views to reduce repeated layout during scrolling and streaming.
+- **Reliable chat display:** sending messages, resizing panes and reopening cached tabs update the transcript without needing to scroll to reveal it. Reading older messages keeps your position; jump to the bottom to follow new output.
+- **Ordered model menus:** model families are ranked by capability, with newer versions first within each family, on Mac, Windows and mobile. API/CLI model availability and reasoning-effort choices stay intact.
+- Existing themes, colors, conversations and saved connections are preserved.
+
+### Previously in v0.1.10 <!-- version:keep -->
 
 **Readable answers across Mac, Windows and mobile:**
 

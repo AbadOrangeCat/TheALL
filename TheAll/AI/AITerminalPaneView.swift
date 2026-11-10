@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import Observation
 
 /// The cached leaf of every split: connection setup followed by a native AI chat.
 final class AITerminalPaneView: NSView {
@@ -10,6 +11,7 @@ final class AITerminalPaneView: NSView {
     var onDirectoryChanged: ((String) -> Void)?
     var onFocusRequested: (() -> Void)?
     private var content: NSView?
+    private weak var displayedChat: AIChatSession?
     private let makeTransport: () -> any AIChatTransport
 
     init(session: AITerminalSession = AITerminalSession(),
@@ -22,7 +24,7 @@ final class AITerminalPaneView: NSView {
             session.onLaunch = { [weak self] in self?.start($0) }
             session.onStop = { [weak self] in self?.showSetup() }
         }
-        showSetup()
+        observeChat()
     }
     required init?(coder: NSCoder) { fatalError() }
 
@@ -31,23 +33,41 @@ final class AITerminalPaneView: NSView {
         session.locale = locale
     }
 
-    private func showSetup() {
+    private func observeChat() {
+        let chat = withObservationTracking { session.chat } onChange: { [weak self] in
+            DispatchQueue.main.async { self?.observeChat() }
+        }
+        showContent(chat)
+    }
+
+    private func showSetup() { showContent(session.chat) }
+
+    private func showContent(_ chat: AIChatSession?) {
+        guard content == nil || displayedChat !== chat else { return }
         content?.removeFromSuperview()
-        let hosting = NSHostingView(rootView: AITerminalContent(session: session, onChooseDirectory: { [weak self] in
-            self?.chooseDirectory()
-        }, onRestore: { [weak self] conversation in
-            self?.restoreLegacyConversation(conversation)
-        }, onForget: { [weak self] in
-            self?.confirm(title: "ai.forget.title", detail: "ai.forget.detail", button: "ai.forget") {
-                self?.session.forgetConnection()
-            }
-        }, onFocus: { [weak self] in self?.onFocusRequested?() }, onEdit: { [weak self] in
-            self?.confirm(title: "ai.stop.title", detail: "ai.stop.detail", button: "ai.stop.confirm") {
-                self?.session.editConnection()
-            }
-        }))
-        content = hosting
-        addSubview(hosting)
+        displayedChat = chat
+        let chooseDirectory = { [weak self] in self?.chooseDirectory() }
+        let restore: (AIChatLegacyConversation) -> Void = { [weak self] in self?.restoreLegacyConversation($0) }
+        let view: NSView
+        if let chat {
+            view = AIChatNativePane(session: session, chat: chat,
+                onFocus: { [weak self] in self?.onFocusRequested?() }, onEdit: { [weak self] in
+                    self?.confirm(title: "ai.stop.title", detail: "ai.stop.detail", button: "ai.stop.confirm") {
+                        self?.session.editConnection()
+                    }
+                }, onChooseDirectory: { chooseDirectory() }, onRestoreLegacy: restore)
+        } else {
+            view = NSHostingView(rootView: AIConnectionForm(session: session,
+                onChooseDirectory: { chooseDirectory() }, onRestore: restore, onForget: { [weak self] in
+                    self?.confirm(title: "ai.forget.title", detail: "ai.forget.detail", button: "ai.forget") {
+                        self?.session.forgetConnection()
+                    }
+                }))
+        }
+        content = view
+        view.frame = bounds
+        view.autoresizingMask = [.width, .height]
+        addSubview(view)
         needsLayout = true
     }
 
@@ -116,25 +136,6 @@ final class AITerminalPaneView: NSView {
         alert.addButton(withTitle: L10n.string("ai.cancel"))
         alert.beginSheetModal(for: window) { response in
             if response == .alertFirstButtonReturn { action() }
-        }
-    }
-}
-
-private struct AITerminalContent: View {
-    @Bindable var session: AITerminalSession
-    let onChooseDirectory: () -> Void
-    let onRestore: (AIChatLegacyConversation) -> Void
-    let onForget: () -> Void
-    let onFocus: () -> Void
-    let onEdit: () -> Void
-
-    var body: some View {
-        if let chat = session.chat {
-            AIChatView(session: session, chat: chat, onFocus: onFocus, onEdit: onEdit,
-                onChooseDirectory: onChooseDirectory, onRestoreLegacy: onRestore)
-        } else {
-            AIConnectionForm(session: session, onChooseDirectory: onChooseDirectory,
-                             onRestore: onRestore, onForget: onForget)
         }
     }
 }

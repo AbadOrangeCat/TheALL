@@ -10,6 +10,22 @@ from that endpoint; the chat loads its catalog automatically and has no refresh 
 model discovery fails. The API list describes endpoint availability, not a promise
 that every listed model supports the coding agent's tools or context requirements.
 
+Model menus use the same ordering after API/CLI catalogs are merged, including cached
+and backend-only entries. Default remains the first option. Known Claude lines are
+ordered Fable, Opus, Sonnet, Haiku; GPT lines Astra, Sol, Terra, Luna precede legacy
+GPT/o-series/Codex entries. Each line uses descending numeric versions (5.10 before
+5.5), with Pro/Max before standard, mini and nano within a legacy GPT version.
+GPT-4o is recognized between 4.1 and the original GPT-4. Unknown custom models remain
+available with deterministic natural-name ordering. Explicit CLI resolution and valid
+Claude API `line` metadata take precedence over display labels; invalid optional
+metadata is ignored. Sorting changes presentation only, never the saved selection,
+backend default, model IDs or reasoning capabilities.
+
+These are picker priorities based on provider positioning, not cross-generation
+benchmark scores: [Claude model overview](https://platform.claude.com/docs/en/models/overview)
+and [OpenAI model overview](https://developers.openai.com/api/docs/models), checked
+2026-11-11. Availability still comes exclusively from the configured endpoint/CLI.
+
 After connecting, TheAll provides a native chat transcript and input box. The model
 dropdown sits directly to the left of Send/Stop below the input; the clickable working-folder path is at the left edge of that row. The model-change hint appears only after changing the model and disappears when a message is submitted with that selection. Changing it affects the **next ordinary turn**:
 it does not interrupt a running turn, replace the process, erase history, or alter
@@ -36,8 +52,31 @@ Tool failures remain available, and hiding routine records never hides pending q
 Claude stream/final thinking blocks and Codex reasoning summaries are deduplicated;
 encrypted signatures and redacted blocks are never rendered. Reading older messages does not force
 the transcript back to the latest output. A button at the transcript's bottom right appears only while away from the bottom
-and returns to the latest message. Native NSScrollView clip/document observations keep
-its visibility accurate during scrolling, resizing and collapsing messages.
+and returns to the latest message. `AIChatNativePane` uses an AppKit `NSScrollView`,
+flipped native document and eager `NSStackView`; header and composer are sibling hosts.
+The scroll view, clip view and direct document all support responsive scrolling.
+SwiftUI renders individual message rows, with explicit finite widths for correct wrapped
+heights. Hosts are cached by message ID; only changed content or widths replace their
+root values. There is no SwiftUI vertical ScrollView, lazy message stack, per-wheel
+layout or scrollWheel override in the transcript.
+
+Clip/document notifications keep the bottom button current. Bottom following runs
+on document/viewport size changes after layout, including asynchronous image sizing;
+pure origin changes only report position and never correct native gestures or momentum.
+Wheel, scroller and Page Up navigation leave follow mode when reading earlier content.
+Local Send, the jump button and End resume following; Home goes to the beginning.
+Cached panes preserve reading/follow intent while detached. Native pane drag handling
+covers message gaps and empty viewport as well as the existing editor drop path.
+
+Messages and their conversation dividers keep stable identities. Equatable row values
+include expansion, active state, theme, locale and attachment stores; this avoids
+rebuilding historical content and formatting completion dates on each text delta.
+Unchanged Markdown remains equatable. Eager initial layout and decoded-image memory
+costs remain proportional to history size.
+Code blocks and tables use a horizontal scroll view only when their intrinsic width
+exceeds the pane. Fitting content is rendered directly, avoiding the accumulated
+scroll-view geometry work of long replies. Resizing the same pane switches between
+these presentations; overflowing content keeps independent horizontal scrolling.
 A horizontal divider before each subsequent user question separates conversation rounds.
 
 After the first successfully submitted question, a workspace with a default name
@@ -212,9 +251,26 @@ backends execute a local `npm test` fixture through a shell pipeline without a
 pending approval; the test checks its output and the file written by the script.
 This integration case skips if the CLIs are not installed; it never sends to a real
 provider. AppKit preview tests cover conversation dividers, the native composer and model footer,
-and pressing the bottom button after scrolling up. First-message callbacks are checked
+and pressing the bottom button after scrolling up. Regression cases exercise repeated
+native Send shortcuts through 150 historical rounds, expanding/collapsing Thinking,
+long replies with code/tables, asynchronous images, cached-pane detach/reattach and
+narrow resizing. Before screenshot capture or forced display, these cases assert
+actual accessible text intersects the viewport and the final answer is present,
+in addition to document bounds and the latest position without a wheel event; background
+output also preserves the reader's position in older messages. First-message callbacks are checked
 for success, failure and once-only delivery; `WorkspaceStoreTests` covers naming ownership,
 manual protection, old-data migration and persistence across restarts.
+Markdown layout tests check wide/narrow/wide transitions in the same host and send
+wheel events to the hit-tested code/table content: vertical input scrolls the transcript,
+horizontal input scrolls overflowing content. The long-history fixture records 180
+view-local wheel events plus short run-loop drains for performance comparisons, and
+120 streaming text deltas interleaved with wheel input against timestamped history.
+Continuous CG scroll/momentum phases are compared with an unmodified AppKit scroll
+view at both boundaries (synthetic events may be clamped by responsive scrolling).
+Page Up followed by background output must retain the reading position, while End
+returns to the latest answer. Accessibility is explicitly enabled only in the isolated
+test process so standalone SwiftUI hosts expose their real text nodes. These timing
+measurements are not display frame rates or device-independent thresholds.
 `AITerminalTests` uses isolated Keychains with fake keys to cover helper installation,
 new helper processes, modern partition ACLs, legacy migration,
 inaccessible ACLs, re-entry, Forget, locking, and restoration of the process
