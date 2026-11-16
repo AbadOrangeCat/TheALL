@@ -198,5 +198,10 @@
     "file": "NerdFonts-LICENSE.txt",
     "source": "https://github.com/ghostty-org/ghostty/blob/81af65766f319a954a26196b4812d159496d4f00/vendor/nerd-fonts/LICENSE",
     "sha256": "1f6ad4edae6479aaace3112ede5279a23284ae54b2a34db66357aef5f64df160"
+  },
+  {
+    "file": "SmoothUI-MIT.txt",
+    "source": "https://github.com/educlopez/smoothui/blob/e4b0b44a5c640ec217800eb664db18879822cd6c/LICENSE",
+    "sha256": "9877f4310c0549e5ce26affe52ba97c4e60325472bdcdd308a92fccd90f119cc"
   }
 ]

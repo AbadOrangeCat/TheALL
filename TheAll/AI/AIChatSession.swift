@@ -1,6 +1,163 @@
 import Foundation
 import Observation
 
+struct AIChatSubagent: Identifiable, Codable, Equatable {
+    enum Status: String, Codable { case running, done, failed, stopped }
+    var id: String
+    var title: String
+    var detail: String
+    var status: Status
+}
+
+/// Runtime-only provider activity. It is deliberately absent from saved history.
+private struct AIChatSubagentTracker {
+    var agents: [AIChatSubagent] = []
+    var background = Set<String>()
+    var tools = Set<String>()
+    var runs: [String: String] = [:]
+    var codexCompletedItems = Set<String>()
+    var codexOrigins: [String: String] = [:]
+    var redact: (String) -> String = { $0 }
+
+    private func identifier(_ value: Any?) -> String? {
+        guard let value = value as? String, !value.isEmpty, value.count <= 256 else { return nil }
+        return value
+    }
+    private func state(_ value: Any?) -> AIChatSubagent.Status? {
+        switch value as? String {
+        case "running", "pending", "pendingInit": .running
+        case "completed": .done
+        case "failed", "errored", "notFound": .failed
+        case "interrupted", "shutdown", "stopped", "killed": .stopped
+        default: nil
+        }
+    }
+    private mutating func update(_ id: String, title: String? = nil, detail: String? = nil,
+                                 status: AIChatSubagent.Status, restart: Bool = false) {
+        if let index = agents.firstIndex(where: { $0.id == id }) {
+            if agents[index].status != .running && status == .running && !restart { return }
+            agents[index].status = status
+            if let title, !title.isEmpty { agents[index].title = String(redact(title).prefix(500)) }
+            if let detail { agents[index].detail = String(redact(detail).prefix(1000)) }
+        } else if agents.count < 100 {
+            agents.append(.init(id: id, title: String(redact(title ?? id).prefix(500)), detail: String(redact(detail ?? "").prefix(1000)), status: status))
+        }
+    }
+    mutating func endTurn() {
+        agents.removeAll { !background.contains($0.id) || $0.status != .running }
+        let ids = Set(agents.map(\.id))
+        background.formIntersection(ids); runs = runs.filter { ids.contains($0.key) }
+        codexOrigins = codexOrigins.filter { ids.contains($0.key) }
+        tools.removeAll(); codexCompletedItems.removeAll()
+    }
+    mutating func claude(_ message: [String: Any], busy: Bool, conversationID: String?) {
+        if let session = message["session_id"] as? String, let conversationID, session != conversationID { return }
+        guard message["ambient"] as? Bool != true else { return }
+        if message["type"] as? String == "assistant", busy,
+           message["parent_tool_use_id"] == nil || message["parent_tool_use_id"] is NSNull {
+            for block in ((message["message"] as? [String: Any])?["content"] as? [[String: Any]] ?? []) {
+                if ["Agent", "Task"].contains(block["name"] as? String ?? ""),
+                   let id = identifier(block["id"]), tools.count < 256 { tools.insert(id) }
+            }
+        }
+        if message["type"] as? String == "stream_event", busy,
+           message["parent_tool_use_id"] == nil || message["parent_tool_use_id"] is NSNull,
+           let event = message["event"] as? [String: Any], event["type"] as? String == "content_block_start",
+           let block = event["content_block"] as? [String: Any], ["Agent", "Task"].contains(block["name"] as? String ?? ""),
+           let id = identifier(block["id"]), tools.count < 256 { tools.insert(id) }
+        guard message["type"] as? String == "system" else { return }
+        let subtype = message["subtype"] as? String
+        if subtype == "background_tasks_changed" {
+            guard let tasks = message["tasks"] as? [[String: Any]], tasks.count <= 100 else { return }
+            var live = Set<String>()
+            for task in tasks where task["ambient"] as? Bool != true && ["local_agent", "remote_agent"].contains(task["task_type"] as? String ?? "") {
+                guard let id = identifier(task["task_id"]) else { continue }
+                live.insert(id)
+                let run = identifier(task["run_id"])
+                // Claude SDK documents run_id as lexicographically ordered by start time.
+                if let old = runs[id], let run, run < old { continue }
+                let restart = run != nil && run != runs[id]
+                if let run { runs[id] = run }
+                update(id, title: task["description"] as? String, status: .running, restart: restart)
+            }
+            for id in background.subtracting(live) where agents.contains(where: { $0.id == id && $0.status == .running }) {
+                // Disappearance proves inactivity, not successful completion.
+                update(id, status: .stopped)
+            }
+            background = live
+            return
+        }
+        guard let id = identifier(message["task_id"]), busy || background.contains(id) else { return }
+        let run = identifier(message["run_id"])
+        if subtype == "task_started" {
+            let knownTool = identifier(message["tool_use_id"]).map(tools.contains) ?? false
+            guard ["local_agent", "remote_agent"].contains(message["task_type"] as? String ?? "") || knownTool else { return }
+            if message["tool_use_id"] != nil && !knownTool && !background.contains(id) { return }
+            if let old = runs[id], let run, run < old { return }
+            let restart = run != nil && run != runs[id]
+            if let run { runs[id] = run }
+            if message["is_backgrounded"] as? Bool == true { background.insert(id) }
+            update(id, title: message["description"] as? String, status: .running, restart: restart)
+        } else {
+            guard agents.contains(where: { $0.id == id }) else { return }
+            if let run, let old = runs[id], run != old { return }
+            switch subtype {
+            case "task_progress":
+                update(id, detail: message["summary"] as? String ?? message["last_tool_name"] as? String ?? message["description"] as? String, status: .running)
+            case "task_updated":
+                let patch = message["patch"] as? [String: Any] ?? [:]
+                if patch["is_backgrounded"] as? Bool == true { background.insert(id) }
+                if let status = state(patch["status"]) { update(id, detail: patch["error"] as? String, status: status) }
+            case "task_notification":
+                if let status = state(message["status"]), status != .running { update(id, detail: message["summary"] as? String, status: status) }
+            default: break
+            }
+        }
+    }
+    mutating func codex(_ params: [String: Any], completed: Bool, busy: Bool, threadID: String?, turnID: String?) {
+        guard let threadID, let origin = identifier(params["turnId"]), params["threadId"] as? String == threadID,
+              let item = params["item"] as? [String: Any], let itemID = identifier(item["id"]),
+              !codexCompletedItems.contains(itemID) else { return }
+        let current = busy && origin == turnID
+        let type = item["type"] as? String
+        guard type == "subAgentActivity" || type == "collabAgentToolCall" else { return }
+        if completed || type == "subAgentActivity" { guard codexCompletedItems.count < 2048 else { return }; codexCompletedItems.insert(itemID) }
+        if type == "subAgentActivity" {
+            guard let id = identifier(item["agentThreadId"]), id != threadID, current || codexOrigins[id] == origin else { return }
+            switch item["kind"] as? String {
+            case "started":
+                guard current else { return }
+                update(id, title: item["agentPath"] as? String, status: .running, restart: true)
+                if agents.contains(where: { $0.id == id }) { codexOrigins[id] = origin; background.insert(id) }
+            case "interacted": break // Sending a message does not prove the worker is running.
+            case "completed":
+                guard codexOrigins[id] == nil || codexOrigins[id] == origin else { return }
+                update(id, title: item["agentPath"] as? String, status: .done)
+            case "interrupted": update(id, title: item["agentPath"] as? String, status: .stopped)
+            default: break
+            }
+        } else {
+            guard current, item["senderThreadId"] as? String == threadID,
+                  let ids = item["receiverThreadIds"] as? [String], ids.count <= 100,
+                  let states = item["agentsStates"] as? [String: [String: Any]], states.count <= 100 else { return }
+            let tool = item["tool"] as? String
+            let restart = completed && item["status"] as? String == "completed" && ["resumeAgent", "followupTask"].contains(tool ?? "")
+            for id in ids where identifier(id) != nil && id != threadID {
+                if let value = states[id], let status = state(value["status"]) {
+                    update(id, title: agents.contains(where: { $0.id == id }) ? nil : item["prompt"] as? String,
+                           detail: value["message"] as? String, status: status, restart: restart)
+                } else if completed, item["status"] as? String == "completed", tool == "spawnAgent" {
+                    update(id, title: item["prompt"] as? String, status: .running)
+                }
+                if agents.contains(where: { $0.id == id && $0.status == .running }) {
+                    if codexOrigins[id] == nil || restart { codexOrigins[id] = origin }
+                    background.insert(id)
+                }
+            }
+        }
+    }
+}
+
 struct AIChatMessage: Identifiable, Codable, Equatable {
     enum Role: String, Codable { case user, assistant, thinking, tool }
     let id: String
@@ -96,6 +253,14 @@ final class AIChatSession {
     @ObservationIgnored private var codexAppliedReasoningEffort: String?
     private(set) var showsModelChangeHint = false
     private(set) var messages: [AIChatMessage] = []
+    private(set) var subagents: [AIChatSubagent] = []
+    @ObservationIgnored private var subagentTracker = AIChatSubagentTracker()
+
+    private func publishSubagents() {
+        let rows = subagentTracker.agents.map { AIChatSubagent(id: $0.id, title: sanitized($0.title), detail: sanitized($0.detail), status: $0.status) }
+        if rows != subagents { subagents = rows; revision += 1 }
+    }
+    private func clearSubagents() { subagentTracker = AIChatSubagentTracker(); publishSubagents() }
     private(set) var approvals: [AIChatApproval] = []
     private(set) var isReady = false
     private(set) var isBusy = false
@@ -597,6 +762,7 @@ final class AIChatSession {
     }
 
     private func didSubmit(_ prompt: String, images: [AIChatImage], files: [AIChatFile], clearsComposer: Bool) {
+        subagentTracker.endTurn(); publishSubagents()
         if provider == .claude { acceptSubmittedTurn() }
         messages.append(AIChatMessage(id: UUID().uuidString, role: .user, text: prompt, images: images, files: files))
         if clearsComposer, input == prompt { input = "" }
@@ -754,6 +920,7 @@ final class AIChatSession {
     func interrupt() -> Bool {
         guard isBusy, canInterrupt else { return false }
         turnWasInterrupted = true
+        clearSubagents()
         do {
             if provider == .claude {
                 try control("interrupt", fields: ["cancel_queued": true]) { [weak self] result in
@@ -792,6 +959,7 @@ final class AIChatSession {
         completeRemoteSubmission(remoteRequestWasWritten ? .uncertain : .rejected)
         onStateChanged?()
         stopped = true
+        clearSubagents()
         transport.onMessage = nil
         transport.onExit = nil
         transport.stop()
@@ -879,6 +1047,7 @@ final class AIChatSession {
     }
 
     private func finishTurn() {
+        if !isReady || turnWasInterrupted { clearSubagents() } else { subagentTracker.endTurn(); publishSubagents() }
         recordTurnCompletion(success: false)
         completionToken = nil; turnStartedAt = nil; turnStartedUptime = nil; awaitingSubmittedTurn = false
         isBusy = false
@@ -1054,6 +1223,11 @@ final class AIChatSession {
     }
 
     private func receiveClaude(_ message: [String: Any]) {
+        subagentTracker.redact = { [weak self] in self?.sanitized($0) ?? "" }
+        if !turnWasInterrupted { subagentTracker.claude(message, busy: isBusy, conversationID: conversationID); publishSubagents() }
+        // Child output belongs to its worker, not the parent's response stream.
+        if ["assistant", "stream_event", "result"].contains(message["type"] as? String ?? ""),
+           message["parent_tool_use_id"] != nil && !(message["parent_tool_use_id"] is NSNull) { return }
         switch message["type"] as? String {
         case "command_lifecycle":
             guard let id = message["command_uuid"] as? String, let state = message["state"] as? String else { return }
@@ -1114,7 +1288,7 @@ final class AIChatSession {
             }
         case "system":
             if let resolved = message["model"] as? String { defaultModel = resolved }
-            if let id = message["session_id"] as? String { conversationID = id }
+            if message["subtype"] == nil || message["subtype"] as? String == "init", let id = message["session_id"] as? String { conversationID = id }
         case "stream_event":
             guard let event = message["event"] as? [String: Any] else { return }
             if let id = message["api_message_id"] as? String { claudeMessageID = id }
@@ -1276,6 +1450,11 @@ final class AIChatSession {
                 updateReasoning(id)
             }
         case "item/started", "item/completed":
+            if isReady, !turnWasInterrupted {
+                subagentTracker.redact = { [weak self] in self?.sanitized($0) ?? "" }
+                subagentTracker.codex(params, completed: method == "item/completed", busy: isBusy, threadID: conversationID, turnID: turnID)
+                publishSubagents()
+            }
             guard let item = params["item"] as? [String: Any], let id = item["id"] as? String else { return }
             switch item["type"] as? String {
             case "agentMessage":

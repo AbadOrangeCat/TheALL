@@ -1,5 +1,5 @@
 import { renderMarkdown } from './markdown.js';
-import { APIError, request, chatPath, mergePage, turns, operation, readPairToken, isPrivateLANHTTP } from './core.js';
+import { APIError, request, subagentState, chatPath, mergePage, turns, operation, readPairToken, isPrivateLANHTTP } from './core.js';
 
 import { NotificationPreferences, readNotificationChat, notificationMessage } from './notifications.js';
 import { turnTiming } from './timing.js';
@@ -482,6 +482,58 @@ function messageNode(message, provider, chatID, previousNodes) {
   }
   return node;
 }
+
+/* Subagent list motion adapted from SmoothUI AI Task List:
+https://smoothui.dev/docs/components/ai-task-list
+MIT License
+
+Copyright (c) 2024 Eduardo Calvo
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+*/
+function renderSubagents(data) {
+  const {items,active,visible}=subagentState(data),strip=$('subagent-strip');
+  strip.hidden=!visible;
+  const signature=JSON.stringify([state.selected,visible,items,language()]);
+  if(strip.dataset.signature===signature)return;
+  strip.dataset.signature=signature;
+  const list=$('subagent-list');
+  if(!visible){list.replaceChildren();return;}
+  $('subagent-count').textContent=`${active} ${t('subagentRunning')}`;
+  const previous=new Map([...list.children].map(node=>[node.dataset.agentId,node]));
+  const fragment=document.createDocumentFragment();
+  for(const item of items){
+    const signature=JSON.stringify([item,language()]),old=previous.get(item.id);
+    if(old?.dataset.signature===signature){fragment.append(old);continue;}
+    const row=old||el('li');row.className=`subagent-row subagent-${item.status}`;row.dataset.agentId=item.id;row.dataset.signature=signature;row.replaceChildren();
+    const icon=document.createElementNS('http://www.w3.org/2000/svg','svg');icon.setAttribute('viewBox','0 0 14 14');icon.setAttribute('aria-hidden','true');icon.classList.add('subagent-box');
+    const rect=document.createElementNS(icon.namespaceURI,'rect');for(const [key,value]of Object.entries({x:1,y:1,width:12,height:12,rx:3.5}))rect.setAttribute(key,String(value));icon.append(rect);
+    if(item.status==='done'||item.status==='failed'){
+      const path=document.createElementNS(icon.namespaceURI,'path');path.setAttribute('d',item.status==='done'?'M3.5 7.5 L6 10 L10.5 4.5':'M5 5 L9 9 M9 5 L5 9');path.setAttribute('pathLength','1');icon.append(path);
+    }
+    const content=el('div','subagent-content');content.append(el('span','subagent-title',item.title));
+    if(item.detail)content.append(el('span','subagent-detail',item.detail));
+    row.append(icon,content,el('span','subagent-state',t({running:'subagentRunning',done:'subagentDone',failed:'subagentFailed',stopped:'subagentStopped'}[item.status])));fragment.append(row);
+  }
+  list.replaceChildren(fragment);
+}
+
 function renderChat(initial = false) {
   const data = state.chats.get(state.selected); updateHeader();
   if (!data) { $('messages').replaceChildren(el('p', 'muted small', t('loading'))); updateComposer(); return; }
@@ -584,6 +636,7 @@ function renderQuestions(data) {
   }
 }
 function updateComposer() {
+  renderSubagents(state.chats.get(state.selected));
   const data = state.chats.get(state.selected); const pending = state.pending.get(state.selected);
   const available = state.connected && navigator.onLine && state.authenticated;
   const writable = state.access.writable && available && (data?.isReady || data?.canResume) && !pending;

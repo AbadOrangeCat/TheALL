@@ -36,6 +36,131 @@ final class AICompletionTests: XCTestCase {
     }
     private let configuration = AILaunchConfiguration(command: "unused", environment: [:], executable: "/usr/bin/true")
 
+    func testClaudeSubagentsUseActualLifecycleAndNeverPersistOrCompleteParent() throws {
+        let pipe = Pipe()
+        let chat = AIChatSession(provider: .claude, model: "fixture", directory: "/tmp", transport: pipe)
+        chat.start(configuration); pipe.respond(); chat.input = "Parallel review"; chat.send()
+        func event(_ subtype: String, _ id: String, _ values: [String: Any] = [:]) {
+            pipe.onMessage?(["type": "system", "subtype": subtype, "task_id": id].merging(values) { _, new in new })
+        }
+        event("task_started", "bash", ["task_type": "local_bash", "description": "npm test"])
+        XCTAssertTrue(chat.subagents.isEmpty)
+        event("task_started", "a", ["task_type": "local_agent", "description": "Review API"])
+        event("task_started", "b", ["task_type": "local_agent", "description": "Review UI"])
+        event("task_started", "c", ["task_type": "remote_agent", "description": "Review tests"])
+        XCTAssertEqual(chat.subagents.filter { $0.status == .running }.count, 3)
+        event("task_progress", "b", ["description": "Review UI", "summary": "Checking window sizes"])
+        XCTAssertEqual(chat.subagents.first { $0.id == "b" }?.detail, "Checking window sizes")
+        event("task_updated", "a", ["patch": ["status": "completed"]])
+        event("task_progress", "a", ["description": "Late update"])
+        event("task_started", "a", ["task_type": "local_agent", "description": "Duplicate"])
+        XCTAssertEqual(chat.subagents.first { $0.id == "a" }?.status, .done)
+        XCTAssertEqual(chat.subagents.filter { $0.status == .running }.count, 2)
+        event("task_notification", "b", ["status": "failed", "summary": "Test failed"])
+        XCTAssertEqual(chat.subagents.filter { $0.status == .running }.count, 1)
+        event("task_updated", "c", ["patch": ["status": "killed"]])
+        XCTAssertEqual(chat.subagents.first { $0.id == "c" }?.status, .stopped)
+        XCTAssertTrue(chat.isBusy)
+        XCTAssertFalse(String(decoding: try JSONEncoder().encode(chat.snapshot), as: UTF8.self).contains("subagents"))
+        let restored = AIChatSession(provider: .claude, model: "fixture", directory: "/tmp", transport: Pipe(), restoring: chat.snapshot)
+        XCTAssertTrue(restored.subagents.isEmpty)
+        pipe.onMessage?(["type": "result", "subtype": "success", "result": "Finished"])
+        XCTAssertTrue(chat.subagents.isEmpty)
+        event("task_started", "late", ["task_type": "local_agent", "description": "Stale"])
+        XCTAssertTrue(chat.subagents.isEmpty)
+        chat.stop()
+    }
+
+    func testClaudeAgentToolCorrelationDeduplicationAndChildMessages() {
+        let pipe = Pipe()
+        let session = AIChatSession(provider: .claude, model: "fixture", directory: "/tmp", transport: pipe)
+        session.start(configuration); pipe.respond(); session.input = "Review"; session.send()
+        pipe.onMessage?(["type": "assistant", "message": ["id": "parent", "content": [["type": "tool_use", "id": "tool-a", "name": "Agent", "input": ["description": "Check API"]]]]])
+        pipe.onMessage?(["type": "system", "subtype": "task_started", "task_id": "agent-a", "tool_use_id": "tool-a", "description": "Check API"])
+        XCTAssertEqual(session.subagents.count, 1)
+        pipe.onMessage?(["type": "system", "subtype": "task_started", "task_id": "foreign", "tool_use_id": "old-tool", "task_type": "local_agent", "description": "Stale"])
+        XCTAssertEqual(session.subagents.count, 1)
+        pipe.onMessage?(["type": "assistant", "parent_tool_use_id": "tool-a", "message": ["id": "child", "content": [["type": "text", "text": "Child-only progress"]]]])
+        XCTAssertFalse(session.messages.contains { $0.text.contains("Child-only progress") })
+        XCTAssertTrue(session.isBusy)
+        XCTAssertTrue(session.interrupt())
+        XCTAssertTrue(session.subagents.isEmpty)
+        session.stop()
+    }
+
+    func testCodexSubagentsAreScopedDeduplicatedAndStatusIsIndependentOfToolCompletion() {
+        let pipe = Pipe()
+        let session = AIChatSession(provider: .openai, model: "fixture", directory: "/tmp", transport: pipe)
+        session.start(configuration); pipe.respond(); pipe.respond(["data": [["model": "fixture", "isDefault": true]]]); pipe.respond(["thread": ["id": "root"]])
+        session.input = "Review"; session.send(); pipe.respond(["turn": ["id": "turn"]])
+        func item(_ id: String, _ agent: String, _ kind: String, thread: String = "root", turn: String = "turn") {
+            pipe.onMessage?(["method": "item/completed", "params": ["threadId": thread, "turnId": turn, "item": ["type": "subAgentActivity", "id": id, "agentThreadId": agent, "agentPath": "/root/" + agent, "kind": kind]]])
+        }
+        item("start-a", "a", "started"); item("start-b", "b", "started")
+        item("wrong", "foreign", "started", thread: "other"); item("old", "old", "started", turn: "old")
+        XCTAssertEqual(session.subagents.filter { $0.status == .running }.count, 2)
+        item("done-a", "a", "completed"); item("start-a", "a", "started")
+        XCTAssertEqual(session.subagents.first { $0.id == "a" }?.status, .done)
+        let spawn: [String: Any] = ["type": "collabAgentToolCall", "id": "spawn-c", "tool": "spawnAgent", "status": "completed", "senderThreadId": "root", "receiverThreadIds": ["c"], "agentsStates": ["c": ["status": "pendingInit"]], "prompt": "Review tests"]
+        pipe.onMessage?(["method": "item/completed", "params": ["threadId": "root", "turnId": "turn", "item": spawn]])
+        XCTAssertEqual(session.subagents.first { $0.id == "c" }?.status, .running)
+        XCTAssertTrue(session.isBusy)
+        pipe.onMessage?(["method": "turn/completed", "params": ["threadId": "root", "turn": ["id": "turn", "status": "completed"]]])
+        XCTAssertEqual(session.subagents.filter { $0.status == .running }.count, 2)
+        item("late", "d", "started")
+        XCTAssertFalse(session.subagents.contains { $0.id == "d" })
+        session.input = "Next turn"; session.send(); pipe.respond(["turn": ["id": "next-turn"]])
+        pipe.onMessage?(["method": "item/completed", "params": ["threadId": "root", "turnId": "next-turn", "item": ["type": "collabAgentToolCall", "id": "list-next", "tool": "listAgents", "status": "completed", "senderThreadId": "root", "receiverThreadIds": ["b"], "agentsStates": ["b": ["status": "running"]]]]])
+        item("done-b", "b", "completed")
+        XCTAssertEqual(session.subagents.first { $0.id == "b" }?.status, .done)
+        item("resume-c", "c", "started", turn: "next-turn")
+        item("old-done-c", "c", "completed")
+        XCTAssertEqual(session.subagents.first { $0.id == "c" }?.status, .running)
+        session.stop()
+    }
+
+    func testClaudeBackgroundAgentsSurviveParentCompletionAndNewTurnButNeverStaleRuns() {
+        let pipe = Pipe()
+        let chat = AIChatSession(provider: .claude, model: "fixture", directory: "/tmp", transport: pipe)
+        chat.start(configuration); pipe.respond(); chat.input = "Background review"; chat.send()
+        func event(_ subtype: String, _ values: [String: Any]) {
+            pipe.onMessage?(["type": "system", "subtype": subtype].merging(values) { _, new in new })
+        }
+        event("task_started", ["task_id": "a", "task_type": "local_agent", "run_id": "001", "description": "API", "is_backgrounded": true])
+        event("task_started", ["task_id": "b", "task_type": "local_agent", "run_id": "001", "description": "UI", "is_backgrounded": true])
+        pipe.onMessage?(["type": "result", "subtype": "success", "result": "Workers are running"])
+        XCTAssertFalse(chat.isBusy)
+        XCTAssertEqual(chat.subagents.filter { $0.status == .running }.count, 2)
+        event("task_progress", ["task_id": "a", "run_id": "001", "summary": "Still checking API"])
+        XCTAssertEqual(chat.subagents.first?.detail, "Still checking API")
+        chat.input = "Continue"; chat.send()
+        XCTAssertEqual(chat.subagents.count, 2)
+        event("task_started", ["task_id": "a", "task_type": "local_agent", "run_id": "002", "description": "API resumed", "is_backgrounded": true])
+        event("task_notification", ["task_id": "a", "run_id": "001", "status": "completed"])
+        XCTAssertEqual(chat.subagents.first?.status, .running)
+        event("background_tasks_changed", ["tasks": [["task_id": "a", "run_id": "002", "task_type": "local_agent", "description": "API resumed"], ["task_id": "ambient", "task_type": "local_agent", "ambient": true]]])
+        XCTAssertEqual(chat.subagents.first { $0.id == "b" }?.status, .stopped)
+        XCTAssertFalse(chat.subagents.contains { $0.id == "ambient" })
+        chat.stop(); XCTAssertTrue(chat.subagents.isEmpty)
+    }
+
+    func testSubagentTextIsRedactedBeforeTruncationAndBounded() {
+        let pipe = Pipe()
+        let session = AIChatSession(provider: .claude, model: "fixture", directory: "/tmp", transport: pipe)
+        let secret = "subagent-fixture-secret-value"
+        session.start(.init(command: "unused", environment: ["ANTHROPIC_API_KEY": secret], executable: "/usr/bin/true")); pipe.respond()
+        pipe.onMessage?(["type": "system", "subtype": "init", "session_id": "root"])
+        session.input = "Inspect"; session.send()
+        for i in 0..<105 {
+            pipe.onMessage?(["type": "system", "subtype": "task_started", "task_type": "local_agent", "task_id": String(i), "description": String(repeating: "a", count: 490) + secret])
+        }
+        XCTAssertEqual(session.subagents.count, 100)
+        XCTAssertTrue(session.subagents.allSatisfy { $0.title.count <= 500 && !$0.title.contains("subagent-") })
+        pipe.onMessage?(["type": "system", "subtype": "task_started", "task_type": "local_agent", "task_id": "foreign", "session_id": "foreign", "description": "Other session"])
+        XCTAssertFalse(session.subagents.contains { $0.id == "foreign" })
+        session.stop()
+    }
+
     func testClaudeCompletionEmitsOnceAndTimingSurvivesRestoreWithoutReplay() throws {
         let pipe = Pipe()
         let session = AIChatSession(provider: .claude, model: "fixture", directory: "/tmp", transport: pipe)

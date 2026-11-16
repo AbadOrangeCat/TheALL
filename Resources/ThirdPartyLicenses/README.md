@@ -1,4 +1,4 @@
-# Third-party software in TheAll 0.1.11
+# Third-party software in TheAll 0.1.12
 
 TheAll includes the Ghostty terminal engine, the Sparkle updater, and third-party
 libraries and assets. The original license texts in this directory apply to
@@ -25,10 +25,10 @@ The z2d **0.10.0** rendering library is used under the Mozilla Public License 2.
 with its included Cairo and Pixman notices. Its license texts are in `z2d/`.
 The corresponding z2d source files are unmodified.
 
-The versioned release provides `TheAll-0.1.11-third-party-sources.tar.gz` alongside
+The versioned release provides `TheAll-0.1.12-third-party-sources.tar.gz` alongside
 the application downloads, at no charge:
 
-https://github.com/AbadOrangeCat/TheALL/releases/tag/v0.1.11
+https://github.com/AbadOrangeCat/TheALL/releases/tag/v0.1.12
 
 The source archive includes the complete original gettext 0.24 source archive,
 the exact z2d package used by Ghostty, license texts, Ghostty's libintl headers
@@ -39,3 +39,9 @@ URLs, hashes, and the native component inventory.
 The bundled fonts retain their upstream font licenses. The full Sparkle license
 also contains its incorporated third-party notices. No third-party project is
 represented as endorsing TheAll.
+
+## Subagent status animation
+
+The subagent status strip adapts SmoothUI AI Task List by Eduardo Calvo (MIT).
+Its full notice is retained in `SmoothUI-MIT.txt`; the shared web version embeds
+the same notice. See https://smoothui.dev/docs/components/ai-task-list.
