@@ -940,3 +940,24 @@ dialog>p {
 .message-photos .photo-open img { width:auto; height:auto; max-width:100%; max-height:248px; object-fit:contain; margin:auto; }
 .markdown-table-scroll:focus-visible,.markdown-code pre:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
 @media(max-width:480px) { .markdown-table-scroll th,.markdown-table-scroll td { padding:9px 11px; max-width:240px; } }
+
+/* Fixed in the composer, independently of transcript scrolling. */
+.subagent-strip { border:1px solid var(--border); border-radius:12px; padding:10px 12px; margin-bottom:12px; background:var(--panel); }
+.subagent-heading { display:flex; justify-content:space-between; gap:12px; font-size:12px; color:var(--muted); margin-bottom:6px; }
+.subagent-list { list-style:none; padding:0; margin:0; max-height:min(150px,20vh); overflow-y:auto; overscroll-behavior:contain; }
+.subagent-row { position:relative; display:flex; align-items:flex-start; gap:8px; padding:7px 0; font-size:13px; line-height:1.4; transition:opacity .25s ease,transform .25s cubic-bezier(.2,.8,.2,1); }
+.subagent-content { min-width:0; flex:1; }
+.subagent-title,.subagent-detail { display:block; overflow-wrap:anywhere; }
+.subagent-detail { color:var(--muted); font-size:11px; max-height:3em; overflow:auto; }
+.subagent-state { color:var(--muted); font-size:11px; flex:none; }
+.subagent-done { opacity:.65; transform:translateY(1px); }
+.subagent-box { flex:none; width:14px; height:14px; margin-top:2px; color:var(--muted); overflow:visible; }
+.subagent-box rect { stroke:currentColor; stroke-width:1.4; fill:none; }
+.subagent-box path { stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; fill:none; stroke-dasharray:1 1; stroke-dashoffset:0; }
+.subagent-done .subagent-box,.subagent-running .subagent-box { color:var(--accent); }
+.subagent-failed .subagent-box { color:var(--error); }
+.subagent-running::after { content:''; position:absolute; bottom:0; left:0; right:0; height:1px; background:linear-gradient(90deg,transparent,var(--accent),transparent); background-size:50% 100%; opacity:.5; animation:subagent-underline 1.4s cubic-bezier(.645,.045,.355,1) infinite; }
+@media(prefers-reduced-motion:no-preference) { .subagent-box path { animation:subagent-check .2s cubic-bezier(.23,1,.32,1) both; } }
+@media(prefers-reduced-motion:reduce) { .subagent-row { transition:none; transform:none; } .subagent-running::after { animation:none; } }
+@keyframes subagent-check { from { stroke-dashoffset:1; } to { stroke-dashoffset:0; } }
+@keyframes subagent-underline { from { background-position-x:0%; } to { background-position-x:200%; } }

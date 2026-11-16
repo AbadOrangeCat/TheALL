@@ -178,7 +178,7 @@ export async function createRuntime({ dataDir, webRoot, desktopRoot, encrypt, de
     const limit = Math.min(Math.max(Number(search.get('limit') ?? 100), 1), 250), start = Math.max(end - limit, 0);
     return { id: chat.id, workspaceId: store.owner(chat.id).id, access: device.access, provider: chat.provider || '',
       model: chat.model || '', reasoningEffort: chat.reasoningEffort || '', directory: chat.directory, messages: messages.slice(start,end).map(cleanMessage), start, total: messages.length,
-      isReady: !!session?.isReady, isBusy: !!session?.isBusy, canInterrupt: device.access.writable && !!session?.canInterrupt, canSteer: device.access.writable && !!session?.canSteer, steerToken: device.access.writable ? session?.steerToken ?? null : null,
+      subagents: session?.subagents || [], isReady: !!session?.isReady, isBusy: !!session?.isBusy, canInterrupt: device.access.writable && !!session?.canInterrupt, canSteer: device.access.writable && !!session?.canSteer, steerToken: device.access.writable ? session?.steerToken ?? null : null,
       canResume: device.access.writable && !!chat.provider && !session?.isReady,
       models: modelCatalog(chat), defaultModel: session?.defaultModel || '',
       questions: session?.questions || [], bootID, ...(storageError || session?.error ? { error: storageError || session.error } : {}) };

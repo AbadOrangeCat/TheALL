@@ -1,5 +1,5 @@
 // Cache only the public app shell. API data, tokens and mutation requests NEVER enter Cache Storage.
-const CACHE = 'theall-shell-v8';
+const CACHE = 'theall-shell-v10';
 const SHELL = ['/', '/index.html', '/styles.css', '/app.js', '/core.js', '/markdown.js', '/live.js', '/photos.js', '/files.js', '/notifications.js', '/timing.js', '/effort.js', '/i18n.js', '/manifest.webmanifest',
   '/icons/icon-192.png', '/icons/icon-512.png', '/icons/apple-touch-icon.png'];
 self.addEventListener('install', event => {

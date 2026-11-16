@@ -119,6 +119,7 @@ final class MobileChatAPI {
         var value: [String: Any] = ["id": id.uuidString, "workspaceId": workspaceID.uuidString, "access": access.json,
             "provider": (snapshot?.provider ?? session?.provider)?.rawValue ?? "",
             "model": snapshot?.model ?? "", "defaultModel": chat?.defaultModel ?? "", "reasoningEffort": snapshot?.reasoningEffort ?? "", "directory": snapshot?.directory ?? registry.directories.pwd(for: id) ?? NSHomeDirectory(),
+            "subagents": try JSONSerialization.jsonObject(with: JSONEncoder().encode(chat?.subagents ?? [])),
             "messages": try JSONSerialization.jsonObject(with: encoded), "start": start, "total": messages.count,
             "isReady": chat?.isReady ?? false, "isBusy": chat?.isBusy ?? false, "canInterrupt": access.writable && (chat?.canInterrupt ?? false),
             "canSteer": access.writable && (chat?.canSteer ?? false), "steerToken": chat?.steerToken as Any? ?? NSNull(),

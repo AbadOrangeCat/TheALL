@@ -304,3 +304,11 @@ Debug builds can check but cannot install release updates. No release is publish
 ## Files and photos
 
 输入框旁的单一附件按钮可选择照片和普通文件，也支持混合拖入与文件粘贴。照片仍走图片内容通道；PDF、文档、表格、源代码等文件保留原始字节，由当前 Claude/Codex 的本地工具读取，格式处理能力取决于工具。每条最多 5 个普通文件，单个 10 MiB、合计 20 MiB；只发附件也可发送。发送前可移除文件，发送失败会保留草稿。文件名、大小及附件引用随历史保存，原文件移动或删除不影响已经导入的副本。文件卡片在 Mac 通过 Finder 查看，在 Windows/手机通过授权下载获取，不自动启动可执行附件。
+
+## Concurrent subagent status
+
+When at least two subagents are running in the current chat, a compact status strip appears directly above the composer. It stays fixed while conversation history scrolls. Each row shows the agent's task/name, latest reported progress and status. Finished rows remain visible while at least two other agents are running; when the active count reaches one or zero, the whole strip disappears. Many agents scroll within a bounded strip so the input remains available.
+
+The display observes actual provider events and does not request extra plans or create agents. It is live session state, not saved chat content: reopening a chat cannot revive stale running agents. Claude foreground agents are scoped to their parent turn. Confirmed Claude background agents and Codex workers can outlive a parent reply and keep reporting progress while it is idle; their reported lifecycle controls visibility. Codex completion matches the original spawning turn even after a newer user turn starts. Explicit stop or transport exit clears live tracking. A steer stays in the same turn. Provider events must identify actual subagents; background shell tasks are excluded.
+
+The existing palette, fonts and corners are retained. [SmoothUI AI Task List](https://smoothui.dev/docs/components/ai-task-list) contributes the 200 ms drawn check, 250 ms completed-row settle and 1.4 s active underline. Reduced Motion disables movement. This is a composer accessory, not a task-plan sidebar.

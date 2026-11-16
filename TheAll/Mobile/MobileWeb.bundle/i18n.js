@@ -252,6 +252,14 @@ const notificationStrings = {
 for (const [key, values] of Object.entries(notificationStrings)) {
   Object.keys(supportedLanguages).forEach((code, index) => { catalog[code][key] = values[index]; });
 }
+const subagentStrings = {
+  subagents:['Subagents','子代理','Sous-agents','サブエージェント','하위 에이전트'],
+  subagentRunning:['Running','运行中','En cours','実行中','실행 중'],
+  subagentDone:['Completed','已完成','Terminé','完了','완료'],
+  subagentFailed:['Failed','失败','Échec','失敗','실패'],
+  subagentStopped:['Stopped','已停止','Arrêté','停止','중지'],
+};
+for(const [key,values] of Object.entries(subagentStrings))Object.keys(supportedLanguages).forEach((code,index)=>{catalog[code][key]=values[index];});
 export function resolveLanguage(value) {
   const lower = String(value || '').toLowerCase();
   return lower.startsWith('zh') ? 'zh-Hans' : Object.keys(supportedLanguages).find(key => lower.split('-')[0] === key) || 'en';

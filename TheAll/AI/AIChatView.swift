@@ -149,6 +149,13 @@ struct AIChatView: View {
                     }.padding(.horizontal, 16)
                 }.frame(maxHeight: 230)
             }
+            if chat.subagents.filter({ $0.status == .running }).count >= 2 {
+                AIChatSubagentStrip(agents: chat.subagents, theme: theme)
+                    .frame(maxWidth: DT.Chat.contentWidth)
+                    .padding(.horizontal, DT.Space.lg).padding(.top, DT.Space.sm)
+                    .frame(maxWidth: .infinity)
+                    .background(Color(nsColor: theme.sidebar))
+            }
             VStack(alignment: .leading, spacing: 8) {
                 if !chat.draftImages.isEmpty {
                     AIChatPhotos(images: chat.draftImages, store: chat.imageStore, theme: theme,
@@ -695,6 +702,88 @@ final class AIChatNativePane: NSView {
                 else { presentation.collapsedThinkingIDs.insert(message.id) }
             }
         })
+    }
+}
+
+/// A fixed composer accessory; its animations never replace transcript rows.
+/// Motion adapted from SmoothUI AI Task List (MIT; bundled third-party notice).
+private struct AIChatSubagentStrip: View {
+    let agents: [AIChatSubagent]
+    let theme: AppTheme
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Label(L10n.string("ai.subagents.title"), systemImage: "person.2")
+                    .font(Font(DT.Font.smallB))
+                Spacer()
+                Text(L10n.string("ai.subagents.active", agents.filter { $0.status == .running }.count))
+                    .font(.caption).monospacedDigit().foregroundStyle(Color(nsColor: theme.textSecondary))
+            }
+            ScrollView(.vertical) {
+                VStack(spacing: 6) {
+                    ForEach(agents) { AIChatSubagentRow(agent: $0, theme: theme) }
+                }.frame(maxWidth: .infinity, alignment: .leading)
+            }.frame(height: min(144, CGFloat(agents.count) * 44 - 6))
+        }
+        .padding(12)
+        .background(Color(nsColor: theme.canvas), in: RoundedRectangle(cornerRadius: DT.Radius.card))
+        .overlay(RoundedRectangle(cornerRadius: DT.Radius.card)
+            .strokeBorder(Color(nsColor: theme.border), lineWidth: DT.Stroke.hairline))
+        .accessibilityIdentifier("chat-subagent-status")
+    }
+}
+
+private struct AIChatSubagentRow: View {
+    let agent: AIChatSubagent
+    let theme: AppTheme
+    @Environment(\.accessibilityReduceMotion) private var reducedMotion
+    @State private var drawn: CGFloat = 0
+    @State private var underline = false
+    private var color: Color { Color(nsColor: agent.status == .done ? theme.success : agent.status == .failed ? theme.danger : theme.textSecondary) }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 3.5).stroke(color, lineWidth: 1.4)
+                if agent.status == .done {
+                    Path { path in
+                        path.move(to: CGPoint(x: 3.5, y: 7.5)); path.addLine(to: CGPoint(x: 6, y: 10)); path.addLine(to: CGPoint(x: 10.5, y: 4.5))
+                    }.trim(from: 0, to: drawn).stroke(color, style: StrokeStyle(lineWidth: 1.8, lineCap: .round, lineJoin: .round))
+                } else if agent.status == .failed || agent.status == .stopped {
+                    Image(systemName: agent.status == .failed ? "xmark" : "minus").font(.system(size: 9)).foregroundStyle(color)
+                }
+            }.frame(width: 14, height: 14).padding(.top, 2).accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(agent.title).font(.system(size: 13)).lineLimit(1).help(agent.title)
+                if !agent.detail.isEmpty {
+                    Text(agent.detail).font(.caption).lineLimit(1).help(agent.detail)
+                        .foregroundStyle(Color(nsColor: theme.textSecondary))
+                }
+            }.frame(maxWidth: .infinity, alignment: .leading)
+            Text(L10n.string("ai.subagents." + agent.status.rawValue)).font(.caption)
+                .foregroundStyle(Color(nsColor: theme.textSecondary))
+        }
+        .frame(height: 38, alignment: .top)
+        .opacity(agent.status == .done ? 0.65 : 1)
+        .offset(y: agent.status == .done && !reducedMotion ? 1 : 0)
+        .animation(reducedMotion ? nil : .spring(duration: 0.25, bounce: 0.1), value: agent.status)
+        .overlay(alignment: .bottom) {
+            if agent.status == .running && !reducedMotion {
+                GeometryReader { geometry in
+                    LinearGradient(colors: [.clear, Color(nsColor: theme.accent).opacity(0.5), .clear], startPoint: .leading, endPoint: .trailing)
+                        .frame(width: geometry.size.width / 2)
+                        .offset(x: underline ? geometry.size.width : -geometry.size.width / 2)
+                }.frame(height: 1).clipped()
+                    .onAppear { underline = false; withAnimation(.timingCurve(0.645, 0.045, 0.355, 1, duration: 1.4).repeatForever(autoreverses: false)) { underline = true } }
+            }
+        }
+        .onAppear { drawCheck() }
+        .onChange(of: agent.status) { _, _ in drawCheck() }
+        .accessibilityElement(children: .combine)
+    }
+    private func drawCheck() {
+        drawn = 0
+        withAnimation(reducedMotion ? nil : .timingCurve(0.23, 1, 0.32, 1, duration: 0.2)) { drawn = agent.status == .done ? 1 : 0 }
     }
 }
 

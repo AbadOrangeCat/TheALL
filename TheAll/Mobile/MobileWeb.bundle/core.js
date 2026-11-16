@@ -107,3 +107,14 @@ export function safeLink(value) {
   try { const url = new URL(value); return ['https:', 'http:'].includes(url.protocol) ? url.href : null; }
   catch { return null; }
 }
+
+// Display only simultaneous, provider-reported child workers; parent busy state is unrelated.
+export function subagentState(data) {
+  const rows = Array.isArray(data?.subagents) ? data.subagents.slice(0,100) : [];
+  const seen=new Set();
+  const items=rows.filter(row=>row && typeof row.id==='string' && row.id && !seen.has(row.id) && seen.add(row.id)
+    && typeof row.title==='string' && ['running','done','failed','stopped'].includes(row.status))
+    .map(row=>({id:row.id,title:row.title,detail:typeof row.detail==='string'?row.detail:'',status:row.status}));
+  const active=items.filter(row=>row.status==='running').length;
+  return {items,active,visible:active>=2};
+}

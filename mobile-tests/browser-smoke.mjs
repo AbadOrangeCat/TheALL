@@ -34,6 +34,7 @@ function wsSend(socket, message) {
 }
 function push(message = { type: 'changed', bootID }) { for (const socket of eventSockets) wsSend(socket, message); }
 const screenshotPath = process.env.SCREENSHOT_PATH || join(tmpdir(), 'theall-mobile-preview.png');
+let subagents = [];
 let running = false, steerReady = true, rejectSteer = false, unknownSteer = false, interruptCount = 0;
 const steers = [];
 const requests = []; let rejectFileSend = false; const uploadedFiles = new Map();
@@ -109,7 +110,7 @@ const server = createServer(async (req, res) => {
       const messages = url.pathname.endsWith('/c') ? all : [];
       const end = Math.min(Number(url.searchParams.get('before') ?? messages.length), messages.length);
       const start = Math.max(0, end - 100);
-      return json(200, { id: url.pathname.endsWith('/c') ? 'c' : 'd', bootID, access, provider: 'claude', model: 'claude-sonnet', directory: '/Users/you/Projects/atlas', messages: messages.slice(start, end), start, total: messages.length, isReady: running, canResume: !running, isBusy: running, canSteer: access.writable && running && steerReady, steerToken: running ? 'task-1' : null, canInterrupt: running, questions: url.pathname.endsWith('/d') ? [{ id: 'qg', title: 'Pick an option', questions: [{ id: 'q', prompt: 'Which task?', options: ['Build', 'Test'], multiple: true, secret: false }] }] : [], defaultModel: 'claude-sonnet', reasoningEffort: '', models: [{ id: 'claude-sonnet', title: 'Claude Sonnet', reasoningEfforts: ['low', 'high'], defaultReasoningEffort: 'high' }, { id: 'no-reasoning', title: 'No effort support' }] });
+      return json(200, { id: url.pathname.endsWith('/c') ? 'c' : 'd', bootID, access, provider: 'claude', model: 'claude-sonnet', directory: '/Users/you/Projects/atlas', messages: messages.slice(start, end), start, total: messages.length, subagents, isReady: running, canResume: !running, isBusy: running, canSteer: access.writable && running && steerReady, steerToken: running ? 'task-1' : null, canInterrupt: running, questions: url.pathname.endsWith('/d') ? [{ id: 'qg', title: 'Pick an option', questions: [{ id: 'q', prompt: 'Which task?', options: ['Build', 'Test'], multiple: true, secret: false }] }] : [], defaultModel: 'claude-sonnet', reasoningEffort: '', models: [{ id: 'claude-sonnet', title: 'Claude Sonnet', reasoningEfforts: ['low', 'high'], defaultReasoningEffort: 'high' }, { id: 'no-reasoning', title: 'No effort support' }] });
     }
     return json(404, { error: 'Unknown test endpoint' });
   }
@@ -232,6 +233,18 @@ try {
   await pause(5500); assert.equal(workspaceReads, readsBeforeQuiet, 'live transport disables idle polling');
   all.at(-1).text += '\nLive pushed update'; push();
   await until(() => evaluate('document.getElementById("messages").textContent.includes("Live pushed update")'), 'event-driven transcript update');
+  subagents=[{id:'review',title:'Review source files',detail:'Checking the API contract',status:'running'},{id:'tests',title:'Run project tests',detail:'Checking Windows and macOS',status:'running'},{id:'docs',title:'Check documentation',detail:'',status:'running'}];push();
+  await until(()=>evaluate('!document.getElementById("subagent-strip").hidden && document.querySelectorAll(".subagent-running").length===3'),'background workers visible while parent idle');
+  await call('Emulation.setDeviceMetricsOverride',{width:320,height:844,deviceScaleFactor:1,mobile:true});
+  assert.equal(await evaluate('document.documentElement.scrollWidth<=innerWidth'),true);
+  const agentY=await evaluate('document.getElementById("subagent-strip").getBoundingClientRect().y');
+  await evaluate('document.getElementById("transcript").scrollTop=0');
+  assert.equal(await evaluate('document.getElementById("subagent-strip").getBoundingClientRect().y'),agentY);
+  assert.equal(await evaluate('document.getElementById("subagent-strip").getBoundingClientRect().bottom<=document.getElementById("draft").getBoundingClientRect().top'),true);
+  const agentsShot=await call('Page.captureScreenshot',{format:'png'});await writeFile(process.env.SUBAGENT_SCREENSHOT_PATH||join(tmpdir(),'theall-subagents-mobile.png'),Buffer.from(agentsShot.data,'base64'));
+  subagents[0].status='done';push();await until(()=>evaluate('document.querySelectorAll(".subagent-done").length===1'),'one child completed');
+  subagents[1].status='done';push();await until(()=>evaluate('document.getElementById("subagent-strip").hidden'),'one child remains, strip hidden');
+  subagents=[];push();await call('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
   assert.equal(await evaluate('document.getElementById("send").disabled'), false, 'archived canResume chat can send');
   assert.equal(await evaluate('document.querySelectorAll(".message-timing").length'), 1);
   assert.match(await evaluate('document.querySelector(".message-timing").textContent'), /Completed.*Took.*1 min/);

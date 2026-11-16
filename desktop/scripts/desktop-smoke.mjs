@@ -54,9 +54,10 @@ readline.createInterface({input:process.stdin}).on('line',line=>{const m=JSON.pa
  if(m.type==='user'){send({type:'command_lifecycle',command_uuid:m.uuid,state:'queued'});send({type:'command_lifecycle',command_uuid:m.uuid,state:'started'});send({type:'system',subtype:'init',session_id:session,model:'sonnet'});
  send({type:'assistant',message:{id:randomUUID(),content:[{type:'thinking',thinking:'Checking the local project.'},{type:'text',text:'Reviewing files and preparing the result.'}],stop_reason:'tool_use'}});
  const text=typeof m.message.content==='string'?m.message.content:JSON.stringify(m.message.content);
- if(text.startsWith('Wait for steering')){waitingForSteer=m.uuid;return;}
- const covered=[m.uuid,...(waitingForSteer?[waitingForSteer]:[])];waitingForSteer=null;
- setTimeout(()=>{send({type:'assistant',message:{id:randomUUID(),content:[{type:'text',text:${JSON.stringify(richAnswer)}}],stop_reason:'end_turn'}});send({type:'result',uuid:randomUUID(),user_message_uuids:covered,subtype:'success',session_id:session,result:${JSON.stringify(richAnswer)},is_error:false});},120);}
+ if(text.startsWith('Wait for steering')){waitingForSteer=m.uuid;for(const [id,description]of [['review','Review source files'],['tests','Run project tests'],['docs','Check documentation']])send({type:'system',subtype:'task_started',task_type:'local_agent',task_id:id,run_id:'01',description});return;}
+ const steering=!!waitingForSteer;const covered=[m.uuid,...(waitingForSteer?[waitingForSteer]:[])];waitingForSteer=null;
+ if(steering){send({type:'system',subtype:'task_notification',task_id:'review',run_id:'01',status:'completed',summary:'Review complete'});setTimeout(()=>send({type:'system',subtype:'task_notification',task_id:'tests',run_id:'01',status:'completed',summary:'Tests passed'}),1800);}
+ setTimeout(()=>{send({type:'assistant',message:{id:randomUUID(),content:[{type:'text',text:${JSON.stringify(richAnswer)}}],stop_reason:'end_turn'}});send({type:'result',uuid:randomUUID(),user_message_uuids:covered,subtype:'success',session_id:session,result:${JSON.stringify(richAnswer)},is_error:false});},steering?3000:120);}
 });`);
 await fs.chmod(cli,0o700);
 // Exercise the documented case where IPC exposes a fresh wrapper for a live
@@ -199,6 +200,12 @@ try{
  await pane.waitForFunction(()=>document.getElementById('stop').hidden);
  await pane.locator('#draft').fill('Wait for steering before completing.');await pane.locator('#draft').press('Control+Enter');
  await pane.waitForFunction(()=>!document.getElementById('stop').hidden && document.getElementById('draft').value==='');
+ await pane.waitForFunction(()=>!document.getElementById('subagent-strip').hidden && document.querySelectorAll('.subagent-running').length===3);
+ const fixedBefore=await pane.locator('#subagent-strip').boundingBox();
+ await pane.evaluate(()=>{document.getElementById('transcript').scrollTop=0;});
+ const fixedAfter=await pane.locator('#subagent-strip').boundingBox();assert.equal(fixedBefore.y,fixedAfter.y,'workers stay above input when transcript scrolls');
+ const draftBox=await pane.locator('#draft').boundingBox();assert(fixedAfter.y+fixedAfter.height<=draftBox.y);
+ await shot('7-subagents-running');
  const timingsBefore=await pane.locator('.message-timing').count();
  await pane.locator('#draft').fill('Use only source files.');
  await pane.waitForFunction(()=>!document.getElementById('send').disabled && document.getElementById('send').textContent==='Steer ↑');
@@ -207,6 +214,9 @@ try{
  const apiBefore=await pane.evaluate(async id=>(await fetch('/api/chats/'+id)).json(),terminalId);
  assert(apiBefore.canSteer && apiBefore.steerToken);
  await pane.locator('#draft').press('Control+Enter');
+ await pane.waitForFunction(()=>document.querySelectorAll('.subagent-running').length===2 && document.querySelectorAll('.subagent-done').length===1);
+ await shot('8-subagents-completed');
+ await pane.waitForFunction(()=>document.getElementById('subagent-strip').hidden && !document.getElementById('stop').hidden);
  await pane.waitForFunction(()=>document.getElementById('draft').value==='' && document.getElementById('stop').hidden);
  assert.equal(await pane.locator('.message-timing').count(),timingsBefore+1,'one completion after steering');
  const apiAfter=await pane.evaluate(async id=>(await fetch('/api/chats/'+id)).json(),terminalId);

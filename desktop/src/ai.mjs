@@ -1,3 +1,4 @@
+import { SubagentTracker } from './subagents.mjs';
 import { EventEmitter } from 'node:events';
 import { spawn } from 'node:child_process';
 import { access, mkdir, readFile, stat } from 'node:fs/promises';
@@ -131,6 +132,7 @@ export class AISession extends EventEmitter {
     this.timeout = timeout; this.now = now; this.elapsedNow = elapsedNow; this.turnTiming = null; this.turnInterrupted = false;
     this.isReady = false; this.isBusy = false; this.canInterrupt = false;
     this.questions = []; this.error = null; this.models = [];
+    this.subagentTracker = new SubagentTracker(value=>this.redact(value));
     this.chat.messages ||= []; this.chat.model ||= '';
     this.child = null; this.stopped = true; this.generation = 0;
     this.responses = new Map(); this.questionReplies = new Map(); this.writes = new Set();
@@ -151,6 +153,8 @@ export class AISession extends EventEmitter {
   }
 
   changed() { this.emit('change'); }
+
+  get subagents() { return this.subagentTracker.items; }
 
   get steerToken() { return this.isBusy ? this.completionToken : null; }
 
@@ -449,6 +453,7 @@ export class AISession extends EventEmitter {
   appendUser(text, images, files = []) {
     const id = randomUUID(); this.completionToken = id;
     this.turnTiming = { started: this.elapsedNow() }; this.turnInterrupted = false;
+    this.subagentTracker.finish();
     this.chat.messages.push({ id, role: 'user', text: this.redact(text), model: this.turnModel,
       isError: false, isIntermediate: false, images: images.map(imageMetadata), ...(files.length ? { files: files.map(fileMetadata) } : {}) });
     this.emit('submitted', text); this.changed();
@@ -457,6 +462,7 @@ export class AISession extends EventEmitter {
   async interrupt() {
     if (!this.isBusy || !this.canInterrupt) return false;
     this.completionToken = null; this.turnInterrupted = true;
+    this.subagentTracker.clear(); this.changed();
     if (this.chat.provider === 'claude') {
       const result = await this.control('interrupt', { cancel_queued: true });
       for (const id of result.cancelled || []) {
@@ -487,6 +493,7 @@ export class AISession extends EventEmitter {
   removeQuestion(id) { this.questions = this.questions.filter(q => q.id !== id); this.questionReplies.delete(id); }
 
   finishTurn(status) {
+    if(this.isReady && !this.turnInterrupted)this.subagentTracker.finish();else this.subagentTracker.clear();
     if (this.turnTiming && status) {
       const messages = this.chat.messages.slice(this.thinkingStart);
       const answer = messages.findLast(m => m.role === 'assistant' && !m.isIntermediate) || messages.findLast(m => m.role === 'assistant');
@@ -506,6 +513,7 @@ export class AISession extends EventEmitter {
   }
 
   fail(error, disconnect = false) {
+    if(disconnect)this.subagentTracker.clear();
     this.error = this.redact(error?.message || error);
     this.finishTurn('failed');
     if (disconnect) {
@@ -543,6 +551,7 @@ export class AISession extends EventEmitter {
   }
 
   async close() {
+    this.subagentTracker.clear();
     this.stopped = true; this.generation++;
     this.isReady = false; this.finishTurn('interrupted');
     const error = new Error('Connection closed.');
@@ -640,6 +649,8 @@ export class AISession extends EventEmitter {
   reply(message) { this.write(message).catch(error => this.fail(error, true)); }
 
   receiveClaude(message) {
+    if(!this.turnInterrupted && (!message.session_id || !this.chat.conversationID || message.session_id===this.chat.conversationID))this.subagentTracker.claude(message,!!this.turnTiming && !this.turnInterrupted);
+    if(message.parent_tool_use_id!=null && ['assistant','stream_event','result'].includes(message.type))return;
     switch (message.type) {
       case 'control_request': {
         const id = message.request_id, request = message.request || {}, input = request.input || {};
@@ -656,7 +667,7 @@ export class AISession extends EventEmitter {
       }
       case 'control_cancel_request': this.removeQuestion(message.request_id); break;
       case 'system':
-        if (typeof message.session_id === 'string') this.chat.conversationID = message.session_id;
+        if ((!message.subtype || message.subtype === 'init') && typeof message.session_id === 'string') this.chat.conversationID = message.session_id;
         if (message.subtype === 'init' && typeof message.model === 'string') this.defaultModel = message.model;
         break;
       case 'stream_event': {
@@ -751,6 +762,7 @@ export class AISession extends EventEmitter {
       }
       return this.reply({ id: requestID, error: { code: -32601, message: 'Unsupported request: ' + method } });
     }
+    this.subagentTracker.codex(message,this.chat.conversationID,this.turnInterrupted ? null : this.turnID);
     if (method !== 'serverRequest/resolved' && params.threadId && this.chat.conversationID && params.threadId !== this.chat.conversationID) return;
     switch (method) {
       case 'turn/started':

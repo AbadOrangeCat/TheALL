@@ -927,6 +927,67 @@ final class AIChatTests: XCTestCase {
         }
     }
 
+    @MainActor func testSubagentStripIsFixedAboveComposerAndHidesWithOneWorker() throws {
+        final class Store: AICredentialStore {
+            func load(for provider: AIProvider) throws -> AIConnection? { AIConnection(apiKey: "fake", model: "model-a") }
+            func save(_ connection: AIConnection, for provider: AIProvider) throws {}
+            func delete(for provider: AIProvider) throws {}
+        }
+        let session = AITerminalSession(credentials: Store(), makeLaunch: { _, _ in self.configuration },
+            loadModels: { _, _ in [AIModelOption(id: "model-a", title: "Model A")] })
+        session.choose(.claude)
+        let pipe = Transport()
+        session.startChat(configuration, directory: "/tmp", transport: pipe); pipe.respond()
+        let chat = try XCTUnwrap(session.chat)
+        chat.input = "Review the interface, tests and protocol in parallel"; chat.send(); pipe.respond()
+        pipe.emit(["type": "assistant", "message": ["id": "reply", "content": [["type": "text", "text": String(repeating: "Reviewing the project.\n", count: 100)]]]])
+        chat.input = "Keep this draft"
+        let host = AIChatNativePane(session: session, chat: chat, onFocus: {}, onEdit: {})
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 880, height: 760), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = host; window.orderFront(nil)
+        defer { session.back(); window.contentView = nil; window.close() }
+        func settle() { RunLoop.current.run(until: Date().addingTimeInterval(0.25)); host.layoutSubtreeIfNeeded() }
+        func editors(_ view: NSView) -> [NSTextView] { (view as? NSTextView).map { [$0] } ?? view.subviews.flatMap(editors) }
+        func start(_ id: String, _ title: String) {
+            pipe.emit(["type": "system", "subtype": "task_started", "task_type": "local_agent", "task_id": id, "description": title])
+        }
+        func finish(_ id: String) {
+            pipe.emit(["type": "system", "subtype": "task_notification", "task_id": id, "status": "completed", "summary": "Checks passed"])
+        }
+        settle()
+        let transcript = try XCTUnwrap(host.subviews.compactMap { $0 as? NSScrollView }.first)
+        let baseline = transcript.frame.height
+        start("ui", "Review the interface"); settle()
+        XCTAssertEqual(transcript.frame.height, baseline, accuracy: 1, "One subagent must not display the strip")
+        start("tests", "Run the regression tests"); start("protocol", "Check the provider events"); settle()
+        XCTAssertLessThan(transcript.frame.height, baseline - 70, "Concurrent subagents appear above the input")
+        let editor = try XCTUnwrap(editors(host).first(where: \.isEditable))
+        let editorBefore = editor.convert(editor.bounds, to: host)
+        let transcriptBefore = transcript.frame
+        try scrollTranscript(transcript, pixels: 120); settle()
+        XCTAssertEqual(editor.convert(editor.bounds, to: host), editorBefore)
+        XCTAssertEqual(transcript.frame, transcriptBefore, "Transcript scrolling must not move the fixed strip")
+        finish("ui"); settle()
+        XCTAssertLessThan(transcript.frame.height, baseline - 70, "Two active agents keep completed status visible")
+        if let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) {
+            host.cacheDisplay(in: host.bounds, to: bitmap)
+            if let png = bitmap.representation(using: .png, properties: [:]) {
+                let attachment = XCTAttachment(data: png, uniformTypeIdentifier: "public.png")
+                attachment.name = "Subagents above input"; attachment.lifetime = .keepAlways; add(attachment)
+            }
+        }
+        host.setFrameSize(NSSize(width: 360, height: 760)); settle()
+        XCTAssertEqual(transcript.frame.width, 360, accuracy: 1)
+        XCTAssertGreaterThan(transcript.frame.height, 100)
+        XCTAssertEqual(editor.string, "Keep this draft")
+        host.setFrameSize(NSSize(width: 880, height: 760)); settle()
+        finish("tests"); settle()
+        XCTAssertEqual(transcript.frame.height, baseline, accuracy: 1, "Only one active agent hides the whole strip")
+        finish("protocol"); settle()
+        XCTAssertEqual(transcript.frame.height, baseline, accuracy: 1)
+        XCTAssertEqual(editor.string, "Keep this draft")
+    }
+
     @MainActor func testNativeChatLayoutWithModelsBelowEditorAndScrollableTranscript() throws {
         // Standalone hosting roots create their AX nodes only when assistive
         // access is active. Enable it in this isolated test process.

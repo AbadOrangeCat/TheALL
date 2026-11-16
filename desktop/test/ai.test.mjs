@@ -682,3 +682,40 @@ test('Claude queued ACK and cancellation in the same output batch cannot create 
   f.child.emitJSON({ type: 'result', uuid: 'original-result', subtype: 'success', result: 'Original answer', user_message_uuid: f.session.claudeInitialUUID });
   assert.equal(f.session.isBusy, false);
 });
+
+test('subagent events expose sanitized runtime-only workers and disappear on explicit stop',async t=>{
+ const f=await fixture(t);await f.session.start();await f.session.send({text:'Review'});
+ const start=id=>f.child.emitJSON({type:'system',subtype:'task_started',task_type:'local_agent',task_id:id,run_id:'01',description:'Review fake-secret-key',is_backgrounded:true});
+ start('a');start('b');await tick();assert.equal(f.session.subagents.length,2);
+ assert.equal(f.session.subagents[0].title,'Review ••••');
+ f.child.emitJSON({type:'result',subtype:'success',result:'Parent finished'});await tick();
+ assert.equal(f.session.isBusy,false);assert.equal(f.session.subagents.length,2);
+ assert(!JSON.stringify(f.chat).includes('subagents'));
+ f.child.emitJSON({type:'system',subtype:'task_notification',task_id:'a',run_id:'01',status:'completed'});await tick();
+ assert.equal(f.session.subagents[0].status,'done');
+ await f.session.close();assert.deepEqual(f.session.subagents,[]);
+});
+test('interrupt blocks delayed background snapshots from bringing the strip back',async t=>{
+ const f=await fixture(t,'claude',(m,child)=>{if(m.request?.subtype==='interrupt')child.respond(m);});await f.session.start();await f.session.send({text:'Review'});
+ const snapshot={type:'system',subtype:'background_tasks_changed',tasks:[{task_id:'a',task_type:'local_agent',description:'A'},{task_id:'b',task_type:'local_agent',description:'B'}]};
+ f.child.emitJSON(snapshot);await tick();assert.equal(f.session.subagents.length,2);
+ await f.session.interrupt();f.child.emitJSON(snapshot);await tick();assert.equal(f.session.subagents.length,0);
+});
+test('parent failure preserves known live background workers but transport failure removes them',async t=>{
+ const f=await fixture(t);await f.session.start();await f.session.send({text:'Review'});
+ f.child.emitJSON({type:'system',subtype:'task_started',task_type:'local_agent',task_id:'a',is_backgrounded:true,description:'Review'});await tick();
+ f.child.emitJSON({type:'result',subtype:'error_during_execution',is_error:true,result:'Parent failed'});await tick();assert.equal(f.session.subagents[0].status,'running');
+ f.child.emit('close',1);await tick();assert.deepEqual(f.session.subagents,[]);
+});
+
+test('child output and foreign task events cannot replace the parent conversation',async t=>{
+ const f=await fixture(t);await f.session.start();await f.session.send({text:'Review'});
+ f.child.emitJSON({type:'system',subtype:'init',session_id:'parent'});
+ f.child.emitJSON({type:'assistant',parent_tool_use_id:'worker-tool',message:{id:'child-answer',content:[{type:'text',text:'Child internal response'}]}});
+ f.child.emitJSON({type:'system',subtype:'task_started',session_id:'foreign',task_type:'local_agent',task_id:'wrong',description:'Wrong session'});
+ await tick();
+ assert.equal(f.chat.conversationID,'parent');
+ assert.equal(f.chat.messages.some(m=>m.id==='child-answer'),false);
+ assert.equal(f.session.subagents.length,0);
+ assert.equal(f.session.isBusy,true);
+});

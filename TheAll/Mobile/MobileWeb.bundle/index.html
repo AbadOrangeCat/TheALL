@@ -64,6 +64,7 @@
         </div>
         <button id="jump-bottom" class="jump-bottom" aria-label="Jump to latest message" hidden>↓</button>
         <form id="composer" class="composer">
+          <section id="subagent-strip" class="subagent-strip" aria-labelledby="subagent-title" hidden><div class="subagent-heading"><span id="subagent-title" data-i18n="subagents">Subagents</span><span id="subagent-count" role="status"></span></div><ul id="subagent-list" class="subagent-list"></ul></section>
           <div id="mutation-error" class="mutation-error" role="alert" hidden><span></span><button id="retry-operation" class="text-button" type="button" data-i18n="retry">Retry same request</button><button id="discard-operation" class="text-button" type="button" data-i18n="discardRetry">Keep draft; stop retrying</button></div>
           <p id="setup-notice" class="small muted" hidden data-i18n="setupNotice">Configure this AI connection in TheAll on your Mac before sending messages.</p>
           <div id="file-previews" class="file-previews" hidden></div>
