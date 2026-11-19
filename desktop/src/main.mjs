@@ -9,6 +9,7 @@ import { externalWebURL, validDesktopURL } from '../renderer/security.mjs';
 import { imageDimensions } from '../renderer/image-headers.mjs';
 import { themeTokens } from '../renderer/theme.mjs';
 import { isTrustedDesktopSender } from './desktop-ipc.mjs';
+import { CLIUpdates, inspectCLI } from './cli-updates.mjs';
 import { DesktopUpdater } from './updater.mjs';
 import { installationTarget, prepareInstaller, armInstaller, discardPrepared } from './update-installer.mjs';
 import { readFile, rm } from 'node:fs/promises';
@@ -33,7 +34,7 @@ let runtime;
 let window;
 let quitting = false;
 let shutdownTask;
-let updater, pendingUpdate;
+let updater, cliUpdates, pendingUpdate;
 
 function trustedSender(event) {
   return !!window && !window.isDestroyed() && !!runtime
@@ -123,7 +124,7 @@ else {
       ]);
       if (handoff) await handoff.go();
       await runtime.close();
-      updater?.stop(); runtime = undefined; app.quit();
+      updater?.stop(); cliUpdates?.stop(); runtime = undefined; app.quit();
     })().catch(async error => {
       await handoff?.cancel().catch(() => {}); pendingUpdate = undefined; runtime?.abortUpdate(); updater?.failed(error);
       shutdownTask = undefined; quitting = false;
@@ -163,6 +164,9 @@ else {
     });
     ipcMain.handle('theall:desktop', async (event, method, payload) => {
       if (!runtime || !trustedSender(event)) throw new Error('Unauthorized desktop request');
+      if (method === 'cli.status') return cliUpdates.status();
+      if (method === 'cli.check') return cliUpdates.check();
+      if (method === 'cli.install') return cliUpdates.install(payload.provider);
       if (method === 'update.status') return updater.status();
       if (method === 'update.check') return updater.check();
       if (method === 'update.install') return updater.install();
@@ -200,8 +204,16 @@ else {
       await rm(resultFile);
       if (!result.ok) updater.previousError = String(result.error || 'The previous update could not be installed').slice(0,300);
     } catch {}
+    cliUpdates = new CLIUpdates({enabled: process.platform === 'win32' && !process.env.THEALL_TEST_DATA_DIR,
+      withIdle: (provider, operation) => runtime.withCLIUpdate(provider, operation),
+      inspect: async provider => {
+        const settings = await runtime.desktop('settings.get', {});
+        return inspectCLI(provider, settings.connections[provider]?.executable);
+      }
+    });
     await openWindow();
     updater.start();
+    cliUpdates.start();
   }).catch(fatal);
 }
 function fatal(error) {

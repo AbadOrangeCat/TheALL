@@ -21,6 +21,23 @@ struct UpdateSectionView: View {
 
             // 主状态行：每个 UpdateState 各自的 label + 右侧控件。
             statusRow
+            Section("CLI") {
+                ForEach(AIProvider.allCases) { provider in
+                    LabeledContent(provider.tool) {
+                        let cli = CLIUpdateStore.shared
+                        if let offer = cli.offers[provider] {
+                            CLIUpdateAction(provider: provider, offer: offer)
+                        } else if cli.errors.contains(provider) {
+                            Text(L10n.string("update.checkFailed"))
+                        } else if let version = cli.installedVersions[provider] {
+                            Text(version)
+                        } else if cli.checked { Text(L10n.string("cli.update.missing")) }
+                    }
+                }
+                Button(L10n.string(CLIUpdateStore.shared.checking ? "settings.update.checking" : "settings.update.checkForUpdates")) {
+                    Task { await CLIUpdateStore.shared.check() }
+                }.disabled(CLIUpdateStore.shared.checking || CLIUpdateStore.shared.installing != nil)
+            }
 
             // 仅 .updateAvailable 时额外出现的 release notes section。
             // Form(.grouped) 里 Section 会变成一个圆角分组，和其它 section
@@ -106,9 +123,9 @@ struct UpdateSectionView: View {
                 }
             }
 
-        case .updateAvailable(let version, _):
-            LabeledContent(String(localized: L10n.Settings.Update.availableUpdate.withLocale(locale))) {
-                Text(L10n.Settings.Update.versionNumber(version))
+        case .updateAvailable:
+            LabeledContent(String(localized: L10n.Settings.Update.status.withLocale(locale))) {
+                Text(L10n.string("update.available"))
                     .font(Font(DT.Font.bodyB))
                     .foregroundColor(Color(theme.textPrimary))
             }
@@ -167,6 +184,35 @@ struct UpdateSectionView: View {
                     SparkleBridge.shared.retry()
                 }
             }
+        }
+    }
+}
+
+struct CLIUpdateAction: View {
+    let provider: AIProvider
+    let offer: CLIUpdateStore.Offer
+
+    var body: some View {
+        let store = CLIUpdateStore.shared
+        let title = L10n.string("cli.update.action", provider.tool)
+        if offer.installation.command(for: offer.latest) == nil {
+            VStack(alignment: .leading) {
+                Text(title)
+                Text(L10n.string("cli.update.manual")).font(.caption)
+            }
+        } else {
+            Button {
+                Task { await store.install(provider) }
+            } label: {
+                VStack(alignment: .leading) {
+                    Label(title, systemImage: "arrow.down.circle")
+                    if store.installing == provider {
+                        Text(L10n.string("settings.update.installing")).font(.caption)
+                    } else if store.errors.contains(provider) {
+                        Text(L10n.string("cli.update.failed") + " · " + L10n.string("update.retry")).font(.caption)
+                    }
+                }
+            }.disabled(store.installing != nil || store.checking)
         }
     }
 }

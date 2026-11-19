@@ -3,7 +3,11 @@ const languages = ['en', 'zh-Hans', 'fr', 'ja', 'ko'];
 const words = {
   newWorkspace: ['New workspace','新建工作区','Nouvel espace','ワークスペースを作成','작업 공간 만들기'],
   welcome: ['A workspace for your next idea.','为你的下一个想法，准备一个工作区。','Un espace pour votre prochaine idée.','次のアイデアのためのワークスペース。','다음 아이디어를 위한 작업 공간.'],
-  updateAvailable: ['New version available','有新版本','Nouvelle version disponible','新しいバージョンがあります','새 버전 사용 가능'],
+  cliMissing: ['Not installed','未安装','Non installé','未インストール','설치되지 않음'],
+  cliManual: ['Update using the original installer','请通过原安装方式更新','Utilisez le programme d’installation d’origine','元のインストーラーで更新','기존 설치 관리자로 업데이트'],
+  cliInstalling: ['Updating CLI…','正在更新 CLI…','Mise à jour du CLI…','CLI を更新中…','CLI 업데이트 중…'],
+  cliCheckError: ['Could not check the CLI version','未能检查 CLI 版本','Vérification du CLI impossible','CLI のバージョン確認に失敗','CLI 버전을 확인할 수 없음'],
+  updateAvailable: ['Update available','有更新','Nouvelle version disponible','新しいバージョンがあります','새 버전 사용 가능'],
   updateInstall: ['Download and update','下载并更新','Télécharger et mettre à jour','ダウンロードして更新','다운로드 및 업데이트'],
   updateChecking: ['Checking for updates…','正在检查更新…','Recherche de mises à jour…','更新を確認中…','업데이트 확인 중…'],
   updateDownloading: ['Downloading…','正在下载…','Téléchargement…','ダウンロード中…','다운로드 중…'],

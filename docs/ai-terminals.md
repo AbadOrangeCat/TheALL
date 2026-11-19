@@ -71,6 +71,13 @@ covers message gaps and empty viewport as well as the existing editor drop path.
 Messages and their conversation dividers keep stable identities. Equatable row values
 include expansion, active state, theme, locale and attachment stores; this avoids
 rebuilding historical content and formatting completion dates on each text delta.
+On Mac, adjacent paragraphs, headings, lists and quotes share one read-only native
+text view, allowing selection across wrapped lines and block boundaries. Width changes
+and streaming additions retain the selection. The view has no internal scroll area;
+wheel input continues to the transcript. Rich code/table/image blocks keep their own
+views; the answer header's Copy reply button copies the complete original Markdown,
+including table cells, code whitespace and image references. This is per reply, not a
+selection spanning separate messages or rich blocks.
 Unchanged Markdown remains equatable. Eager initial layout and decoded-image memory
 costs remain proportional to history size.
 Code blocks and tables use a horizontal scroll view only when their intrinsic width
@@ -167,7 +174,7 @@ This legacy importer is for Claude; new snapshots restore both Claude and Codex.
 - `AILaunchConfiguration` creates executable, argv and per-process environment.
   `AIChatProcess` uses private stdin/stdout pipes; there is no shell-command injection.
 - Claude Code runs persistently in `--print --input-format stream-json
-  --output-format stream-json --verbose --include-partial-messages
+  --output-format stream-json --verbose --include-partial-messages --include-hook-events
   --permission-prompt-tool stdio --dangerously-skip-permissions` mode. The host acknowledges the SDK `initialize`
   and `set_model` control protocol, then sends the next user message. It waits for
   the model acknowledgement before sending, and keeps the draft on failure.
@@ -305,9 +312,15 @@ Debug builds can check but cannot install release updates. No release is publish
 
 输入框旁的单一附件按钮可选择照片和普通文件，也支持混合拖入与文件粘贴。照片仍走图片内容通道；PDF、文档、表格、源代码等文件保留原始字节，由当前 Claude/Codex 的本地工具读取，格式处理能力取决于工具。每条最多 5 个普通文件，单个 10 MiB、合计 20 MiB；只发附件也可发送。发送前可移除文件，发送失败会保留草稿。文件名、大小及附件引用随历史保存，原文件移动或删除不影响已经导入的副本。文件卡片在 Mac 通过 Finder 查看，在 Windows/手机通过授权下载获取，不自动启动可执行附件。
 
+## Live activity map
+
+Sending a message opens an activity map in the upper-right corner of the current chat. Claude Code and Codex use the original ten Lot Map stations (You, Model, Memory, Files, Shell, Network, Browser, Agents, Skills and Hooks) on macOS, Windows and the paired mobile web app. The model station indicates a busy turn awaiting a tool or response. The circular SVG uses the upstream station icons, palette and animated pulses. Only activities identified in the CLI stream light up. Click the title to collapse the map. The map disappears when the turn and its background agents finish or you stop the task. It uses existing local CLI events and sends no additional model requests.
+
+The footer shows the percentage remaining in each reported five-hour or seven-day account window, including zero. It reads rate-limit events from the current CLI session. Windows and macOS expose the same values to their paired mobile clients. The footer disappears when no current reading is available. A connection using an API key or a custom endpoint may never receive these events.
+
 ## Concurrent subagent status
 
-When at least two subagents are running in the current chat, a compact status strip appears directly above the composer. It stays fixed while conversation history scrolls. Each row shows the agent's task/name, latest reported progress and status. Finished rows remain visible while at least two other agents are running; when the active count reaches one or zero, the whole strip disappears. Many agents scroll within a bounded strip so the input remains available.
+When at least two subagents are running in the current chat, their status list appears below the diagram and any quota reading in the floating Lot Map. Collapsing the map hides the list. Each row shows the agent's task/name, latest reported progress and status. Finished rows remain visible while at least two other agents are running; when the active count reaches one or zero, the whole strip disappears. Many agents scroll within a bounded strip so the input remains available.
 
 The display observes actual provider events and does not request extra plans or create agents. It is live session state, not saved chat content: reopening a chat cannot revive stale running agents. Claude foreground agents are scoped to their parent turn. Confirmed Claude background agents and Codex workers can outlive a parent reply and keep reporting progress while it is idle; their reported lifecycle controls visibility. Codex completion matches the original spawning turn even after a newer user turn starts. Explicit stop or transport exit clears live tracking. A steer stays in the same turn. Provider events must identify actual subagents; background shell tasks are excluded.
 

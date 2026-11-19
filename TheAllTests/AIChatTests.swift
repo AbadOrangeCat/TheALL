@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import WebKit
 import XCTest
 @testable import TheAll
 
@@ -758,6 +759,19 @@ final class AIChatTests: XCTestCase {
             let viewport = window.convertToScreen(scroll.convert(scroll.bounds, to: nil))
             func containsText(_ element: Any, depth: Int = 0) -> Bool {
                 guard depth < 40, let accessible = element as? any NSAccessibilityProtocol else { return false }
+                if let textView = element as? NSTextView, !textView.isEditable,
+                   let layout = textView.layoutManager, let container = textView.textContainer {
+                    // Native selectable prose is AXTextArea, not SwiftUI AXStaticText.
+                    // Check the visible glyphs, not merely the whole text view's frame.
+                    let visible = textView.convert(window.convertFromScreen(viewport), from: nil).intersection(textView.bounds)
+                        .offsetBy(dx: -textView.textContainerOrigin.x, dy: -textView.textContainerOrigin.y)
+                    if !visible.isEmpty {
+                        let glyphs = layout.glyphRange(forBoundingRect: visible, in: container)
+                        let range = layout.characterRange(forGlyphRange: glyphs, actualGlyphRange: nil)
+                        let shown = (textView.string as NSString).substring(with: range)
+                        if !shown.isEmpty, expected.map({ shown.contains($0) }) ?? true { return true }
+                    }
+                }
                 let text = (accessible.accessibilityLabel() ?? "") + (accessible.accessibilityValue() as? String ?? "")
                 if accessible.accessibilityRole() == .staticText, !text.isEmpty,
                    expected.map({ text.contains($0) }) ?? true, accessible.accessibilityFrame().intersects(viewport) { return true }
@@ -927,7 +941,7 @@ final class AIChatTests: XCTestCase {
         }
     }
 
-    @MainActor func testSubagentStripIsFixedAboveComposerAndHidesWithOneWorker() throws {
+    @MainActor func testSubagentsAppearInActivityMapAndHideWithOneWorker() throws {
         final class Store: AICredentialStore {
             func load(for provider: AIProvider) throws -> AIConnection? { AIConnection(apiKey: "fake", model: "model-a") }
             func save(_ connection: AIConnection, for provider: AIProvider) throws {}
@@ -956,11 +970,39 @@ final class AIChatTests: XCTestCase {
         }
         settle()
         let transcript = try XCTUnwrap(host.subviews.compactMap { $0 as? NSScrollView }.first)
+        let map = try XCTUnwrap(host.subviews.first { $0.identifier?.rawValue == "chat-activity-map" })
+        XCTAssertFalse(map.isHidden)
+        XCTAssertTrue(transcript.frame.contains(map.frame), "The floating map belongs inside the transcript")
+        func mapRenderer(_ view: NSView) -> WKWebView? {
+            if let renderer = view as? WKWebView { return renderer }
+            for child in view.subviews {
+                if let renderer = mapRenderer(child) { return renderer }
+            }
+            return nil
+        }
+        let renderer = try XCTUnwrap(mapRenderer(map), "The floating map hosts the shared Lot Map scene")
+        let expectedStations = ["you", "model", "memory", "files", "shell", "network", "browser", "agents", "skills", "hooks"]
+        var shownStations: [String] = []
+        let deadline = Date().addingTimeInterval(8)
+        while shownStations.count != expectedStations.count, Date() < deadline {
+            let sampled = expectation(description: "Sample the rendered SVG")
+            renderer.evaluateJavaScript("Array.from(document.querySelectorAll('svg g[data-station]'), node => node.dataset.station)") { result, _ in
+                shownStations = result as? [String] ?? []
+                sampled.fulfill()
+            }
+            wait(for: [sampled], timeout: 4)
+            if shownStations.count != expectedStations.count { settle() }
+        }
+        XCTAssertEqual(Set(shownStations), Set(expectedStations))
         let baseline = transcript.frame.height
+        XCTAssertLessThanOrEqual(map.frame.width, 325)
+        let singleAgentMapHeight = map.frame.height
         start("ui", "Review the interface"); settle()
         XCTAssertEqual(transcript.frame.height, baseline, accuracy: 1, "One subagent must not display the strip")
         start("tests", "Run the regression tests"); start("protocol", "Check the provider events"); settle()
-        XCTAssertLessThan(transcript.frame.height, baseline - 70, "Concurrent subagents appear above the input")
+        XCTAssertEqual(transcript.frame.height, baseline, accuracy: 1)
+        XCTAssertGreaterThan(map.frame.height, singleAgentMapHeight + 20)
+        XCTAssertTrue(transcript.frame.contains(map.frame))
         let editor = try XCTUnwrap(editors(host).first(where: \.isEditable))
         let editorBefore = editor.convert(editor.bounds, to: host)
         let transcriptBefore = transcript.frame
@@ -968,12 +1010,24 @@ final class AIChatTests: XCTestCase {
         XCTAssertEqual(editor.convert(editor.bounds, to: host), editorBefore)
         XCTAssertEqual(transcript.frame, transcriptBefore, "Transcript scrolling must not move the fixed strip")
         finish("ui"); settle()
-        XCTAssertLessThan(transcript.frame.height, baseline - 70, "Two active agents keep completed status visible")
+        XCTAssertGreaterThan(map.frame.height, singleAgentMapHeight + 20, "Two active agents keep completed status visible")
+        let snapshot = expectation(description: "Capture the active Lot Map")
+        renderer.takeSnapshot(with: nil) { image, error in
+            if let image {
+                let attachment = XCTAttachment(image: image)
+                attachment.name = "Lot Map with active agents"; attachment.lifetime = .keepAlways
+                self.add(attachment)
+            } else {
+                XCTFail("Could not capture the visible activity map: \(String(describing: error))")
+            }
+            snapshot.fulfill()
+        }
+        wait(for: [snapshot], timeout: 8)
         if let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) {
             host.cacheDisplay(in: host.bounds, to: bitmap)
             if let png = bitmap.representation(using: .png, properties: [:]) {
                 let attachment = XCTAttachment(data: png, uniformTypeIdentifier: "public.png")
-                attachment.name = "Subagents above input"; attachment.lifetime = .keepAlways; add(attachment)
+                attachment.name = "Subagents below Lot Map"; attachment.lifetime = .keepAlways; add(attachment)
             }
         }
         host.setFrameSize(NSSize(width: 360, height: 760)); settle()
@@ -982,9 +1036,12 @@ final class AIChatTests: XCTestCase {
         XCTAssertEqual(editor.string, "Keep this draft")
         host.setFrameSize(NSSize(width: 880, height: 760)); settle()
         finish("tests"); settle()
-        XCTAssertEqual(transcript.frame.height, baseline, accuracy: 1, "Only one active agent hides the whole strip")
+        XCTAssertEqual(map.frame.height, singleAgentMapHeight, accuracy: 1, "One remaining agent hides the list")
         finish("protocol"); settle()
         XCTAssertEqual(transcript.frame.height, baseline, accuracy: 1)
+        pipe.emit(["type": "result", "session_id": "activity-map", "is_error": false])
+        settle()
+        XCTAssertTrue(map.isHidden, "Completing the last activity dismisses the map")
         XCTAssertEqual(editor.string, "Keep this draft")
     }
 

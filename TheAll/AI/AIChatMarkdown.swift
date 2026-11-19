@@ -15,6 +15,18 @@ struct AIChatMarkdownDocument {
     enum ColumnAlignment: Equatable { case left, center, right }
     var blocks: [Content]
 
+    /// Keep non-text blocks in their existing rich views; adjacent prose shares
+    /// one native selection surface instead of one control per Markdown block.
+    var selectionGroups: [[Content]] {
+        var groups: [[Content]] = []
+        for block in blocks {
+            if case .text = block, let last = groups.last?.last, case .text = last {
+                groups[groups.count - 1].append(block)
+            } else { groups.append([block]) }
+        }
+        return groups
+    }
+
     init(_ source: String) {
         guard let parsed = try? AttributedString(markdown: Self.joinSpacedTableRows(source),
             options: .init(interpretedSyntax: .full, failurePolicy: .returnPartiallyParsedIfPossible)) else {

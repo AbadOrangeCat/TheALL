@@ -311,3 +311,57 @@ final class UpdateLifecycleTests: XCTestCase {
         }
     }
 }
+
+extension UpdateStoreTests {
+    @MainActor func testClickingCLIUpdateVerifiesExecutableBeforeDismissingOffer() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bin = root.appendingPathComponent("bin")
+        let entry = root.appendingPathComponent("lib/node_modules/@openai/codex/bin/codex.js")
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: entry.deletingLastPathComponent(), withIntermediateDirectories: true)
+        func script(_ file: URL, _ body: String) throws {
+            try Data(("#!/bin/sh\n" + body + "\n").utf8).write(to: file)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: file.path)
+        }
+        let version = bin.appendingPathComponent("version")
+        try Data("codex-cli 1.0.0".utf8).write(to: version)
+        try script(entry, #"cat "$(dirname "$0")/version""#)
+        let link = bin.appendingPathComponent("codex"), npm = bin.appendingPathComponent("npm")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: entry)
+        try script(npm, "exit 0")
+        let store = CLIUpdateStore(resolve: { $0 == .openai ? link.path : nil }, latestVersion: { _ in "1.1.0" })
+        await store.check()
+        XCTAssertEqual(store.offers[.openai]?.installed, "1.0.0")
+        await store.install(.openai)
+        XCTAssertTrue(store.errors.contains(.openai))
+        XCTAssertNotNil(store.offers[.openai], "A successful process exit alone cannot verify the update")
+        try script(npm, #"echo 'codex-cli 1.1.0' > "$(dirname "$0")/version""#)
+        await store.install(.openai)
+        XCTAssertNil(store.offers[.openai])
+        XCTAssertEqual(store.installedVersions[.openai], "1.1.0")
+        XCTAssertFalse(store.errors.contains(.openai))
+    }
+
+    func testCLIUpdateUsesSameGlobalPrefixAndPinsCheckedVersion() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bin = root.appendingPathComponent("bin")
+        let binary = root.appendingPathComponent("lib/node_modules/@openai/codex/bin/codex.js")
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: binary.deletingLastPathComponent(), withIntermediateDirectories: true)
+        for file in [binary, bin.appendingPathComponent("npm")] {
+            try Data().write(to: file)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: file.path)
+        }
+        let link = bin.appendingPathComponent("codex")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: binary)
+        let installation = CLIInstallation(provider: .openai, binary: link.path)
+        XCTAssertEqual(installation.command(for: "1.2.3")?.arguments,
+                       ["install", "--global", "--prefix", root.path, "--registry=https://registry.npmjs.org", "@openai/codex@1.2.3"])
+        XCTAssertNil(installation.command(for: "1.2.3; invalid"))
+        XCTAssertNil(CLIInstallation(provider: .claude, binary: link.path).command(for: "1.2.3"))
+        XCTAssertTrue(CLIInstallation.isNewer("1.10.0", than: "1.9.9"))
+        XCTAssertNil(CLIInstallation.stableVersion("codex-cli 1.2.3-beta.1"))
+    }
+}

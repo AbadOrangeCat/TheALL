@@ -63,6 +63,17 @@ struct SidebarView: View {
             // tab 行新增 4pt 上间距、整体顶区下移后，第一行随之多让 4pt 才不显得贴交通灯。
             .padding(.top, DT.Space.lg + DT.Space.xs)
             if updateStore.showsSidebarNotice { updateButton }
+            ForEach(AIProvider.allCases) { provider in
+                if let offer = CLIUpdateStore.shared.offers[provider] {
+                    CLIUpdateAction(provider: provider, offer: offer)
+                        .font(Font(DT.Font.bodyB))
+                        .foregroundStyle(Color(theme.accent))
+                        .padding(DT.Space.md)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color(theme.accentMuted), in: RoundedRectangle(cornerRadius: DT.Radius.card))
+                        .padding(.horizontal, DT.Space.md).padding(.top, DT.Space.sm)
+                }
+            }
             connectPhoneButton
             footer
         }
@@ -168,7 +179,7 @@ struct SidebarView: View {
 
     private var updateTitle: String {
         switch updateStore.state {
-        case .updateAvailable(let version, _): return L10n.string("update.available", version)
+        case .updateAvailable: return L10n.string("update.available")
         case .downloading: return L10n.string("settings.update.downloading")
         case .waitingToInstall: return L10n.string("update.waiting")
         case .readyToInstall: return L10n.string("update.ready")

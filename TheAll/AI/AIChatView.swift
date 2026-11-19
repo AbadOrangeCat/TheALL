@@ -1,4 +1,5 @@
 import AppKit
+import WebKit
 import SwiftUI
 import Observation
 import UniformTypeIdentifiers
@@ -148,13 +149,6 @@ struct AIChatView: View {
                         }
                     }.padding(.horizontal, 16)
                 }.frame(maxHeight: 230)
-            }
-            if chat.subagents.filter({ $0.status == .running }).count >= 2 {
-                AIChatSubagentStrip(agents: chat.subagents, theme: theme)
-                    .frame(maxWidth: DT.Chat.contentWidth)
-                    .padding(.horizontal, DT.Space.lg).padding(.top, DT.Space.sm)
-                    .frame(maxWidth: .infinity)
-                    .background(Color(nsColor: theme.sidebar))
             }
             VStack(alignment: .leading, spacing: 8) {
                 if !chat.draftImages.isEmpty {
@@ -443,9 +437,16 @@ private struct AIChatMessageRow: View, Equatable {
                     title: L10n.string("ai.chat.thinking"), expanded: Binding(get: { expanded }, set: onExpansionChange))
             } else {
                 VStack(alignment: .leading, spacing: DT.Space.sm) {
-                    Text(message.role == .user ? L10n.string("ai.chat.you") : providerTitle)
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(Color(nsColor: message.role == .user ? theme.accent : theme.textSecondary))
+                    HStack {
+                        Text(message.role == .user ? L10n.string("ai.chat.you") : providerTitle)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(Color(nsColor: message.role == .user ? theme.accent : theme.textSecondary))
+                        Spacer(minLength: 8)
+                        if message.role == .assistant && !message.text.isEmpty {
+                            AIChatCopyButton(text: message.text, label: "ai.markdown.copyReply", identifier: "chat-copy-reply")
+                                .foregroundStyle(Color(nsColor: theme.textSecondary))
+                        }
+                    }
                     if !message.images.isEmpty {
                         AIChatPhotos(images: message.images, store: imageStore, theme: theme,
                             onOpen: onOpenPhoto)
@@ -514,6 +515,7 @@ final class AIChatNativePane: NSView {
     private let document = AIChatNativeDocument()
     private let stack = NSStackView()
     private var rows: [String: NSHostingView<AIChatNativeRow>] = [:]
+    private let activityHost: NSHostingView<AIChatActivityMap>
     private var welcome: NSView!
     private var status: NSView!
     private var chromeHosts: [NSHostingView<AIChatView>] = []
@@ -527,6 +529,7 @@ final class AIChatNativePane: NSView {
         self.presentation = presentation
         self.session = session
         self.chat = chat
+        self.activityHost = NSHostingView(rootView: AIChatActivityMap(session: session, chat: chat))
         super.init(frame: .zero)
         func host(_ region: AIChatView.Region) -> NSHostingView<AIChatView> {
             let view = NSHostingView(rootView: AIChatView(session: session, chat: chat, onFocus: onFocus,
@@ -559,6 +562,11 @@ final class AIChatNativePane: NSView {
         addSubview(scroll)
         addSubview(composer)
         addSubview(jump)
+        activityHost.identifier = NSUserInterfaceItemIdentifier("chat-activity-map")
+        activityHost.sizingOptions = [.intrinsicContentSize]
+        activityHost.safeAreaRegions = []
+        activityHost.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(activityHost)
         scroll.documentView = document
         NSLayoutConstraint.activate([
             header.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -577,6 +585,8 @@ final class AIChatNativePane: NSView {
             stack.trailingAnchor.constraint(equalTo: document.trailingAnchor, constant: -DT.Space.lg),
             stack.topAnchor.constraint(equalTo: document.topAnchor, constant: DT.Space.lg),
             stack.bottomAnchor.constraint(equalTo: document.bottomAnchor, constant: -44),
+            activityHost.topAnchor.constraint(equalTo: scroll.topAnchor, constant: 6),
+            activityHost.trailingAnchor.constraint(equalTo: scroll.trailingAnchor, constant: -8),
             jump.widthAnchor.constraint(equalToConstant: 36),
             jump.heightAnchor.constraint(equalToConstant: 36),
             jump.trailingAnchor.constraint(equalTo: scroll.trailingAnchor, constant: -12),
@@ -588,6 +598,7 @@ final class AIChatNativePane: NSView {
         }
         scroll.observeDocument()
         observeScrollRequest()
+        observeMapVisibility()
         observeTranscript()
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -597,6 +608,14 @@ final class AIChatNativePane: NSView {
         super.layout()
         // Width is a content input, not scroll position. Giving SwiftUI a finite
         // width lets intrinsic height include wrapping before AppKit lays out rows.
+        let sceneWidth = floor(min(300, scroll.bounds.width - 32, (scroll.bounds.height - 84) * 460 / 430))
+        let sceneHeight = floor(max(0, scroll.bounds.height - 84))
+        if activityHost.rootView.sceneWidth != sceneWidth || activityHost.rootView.sceneHeight != sceneHeight {
+            var map = activityHost.rootView
+            map.sceneWidth = sceneWidth
+            map.sceneHeight = sceneHeight
+            activityHost.rootView = map
+        }
         guard bounds.width > 0, layoutWidth != bounds.width else { return }
         layoutWidth = bounds.width
         for host in chromeHosts { host.rootView.contentWidth = layoutWidth }
@@ -620,6 +639,16 @@ final class AIChatNativePane: NSView {
         defer { presentation.photoDropTargeted = false }
         guard draggingEntered(sender) == .copy else { return false }
         return importAttachments(sender.draggingPasteboard)
+    }
+
+    private func observeMapVisibility() {
+        let visible = withObservationTracking {
+            chat.hasLiveActivity
+        } onChange: { [weak self] in
+            DispatchQueue.main.async { self?.observeMapVisibility() }
+        }
+        activityHost.rootView.live = visible
+        activityHost.isHidden = !visible
     }
 
     private func observeScrollRequest() {
@@ -705,11 +734,133 @@ final class AIChatNativePane: NSView {
     }
 }
 
-/// A fixed composer accessory; its animations never replace transcript rows.
+/// A pane-local overlay. Its observation and layout are independent of the
+/// transcript so that a tool notification never needs to reflow message rows.
+private struct AIChatActivityMap: View {
+    let session: AITerminalSession
+    let chat: AIChatSession
+    var live = false
+    var sceneHeight: CGFloat = 0
+    var sceneWidth: CGFloat = 0
+    @State private var collapsed = false
+    @Environment(\.accessibilityReduceMotion) private var reducedMotion
+
+    private var theme: AppTheme { session.theme }
+
+    var body: some View {
+        let _ = session.locale
+        let compact = sceneWidth < 200
+        let expanded = live && !compact && !collapsed
+        let showAgents = chat.subagents.filter { $0.status == .running }.count >= 2
+        let listHeight = min(144, sceneHeight * 0.30, CGFloat(chat.subagents.count) * 44)
+        let chartHeight = min(sceneWidth * 430 / 460, sceneHeight - (showAgents ? listHeight + 52 : 0))
+        VStack(alignment: .trailing, spacing: 4) {
+            Button {
+                collapsed.toggle()
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "point.3.connected.trianglepath.dotted")
+                        .foregroundStyle(Color(nsColor: theme.accent))
+                    Text(L10n.string("ai.activity.title")).font(.caption.weight(.semibold))
+                    if !compact {
+                        Image(systemName: expanded ? "chevron.up" : "chevron.down").font(.caption2)
+                    }
+                }.contentShape(Rectangle())
+            }
+            .buttonStyle(.plain).disabled(compact)
+            if expanded {
+                LotMapScene(provider: session.provider?.tool ?? "AI", rows: chat.activityMap, quota: chat.accountQuota,
+                            locale: session.locale.identifier(.bcp47), labels: Dictionary(uniqueKeysWithValues: AIActivityStation.displayOrder.map {
+                                ($0, L10n.string("ai.activity." + $0))
+                            }), reduceMotion: reducedMotion, dark: theme.isDark)
+                    .frame(width: sceneWidth, height: max(0, chartHeight) + (chat.accountQuota.isEmpty ? 0 : 22))
+                if showAgents {
+                    AIChatSubagentStrip(agents: chat.subagents, theme: theme, listHeight: listHeight)
+                        .frame(width: sceneWidth)
+                }
+            }
+        }
+        .padding(10)
+        .foregroundStyle(Color(nsColor: theme.textPrimary))
+        .background(Color(nsColor: theme.sidebar), in: RoundedRectangle(cornerRadius: DT.Radius.card))
+        .overlay(RoundedRectangle(cornerRadius: DT.Radius.card).strokeBorder(Color(nsColor: theme.border)))
+        .fixedSize()
+        .onChange(of: chat.isBusy) { _, busy in if busy { collapsed = false } }
+    }
+
+}
+
+// The desktop and paired web clients draw the same locally bundled scene.
+// Only station counts and display strings cross the WebKit boundary.
+private struct LotMapScene: NSViewRepresentable, Equatable {
+    let provider: String
+    let rows: [AIActivityStation]
+    let quota: [AIQuotaWindow]
+    let locale: String
+    let labels: [String: String]
+    let reduceMotion: Bool
+    let dark: Bool
+
+    @MainActor final class Coordinator: NSObject, WKNavigationDelegate {
+        var scene: LotMapScene?
+        var ready = false
+
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            ready = true
+            publish(to: webView)
+        }
+
+        func publish(to webView: WKWebView) {
+            guard ready, let scene else { return }
+            let rows: [[String: Any]] = scene.rows.map {
+                ["station": $0.station, "active": $0.active, "completed": $0.completed, "failed": $0.failed]
+            }
+            let quota = scene.quota.map { window -> [String: Any] in
+                var row = ["windowMinutes": window.windowMinutes, "remainingPercent": window.remainingPercent]
+                row["resetsAt"] = window.resetsAt
+                return row
+            }
+            let payload: [String: Any] = ["provider": scene.provider, "rows": rows, "quota": quota,
+                                          "locale": scene.locale, "quotaLabel": L10n.string("ai.activity.quota"),
+                                          "labels": scene.labels, "reduceMotion": scene.reduceMotion,
+                                          "theme": scene.dark ? "dark" : "light"]
+            webView.callAsyncJavaScript("window.updateLotMap(payload)", arguments: ["payload": payload],
+                                        in: nil, in: .page, completionHandler: nil)
+        }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeNSView(context: Context) -> WKWebView {
+        let configuration = WKWebViewConfiguration()
+        configuration.websiteDataStore = .nonPersistent()
+        let view = WKWebView(frame: .zero, configuration: configuration)
+        view.navigationDelegate = context.coordinator
+        if let root = Bundle.main.url(forResource: "MobileWeb", withExtension: "bundle") {
+            view.loadFileURL(root.appendingPathComponent("lot-map.html"), allowingReadAccessTo: root)
+        }
+        return view
+    }
+
+    func updateNSView(_ view: WKWebView, context: Context) {
+        guard context.coordinator.scene != self else { return }
+        view.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+        context.coordinator.scene = self
+        context.coordinator.publish(to: view)
+    }
+
+    static func dismantleNSView(_ view: WKWebView, coordinator: Coordinator) {
+        view.navigationDelegate = nil
+        view.stopLoading()
+    }
+}
+
+/// Subagent activity inside the expanded Lot Map.
 /// Motion adapted from SmoothUI AI Task List (MIT; bundled third-party notice).
 private struct AIChatSubagentStrip: View {
     let agents: [AIChatSubagent]
     let theme: AppTheme
+    let listHeight: CGFloat
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
@@ -723,7 +874,7 @@ private struct AIChatSubagentStrip: View {
                 VStack(spacing: 6) {
                     ForEach(agents) { AIChatSubagentRow(agent: $0, theme: theme) }
                 }.frame(maxWidth: .infinity, alignment: .leading)
-            }.frame(height: min(144, CGFloat(agents.count) * 44 - 6))
+            }.frame(height: listHeight)
         }
         .padding(12)
         .background(Color(nsColor: theme.canvas), in: RoundedRectangle(cornerRadius: DT.Radius.card))

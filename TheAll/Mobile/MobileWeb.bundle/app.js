@@ -96,7 +96,7 @@ async function openPendingNotification() {
     rememberDraft(); closePhoto(); state.selected = null; state.selection++;
     state.rendering = ''; state.questionRendering = '';
     $('messages').replaceChildren(); $('questions').replaceChildren(); $('draft').value = '';
-    $('chat-area').hidden = true; $('welcome').hidden = false; renderWorkspaces(); return;
+    $('chat-area').hidden = true; $('welcome').hidden = false; renderActivityMap(null, false); renderWorkspaces(); return;
   }
   const chat = state.workspaces.flatMap(workspace => workspace.conversations).find(item => item.id.toLowerCase() === target.chatId.toLowerCase());
   if (chat) { if (state.selected !== chat.id) await selectChat(chat.id); }
@@ -199,6 +199,7 @@ $('drawer-shade').onclick = () => drawer(false);
 document.addEventListener('keydown', event => { if (event.key === 'Escape') drawer(false); });
 
 function pairScreen(error = '') {
+  renderActivityMap(null, false);
   cancelSessionRecovery(); cancelPairing(); live.stop(); state.sessionGeneration++; state.refreshQueued = false;
   state.authenticated = false; state.connected = false; notificationNavigationError = '';
   if ($('notification-dialog').open) $('notification-dialog').close();
@@ -507,8 +508,8 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
-function renderSubagents(data) {
-  const {items,active,visible}=subagentState(data),strip=$('subagent-strip');
+function renderSubagents({items,active,visible}) {
+  const strip=$('subagent-strip');
   strip.hidden=!visible;
   const signature=JSON.stringify([state.selected,visible,items,language()]);
   if(strip.dataset.signature===signature)return;
@@ -533,6 +534,47 @@ function renderSubagents(data) {
   }
   list.replaceChildren(fragment);
 }
+
+const mapStations = ['you', 'model', 'memory', 'files', 'shell', 'network', 'browser', 'agents', 'skills', 'hooks'];
+const mapPanel = $('activity-map');
+const mapMotion = matchMedia('(prefers-reduced-motion: reduce)');
+let mapScene;
+let mapChat;
+let mapTurn;
+let mapSignature;
+
+function unmountMap() {
+  mapScene?.destroy();
+  mapScene = mapSignature = undefined;
+}
+
+function renderActivityMap(data, visible) {
+  if (!visible) {
+    mapPanel.hidden = true;
+    unmountMap();
+    mapChat = mapTurn = undefined;
+    return;
+  }
+  if (mapPanel.hidden || data.id !== mapChat || (data.steerToken && data.steerToken !== mapTurn)) {
+    unmountMap();
+    mapPanel.open = true;
+  }
+  mapPanel.hidden = false;
+  mapChat = data.id;
+  if (data.steerToken) mapTurn = data.steerToken;
+  if (!mapPanel.open || document.hidden) { unmountMap(); return; }
+  const signature = JSON.stringify([data.provider, data.activityMap, data.accountQuota, language(), mapMotion.matches]);
+  if (signature === mapSignature) return;
+  mapScene ??= window.TheAllLotMap.mount($('lot-map-scene'), mapPanel.querySelector('.lot-quota'));
+  const labels = Object.fromEntries(mapStations.map(id => [id, t('map_' + id)]));
+  mapScene.update({provider: data.provider === 'openai' ? 'Codex' : 'Claude Code',
+    rows: data.activityMap, quota: data.accountQuota, quotaLabel: t('quotaRemaining'), locale: language(), labels, reduceMotion: mapMotion.matches});
+  mapSignature = signature;
+}
+
+mapPanel.addEventListener('toggle', updateComposer);
+mapMotion.addEventListener('change', updateComposer);
+document.addEventListener('visibilitychange', updateComposer);
 
 function renderChat(initial = false) {
   const data = state.chats.get(state.selected); updateHeader();
@@ -636,9 +678,12 @@ function renderQuestions(data) {
   }
 }
 function updateComposer() {
-  renderSubagents(state.chats.get(state.selected));
   const data = state.chats.get(state.selected); const pending = state.pending.get(state.selected);
   const available = state.connected && navigator.onLine && state.authenticated;
+  const workers = subagentState(data);
+  renderSubagents(workers);
+  const hasActivity = data?.activityMap?.length > 0 && (data.isBusy || workers.active > 0);
+  renderActivityMap(data, available && hasActivity);
   const writable = state.access.writable && available && (data?.isReady || data?.canResume) && !pending;
   const steering = !!data?.isBusy;
   $('composer').classList.toggle('steering', steering);

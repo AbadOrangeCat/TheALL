@@ -253,6 +253,18 @@ for (const [key, values] of Object.entries(notificationStrings)) {
   Object.keys(supportedLanguages).forEach((code, index) => { catalog[code][key] = values[index]; });
 }
 const subagentStrings = {
+  activityMap:['Activity map','活动地图','Carte d’activité','アクティビティマップ','활동 지도'],
+  map_model:['Model','模型','Modèle','モデル','모델'],
+  map_files:['Files','文件','Fichiers','ファイル','파일'],
+  map_shell:['Shell','终端','Terminal','シェル','셸'],
+  map_network:['Network','网络','Réseau','ネットワーク','네트워크'],
+  map_agents:['Agents','子代理','Agents','エージェント','에이전트'],
+  quotaRemaining:['Quota remaining','剩余额度','Quota restant','残りの利用枠','남은 사용량'],
+  map_you:['You','你','Vous','あなた','사용자'],
+  map_memory:['Memory','记忆','Mémoire','メモリ','메모리'],
+  map_browser:['Browser','浏览器','Navigateur','ブラウザ','브라우저'],
+  map_skills:['Skills','技能','Compétences','スキル','스킬'],
+  map_hooks:['Hooks','钩子','Hooks','フック','훅'],
   subagents:['Subagents','子代理','Sous-agents','サブエージェント','하위 에이전트'],
   subagentRunning:['Running','运行中','En cours','実行中','실행 중'],
   subagentDone:['Completed','已完成','Terminé','完了','완료'],

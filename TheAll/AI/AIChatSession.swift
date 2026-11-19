@@ -1,6 +1,70 @@
 import Foundation
 import Observation
 
+struct AIQuotaWindow: Codable, Equatable {
+    let windowMinutes: Int
+    let remainingPercent: Int
+    let resetsAt: Int?
+}
+
+/// Only station names and counters leave the live session.
+struct AIActivityStation: Codable, Equatable {
+    let station: String
+    var active = 0
+    var completed = 0
+    var failed = 0
+
+    static let displayOrder = ["you", "model", "memory", "files", "shell", "network", "browser", "agents", "skills", "hooks"]
+
+    private static func mcpStation(_ server: String?, tool: String?) -> String {
+        switch server {
+        case "memory": return "memory"
+        case "Claude_Browser", "claude-in-chrome", "playwright", "browser", "chrome-devtools": return "browser"
+        case "remote-devices" where tool?.hasPrefix("Claude_Browser__") == true: return "browser"
+        case "plugin-authoring": return "skills"
+        case "terminal": return "shell"
+        default: return "network"
+        }
+    }
+
+    private static func fileStation(_ path: String?) -> String {
+        let path = path?.replacingOccurrences(of: "\\", with: "/") ?? ""
+        return path.range(of: #"/\.claude/projects/[^/]+/memory/|/\.codex/memories/"#, options: .regularExpression) == nil ? "files" : "memory"
+    }
+
+    static func claudeTool(_ name: String?, input: [String: Any]?) -> String? {
+        switch name {
+        case nil, "Task", "Agent": return nil
+        case "Read", "Write", "Edit", "MultiEdit", "NotebookEdit", "Glob", "Grep", "LS", "LSP":
+            return fileStation((input?["file_path"] ?? input?["notebook_path"] ?? input?["path"]) as? String)
+        case "AskUserQuestion", "SendUserFile", "TaskCreate", "TaskUpdate", "TaskList", "TaskGet", "TodoWrite", "EnterPlanMode", "ExitPlanMode": return "you"
+        case "Skill", "ToolSearch", "ListSkills", "SearchSkills", "SuggestSkills", "ListPlugins", "SearchPlugins", "SuggestPluginInstall", "ListConnectors", "SearchMcpRegistry", "SuggestConnectors", "WaitForMcpServers": return "skills"
+        case "WebFetch", "WebSearch", "Artifact": return "network"
+        case "ListMcpResourcesTool", "ReadMcpResourceTool", "ReadMcpResourceDirTool": return mcpStation(input?["server"] as? String, tool: nil)
+        default:
+            guard let name, name.hasPrefix("mcp__") else { return "shell" }
+            let parts = name.dropFirst(5).components(separatedBy: "__")
+            return mcpStation(parts.first, tool: parts.dropFirst().joined(separator: "__"))
+        }
+    }
+
+    static func codexItem(_ item: [String: Any]) -> String? {
+        switch item["type"] as? String {
+        case "commandExecution":
+            guard let actions = item["commandActions"] as? [[String: Any]], !actions.isEmpty,
+                  actions.allSatisfy({ ["read", "listFiles", "search"].contains($0["type"] as? String ?? "") }) else { return "shell" }
+            return actions.allSatisfy { fileStation($0["path"] as? String) == "memory" } ? "memory" : "files"
+        case "fileChange", "imageView": return fileStation((item["path"] ?? (item["changes"] as? [[String: Any]])?.first?["path"]) as? String)
+        case "webSearch": return "network"
+        case "mcpToolCall": return mcpStation(item["server"] as? String, tool: item["tool"] as? String)
+        case "dynamicToolCall": return claudeTool(item["tool"] as? String, input: item["arguments"] as? [String: Any])
+        case "plan", "enteredReviewMode", "exitedReviewMode": return "you"
+        case "contextCompaction": return "model"
+        default: return nil
+        }
+    }
+}
+
 struct AIChatSubagent: Identifiable, Codable, Equatable {
     enum Status: String, Codable { case running, done, failed, stopped }
     var id: String
@@ -256,6 +320,108 @@ final class AIChatSession {
     private(set) var subagents: [AIChatSubagent] = []
     @ObservationIgnored private var subagentTracker = AIChatSubagentTracker()
 
+    private var toolStations: [String: AIActivityStation] = [:]
+    private(set) var activityRevision = 0
+    @ObservationIgnored private var activeTools: [String: String] = [:]
+    @ObservationIgnored private var completedTools = Set<String>()
+    @ObservationIgnored private var previousCompletedTools = Set<String>()
+
+    var hasLiveActivity: Bool {
+        (isBusy && !turnWasInterrupted) || subagents.contains { $0.status == .running }
+    }
+
+    private var quotaWindows: [AIQuotaWindow] = []
+    var accountQuota: [AIQuotaWindow] {
+        let now = Int(Date().timeIntervalSince1970)
+        return quotaWindows.filter { ($0.resetsAt ?? Int.max) > now }
+    }
+
+    private func recordQuota(minutes: Int, utilization: Any?, fullScale: Double, reset: Any?) {
+        guard [300, 10080].contains(minutes) else { return }
+        var windows = accountQuota.filter { $0.windowMinutes != minutes }
+        // JSON booleans also bridge to NSNumber. Reject them as usage percentages.
+        if let number = utilization as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(),
+           (0...fullScale).contains(number.doubleValue) {
+            let timestamp = reset as? NSNumber
+            let seconds = timestamp.flatMap { Int(exactly: $0.doubleValue) }
+            if reset == nil || reset is NSNull || (timestamp.map { CFGetTypeID($0) != CFBooleanGetTypeID() } == true
+                && (seconds ?? 0) > Int(Date().timeIntervalSince1970) && (seconds ?? Int.max) <= 253402300799) {
+                windows.append(.init(windowMinutes: minutes, remainingPercent: Int((100 - number.doubleValue / fullScale * 100).rounded()), resetsAt: seconds))
+            }
+        }
+        windows.sort { $0.windowMinutes < $1.windowMinutes }
+        if quotaWindows != windows { quotaWindows = windows; activityRevision += 1 }
+    }
+
+    var activityMap: [AIActivityStation] {
+        guard hasLiveActivity else { return [] }
+        var agents = AIActivityStation(station: "agents")
+        for agent in subagents {
+            switch agent.status {
+            case .running: agents.active += 1
+            case .done: agents.completed += 1
+            case .failed, .stopped: agents.failed += 1
+            }
+        }
+        var stations = toolStations
+        if !subagents.isEmpty { stations["agents"] = agents }
+        if isBusy && !stations.values.contains(where: { $0.active > 0 }) {
+            stations["model", default: .init(station: "model")].active = 1
+        }
+        return AIActivityStation.displayOrder.compactMap { stations[$0] }.filter { $0.active + $0.completed + $0.failed > 0 }
+    }
+
+    /// A streamed start may be echoed in a full message. Some Codex items only
+    /// arrive on completion. Count each ID once regardless of the event sequence.
+    private func recordTool(id: String?, station: String?, finished: Bool, failed: Bool = false) {
+        guard let id, !id.isEmpty, id.utf8.count <= 256, !completedTools.contains(id), !previousCompletedTools.contains(id),
+              let station = finished ? (activeTools[id] ?? station) : station else { return }
+        var row = toolStations[station] ?? .init(station: station)
+        if finished {
+            if activeTools.removeValue(forKey: id) != nil { row.active -= 1 }
+            if completedTools.count >= 4096 {
+                previousCompletedTools = completedTools
+                completedTools.removeAll()
+            }
+            completedTools.insert(id)
+            if failed { row.failed += 1 } else { row.completed += 1 }
+        } else {
+            if let previous = activeTools[id] {
+                guard previous != station else { return }
+                toolStations[previous]?.active -= 1
+            } else if activeTools.count >= 1024 { return }
+            activeTools[id] = station
+            row.active += 1
+        }
+        toolStations[station] = row
+        activityRevision += 1
+    }
+
+    private func recordHook(_ id: String?, finished: Bool, outcome: String?) {
+        guard let id, !id.isEmpty else { return }
+        recordTool(id: "hook:" + id, station: "hooks", finished: finished,
+                   failed: ["error", "failed", "blocked", "stopped", "cancelled"].contains(outcome ?? ""))
+    }
+
+    private func recordUserActivity() {
+        toolStations["you", default: .init(station: "you")].completed += 1
+        activityRevision += 1
+    }
+
+    private func resetToolActivity() {
+        activeTools.removeAll()
+        completedTools.removeAll()
+        previousCompletedTools.removeAll()
+        if !toolStations.isEmpty { toolStations.removeAll(); activityRevision += 1 }
+    }
+
+    private func acceptsClaudeTool(_ message: [String: Any]) -> Bool {
+        guard isBusy, !turnWasInterrupted, message["ambient"] as? Bool != true,
+              message["parent_tool_use_id"] == nil || message["parent_tool_use_id"] is NSNull else { return false }
+        if let session = message["session_id"] as? String, let conversationID { return session == conversationID }
+        return true
+    }
+
     private func publishSubagents() {
         let rows = subagentTracker.agents.map { AIChatSubagent(id: $0.id, title: sanitized($0.title), detail: sanitized($0.detail), status: $0.status) }
         if rows != subagents { subagents = rows; revision += 1 }
@@ -275,7 +441,7 @@ final class AIChatSession {
     @ObservationIgnored private var turnStartedAt: Date?
     @ObservationIgnored private var turnStartedUptime: TimeInterval?
     @ObservationIgnored private var awaitingSubmittedTurn = false
-    @ObservationIgnored private var turnWasInterrupted = false
+    private var turnWasInterrupted = false
     @ObservationIgnored private var seenCompletionIDs: [String] = []
     var visibleMessages: [AIChatMessage] { messages.filter(\.isVisibleInTranscript) }
     var activeThinkingID: String? {
@@ -380,6 +546,7 @@ final class AIChatSession {
     }
 
     func start(_ configuration: AILaunchConfiguration, resuming sessionID: String? = nil) {
+        quotaWindows.removeAll()
         if let pending = steering { finishSteering(pending, result: pending.written ? .uncertain : .rejected) }
         completeRemoteSubmission(remoteRequestWasWritten ? .uncertain : .rejected)
         transportGeneration = UUID()
@@ -414,6 +581,7 @@ final class AIChatSession {
             guard let self, !self.stopped else { return }
             if let pending = self.steering { self.finishSteering(pending, result: pending.written ? .uncertain : .rejected) }
             self.transportGeneration = UUID()
+            self.quotaWindows.removeAll()
             self.clearPendingClaudeWrite()
             self.isReady = false
             self.isStartingForUpdate = false
@@ -552,6 +720,7 @@ final class AIChatSession {
             completeRemoteSubmission(.rejected)
             return false
         }
+        quotaWindows.removeAll { $0.resetsAt == nil }
         taskToken = UUID().uuidString
         turnModel = model
         turnReasoningEffort = reasoningEffort
@@ -763,6 +932,7 @@ final class AIChatSession {
 
     private func didSubmit(_ prompt: String, images: [AIChatImage], files: [AIChatFile], clearsComposer: Bool) {
         subagentTracker.endTurn(); publishSubagents()
+        recordUserActivity()
         if provider == .claude { acceptSubmittedTurn() }
         messages.append(AIChatMessage(id: UUID().uuidString, role: .user, text: prompt, images: images, files: files))
         if clearsComposer, input == prompt { input = "" }
@@ -891,6 +1061,7 @@ final class AIChatSession {
         guard steering === pending else { return }
         steering = nil
         responses[pending.id] = nil
+        if result == .accepted && isBusy && !turnWasInterrupted { recordUserActivity() }
         if result == .rejected {
             messages.removeAll { $0.id == pending.id }
             claudeSteerIDs.remove(pending.id)
@@ -920,6 +1091,7 @@ final class AIChatSession {
     func interrupt() -> Bool {
         guard isBusy, canInterrupt else { return false }
         turnWasInterrupted = true
+        resetToolActivity()
         clearSubagents()
         do {
             if provider == .claude {
@@ -952,6 +1124,7 @@ final class AIChatSession {
     }
 
     func stop() {
+        quotaWindows.removeAll()
         if isBusy { turnWasInterrupted = true }
         if let pending = steering { finishSteering(pending, result: pending.written ? .uncertain : .rejected) }
         transportGeneration = UUID()
@@ -1051,6 +1224,7 @@ final class AIChatSession {
         recordTurnCompletion(success: false)
         completionToken = nil; turnStartedAt = nil; turnStartedUptime = nil; awaitingSubmittedTurn = false
         isBusy = false
+        resetToolActivity()
         canInterrupt = false
         turnID = nil
         taskToken = nil
@@ -1229,6 +1403,11 @@ final class AIChatSession {
         if ["assistant", "stream_event", "result"].contains(message["type"] as? String ?? ""),
            message["parent_tool_use_id"] != nil && !(message["parent_tool_use_id"] is NSNull) { return }
         switch message["type"] as? String {
+        case "rate_limit_event":
+            guard acceptsClaudeTool(message), let info = message["rate_limit_info"] as? [String: Any],
+                  let type = info["rateLimitType"] as? String,
+                  let minutes = ["five_hour": 300, "seven_day": 10080][type] else { return }
+            recordQuota(minutes: minutes, utilization: info["utilization"], fullScale: 1, reset: info["resetsAt"])
         case "command_lifecycle":
             guard let id = message["command_uuid"] as? String, let state = message["state"] as? String else { return }
             if id == claudeInitialUserID, ["queued", "started", "completed"].contains(state) { claudeSupportsSteering = true }
@@ -1287,10 +1466,17 @@ final class AIChatSession {
                 approvals.removeAll { $0.id == id }; approvalReplies[id] = nil
             }
         case "system":
+            if let subtype = message["subtype"] as? String, ["hook_started", "hook_response"].contains(subtype), acceptsClaudeTool(message) {
+                recordHook(message["hook_id"] as? String, finished: subtype == "hook_response", outcome: message["outcome"] as? String)
+            }
             if let resolved = message["model"] as? String { defaultModel = resolved }
             if message["subtype"] == nil || message["subtype"] as? String == "init", let id = message["session_id"] as? String { conversationID = id }
         case "stream_event":
             guard let event = message["event"] as? [String: Any] else { return }
+            if event["type"] as? String == "content_block_start", let block = event["content_block"] as? [String: Any],
+               block["type"] as? String == "tool_use", acceptsClaudeTool(message) {
+                recordTool(id: block["id"] as? String, station: AIActivityStation.claudeTool(block["name"] as? String, input: block["input"] as? [String: Any]), finished: false)
+            }
             if let id = message["api_message_id"] as? String { claudeMessageID = id }
             if event["type"] as? String == "message_start", let body = event["message"] as? [String: Any], let id = body["id"] as? String {
                 claudeMessageID = id
@@ -1329,6 +1515,9 @@ final class AIChatSession {
                     claudeThinkingCounts[id] = index + 1
                     updateMessage(id: "thinking-\(id)-\(index)", role: .thinking, text: thought)
                 } else if block["type"] as? String == "tool_use", let toolID = block["id"] as? String {
+                    if acceptsClaudeTool(message) {
+                        recordTool(id: toolID, station: AIActivityStation.claudeTool(block["name"] as? String, input: block["input"] as? [String: Any]), finished: false)
+                    }
                     updateMessage(id: toolID, role: .tool, text: (block["name"] as? String ?? "Tool") + "\n" + detail(block["input"] ?? [:]))
                 }
             }
@@ -1339,6 +1528,9 @@ final class AIChatSession {
             guard let body = message["message"] as? [String: Any], let blocks = body["content"] as? [[String: Any]] else { return }
             for block in blocks where block["type"] as? String == "tool_result" {
                 guard let id = block["tool_use_id"] as? String else { continue }
+                if acceptsClaudeTool(message) {
+                    recordTool(id: id, station: nil, finished: true, failed: block["is_error"] as? Bool == true)
+                }
                 let output = block["content"] as? String ?? detail(block["content"] ?? [])
                 let prefix = block["is_error"] as? Bool == true ? L10n.string("ai.chat.toolFailed") : L10n.string("ai.chat.toolResult")
                 updateMessage(id: id, role: .tool, text: "\n" + prefix + "\n" + sanitized(String(output.suffix(30_000))), append: true,
@@ -1424,6 +1616,21 @@ final class AIChatSession {
         if method != "serverRequest/resolved", let thread = params["threadId"] as? String,
            let conversationID, thread != conversationID { return }
         switch method {
+        case "account/rateLimits/updated":
+            // The isolated app-server forwards upstream rate-limit events during the turn.
+            // account/rateLimits/read instead uses Codex login credentials.
+            guard isReady, isBusy, !turnWasInterrupted,
+                  let limits = params["rateLimits"] as? [String: Any],
+                  limits["limitId"] == nil || limits["limitId"] is NSNull || limits["limitId"] as? String == "codex" else { return }
+            for field in ["primary", "secondary"] {
+                guard let window = limits[field] as? [String: Any], let minutes = window["windowDurationMins"] as? Int else { continue }
+                recordQuota(minutes: minutes, utilization: window["usedPercent"], fullScale: 100, reset: window["resetsAt"])
+            }
+        case "hook/started", "hook/completed":
+            guard isBusy, !turnWasInterrupted, let conversationID, let turnID,
+                  params["threadId"] as? String == conversationID, params["turnId"] as? String == turnID,
+                  let run = params["run"] as? [String: Any] else { return }
+            recordHook(run["id"] as? String, finished: method == "hook/completed", outcome: run["status"] as? String)
         case "turn/started":
             acceptSubmittedTurn()
             if !isBusy { thinkingStartIndex = messages.count }
@@ -1456,6 +1663,14 @@ final class AIChatSession {
                 publishSubagents()
             }
             guard let item = params["item"] as? [String: Any], let id = item["id"] as? String else { return }
+            if isReady, isBusy, !turnWasInterrupted, let conversationID, let turnID,
+               params["threadId"] as? String == conversationID, params["turnId"] as? String == turnID,
+               let station = AIActivityStation.codexItem(item) {
+                let failed = ["failed", "declined", "cancelled"].contains(item["status"] as? String ?? "")
+                    || (item["exitCode"] as? Int).map { $0 != 0 } == true || item["success"] as? Bool == false
+                    || item["error"] is [String: Any] || (item["result"] as? [String: Any])?["isError"] as? Bool == true
+                recordTool(id: id, station: station, finished: method == "item/completed", failed: failed)
+            }
             switch item["type"] as? String {
             case "agentMessage":
                 if let phase = item["phase"] as? String, ["commentary", "partial_answer", "final_answer"].contains(phase) {

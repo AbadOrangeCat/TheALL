@@ -719,3 +719,99 @@ test('child output and foreign task events cannot replace the parent conversatio
  assert.equal(f.session.subagents.length,0);
  assert.equal(f.session.isBusy,true);
 });
+
+const activityRow = (station, active = 0, completed = 0, failed = 0) => ({ station, active, completed, failed });
+
+test('Claude activity map deduplicates streamed tools and follows background workers past the turn', async t => {
+  const f = await fixture(t);
+  await f.session.start();
+  assert.deepEqual(f.session.activityMap, []);
+  await f.session.send({ text: 'Go' });
+  const read = { type: 'tool_use', id: 'private-path-id', name: 'Read', input: { file_path: '/private/file' } };
+  f.child.emitJSON({ type: 'stream_event', event: { type: 'content_block_start', content_block: read } });
+  f.child.emitJSON({ type: 'assistant', message: { id: 'a', content: [read] } });
+  assert.deepEqual(f.session.activityMap, [activityRow('you', 0, 1), activityRow('files', 1)]);
+  const result = { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: read.id, is_error: true }] } };
+  f.child.emitJSON(result);
+  f.child.emitJSON(result);
+  assert.deepEqual(f.session.activityMap, [activityRow('you', 0, 1), activityRow('model', 1), activityRow('files', 0, 0, 1)]);
+  f.child.emitJSON({ type: 'system', subtype: 'task_started', task_type: 'local_agent', task_id: 'worker', is_backgrounded: true });
+  f.child.emitJSON({ type: 'result', subtype: 'success', result: 'Done' });
+  assert.deepEqual(f.session.activityMap, [activityRow('agents', 1)]);
+  f.child.emitJSON({ type: 'system', subtype: 'task_notification', task_id: 'worker', status: 'completed' });
+  assert.deepEqual(f.session.activityMap, []);
+});
+
+test('Codex activity map scopes parallel items to the current turn and clears on failure', async t => {
+  const f = await fixture(t, 'openai', (m, c) => { if (m.method === 'turn/start') c.respond(m, { turn: { id: 'turn-a' } }); });
+  await f.session.start();
+  await f.session.send({ text: 'Go' });
+  const sendItem = (phase, id, type, fields = {}, scope = {}) => f.child.emitJSON({
+    method: 'item/' + phase, params: { threadId: 'thread-1', turnId: 'turn-a', ...scope, item: { id, type, ...fields } }
+  });
+  sendItem('started', 'old', 'fileChange', {}, { turnId: 'old' });
+  sendItem('started', 'foreign', 'fileChange', {}, { threadId: 'foreign' });
+  assert.deepEqual(f.session.activityMap, [activityRow('you', 0, 1), activityRow('model', 1)]);
+  sendItem('started', 'cmd', 'commandExecution');
+  sendItem('started', 'query', 'webSearch');
+  assert.deepEqual(f.session.activityMap, [activityRow('you', 0, 1), activityRow('shell', 1), activityRow('network', 1)]);
+  sendItem('completed', 'cmd', 'commandExecution', { exitCode: 1 });
+  sendItem('completed', 'query', 'webSearch');
+  sendItem('started', 'query', 'webSearch');
+  sendItem('completed', 'query', 'webSearch');
+  sendItem('completed', 'edit', 'fileChange');
+  assert.deepEqual(f.session.activityMap, [activityRow('you', 0, 1), activityRow('model', 1), activityRow('files', 0, 1), activityRow('shell', 0, 0, 1), activityRow('network', 0, 1)]);
+  f.child.emitJSON({ method: 'turn/completed', params: { threadId: 'thread-1', turn: { id: 'turn-a', status: 'failed' } } });
+  assert.deepEqual(f.session.activityMap, []);
+  sendItem('started', 'late', 'commandExecution');
+  assert.deepEqual(f.session.activityMap, []);
+});
+
+test('Lot Map routes browser, skills, memory and hooks from actual provider events', async () => {
+  const { ActivityMap } = await import('../src/activity-map.mjs');
+  const map = new ActivityMap();
+  for (const [id, name, input] of [
+    ['b', 'mcp__Claude_Browser__navigate', {}],
+    ['s', 'Skill', {}],
+    ['m', 'Read', {file_path:'/home/user/.claude/projects/p/memory/notes.md'}]
+  ]) {
+    map.claude({type:'stream_event', event:{type:'content_block_start', content_block:{type:'tool_use', id, name, input:{}}}});
+    map.claude({type:'assistant', message:{content:[{type:'tool_use', id, name, input}]}});
+  }
+  map.claude({type:'system', subtype:'hook_started', hook_id:'hook1'});
+  map.claude({type:'system', subtype:'hook_response', hook_id:'hook1', outcome:'error'});
+  assert.deepEqual(map.snapshot(true, []), [activityRow('memory',1), activityRow('browser',1), activityRow('skills',1), activityRow('hooks',0,0,1)]);
+  map.clear();
+  map.codex('item/completed', {id:'1', type:'mcpToolCall', server:'playwright', tool:'browser_snapshot'});
+  assert.deepEqual(map.snapshot(true, []), [activityRow('model',1), activityRow('browser',0,1)]);
+});
+
+test('account quota comes only from live session reports and stays out of history', async t => {
+  const f = await fixture(t);
+  const report = (rateLimitType, utilization) => f.child.emitJSON({type:'rate_limit_event', rate_limit_info:{rateLimitType, utilization}});
+  await f.session.start();
+  await f.session.send({text:'inspect'});
+  report('five_hour', 0.34); report('seven_day', 1);
+  report('seven_day_opus', 0.5);
+  assert.deepEqual(f.session.accountQuota, [{windowMinutes:300,remainingPercent:66}, {windowMinutes:10080,remainingPercent:0}]);
+  report('five_hour', null);
+  assert.deepEqual(f.session.accountQuota, [{windowMinutes:10080,remainingPercent:0}]);
+  assert(!JSON.stringify(f.chat).includes('remainingPercent'));
+  await f.session.close();
+  assert.deepEqual(f.session.accountQuota, []);
+});
+
+test('Codex quota accepts sparse primary and secondary windows from the active process only', async t => {
+  const f = await fixture(t,'openai',(m,c)=>{if(m.method==='turn/start')c.respond(m,{turn:{id:'q1'}});});
+  await f.session.start();
+  const report = rateLimits => f.child.emitJSON({method:'account/rateLimits/updated',params:{rateLimits}});
+  const primary = {windowDurationMins:300,usedPercent:0,resetsAt:4000000000};
+  report({primary});
+  assert.deepEqual(f.session.accountQuota, []);
+  await f.session.send({text:'inspect'});
+  report({limitId:'codex',primary});
+  report({primary:null,secondary:{windowDurationMins:10080,usedPercent:42}});
+  report({limitId:'different-model',primary:{...primary,usedPercent:55}});
+  assert.deepEqual(f.session.accountQuota,[{windowMinutes:300,remainingPercent:100,resetsAt:4000000000},{windowMinutes:10080,remainingPercent:58}]);
+  assert.equal(f.child.sent.some(m=>m.method==='account/rateLimits/read'), false);
+});
