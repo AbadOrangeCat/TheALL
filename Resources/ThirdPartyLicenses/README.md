@@ -45,3 +45,10 @@ represented as endorsing TheAll.
 The subagent status strip adapts SmoothUI AI Task List by Eduardo Calvo (MIT).
 Its full notice is retained in `SmoothUI-MIT.txt`; the shared web version embeds
 the same notice. See https://smoothui.dev/docs/components/ai-task-list.
+
+## Activity map
+
+The live activity map adapts the SVG drawing, station glyphs and palettes of lot-map by
+Aleksei Volodin (MIT), revision e3a93ec. Its full notice is retained in
+`lot-map-MIT.txt`; the shared web version ships the same notice as `lot-map-LICENSE.txt`.
+See https://github.com/alexeyw/lot-map.

@@ -203,5 +203,10 @@
     "file": "SmoothUI-MIT.txt",
     "source": "https://github.com/educlopez/smoothui/blob/e4b0b44a5c640ec217800eb664db18879822cd6c/LICENSE",
     "sha256": "9877f4310c0549e5ce26affe52ba97c4e60325472bdcdd308a92fccd90f119cc"
+  },
+  {
+    "file": "lot-map-MIT.txt",
+    "source": "https://github.com/alexeyw/lot-map/blob/e3a93ec01f72803483767154564de9f1fa8d4ca4/LICENSE",
+    "sha256": "b67093f1814b4641665f7095dc18d3713eae55bacb22809ea6dd2c1a6d7132ae"
   }
 ]

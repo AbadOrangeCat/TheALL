@@ -138,3 +138,7 @@ Before distributing a build:
 ### SmoothUI AI Task List
 
 Subagent status motion is adapted from [SmoothUI AI Task List](https://smoothui.dev/docs/components/ai-task-list), Copyright (c) 2024 Eduardo Calvo, under MIT. The native port uses SwiftUI and the shared Windows/mobile port uses existing JavaScript/CSS. No animation dependency is installed. Native builds bundle `Resources/ThirdPartyLicenses/SmoothUI-MIT.txt`; shared JS carries the full notice.
+### lot-map
+
+The live activity map adapts the SVG drawing, station glyphs and palettes of [lot-map](https://github.com/alexeyw/lot-map) (`hooks/{draw,setup,palette,classify}.ts`, revision `e3a93ec01f72803483767154564de9f1fa8d4ca4`), Copyright (c) 2026 Aleksei Volodin, under MIT. The adapted code is `TheAll/Mobile/MobileWeb.bundle/lot-map.js`, shared by the Mac app (in a web view), Windows and the mobile web app. No lot-map package is installed. Native builds bundle `Resources/ThirdPartyLicenses/lot-map-MIT.txt`; the shared web files carry `lot-map-LICENSE.txt`.
+
