@@ -148,6 +148,7 @@ export class AISession extends EventEmitter {
     this.deferred = []; this.deferredBytes = 0; this.pendingSubmission = false;
     this.thinkingStart = chat.messages.length; this.turnID = null; this.defaultModel = null;
     this.completionToken = null; this.completedClaudeResults = new Set();
+    this.canResumeTurn = false; this.providerStartIDs = new Set();
     this.pendingSteer = false; this.steerUncertain = false;
     this.claudeSteeringSupported = false; this.claudeInitialUUID = null; this.claudeSteers = new Set(); this.steerNotApplied = new Set(); this.heldClaudeResult = null;
     this.appliedModel = chat.model; this.turnModel = chat.model; this.appliedReasoningEffort = chat.provider === 'openai' ? chat.codexAppliedReasoningEffort || '' : undefined;
@@ -184,7 +185,7 @@ export class AISession extends EventEmitter {
   get steerToken() { return this.isBusy ? this.completionToken : null; }
 
   get canSteer() {
-    return this.isReady && !this.stopped && this.isBusy && this.canInterrupt && !!this.turnTiming
+    return this.isReady && !this.stopped && this.isBusy && this.canInterrupt && !!this.steerToken
       && !this.turnInterrupted && !this.questions.length && !this.pendingSubmission && !this.pendingSteer && !this.steerUncertain
       && (this.chat.provider === 'claude' ? this.claudeSteeringSupported : !!this.turnID);
   }
@@ -522,7 +523,26 @@ export class AISession extends EventEmitter {
 
   removeQuestion(id) { this.questions = this.questions.filter(q => q.id !== id); this.questionReplies.delete(id); }
 
+  rememberProviderStart(id) {
+    if (typeof id !== 'string' || !id || id.length > 256 || this.providerStartIDs.has(id)) return false;
+    this.providerStartIDs.add(id);
+    if (this.providerStartIDs.size > 4096) this.providerStartIDs.delete(this.providerStartIDs.values().next().value);
+    return true;
+  }
+
+  resumeProviderTurn() {
+    if (!this.canResumeTurn || !this.isReady || this.stopped || this.isBusy) return false;
+    this.canResumeTurn = false;
+    this.turnTiming = { started: this.elapsedNow() };
+    this.thinkingStart = this.chat.messages.length;
+    this.isBusy = true;
+    this.canInterrupt = true;
+    return true;
+  }
+
   finishTurn(status) {
+    this.canResumeTurn = !!this.turnTiming && status === 'completed' && !this.turnInterrupted;
+    if (this.turnID) this.rememberProviderStart(this.turnID);
     this.activityTracker.clear();
     if(this.isReady && !this.turnInterrupted)this.subagentTracker.finish();else this.subagentTracker.clear();
     if (this.turnTiming && status) {
@@ -689,11 +709,19 @@ export class AISession extends EventEmitter {
       this.recordQuota(minutes, info?.utilization, 1, info?.resetsAt);
       return;
     }
+    if (['stream_event', 'assistant', 'result'].includes(message.type)) {
+      if (message.parent_tool_use_id != null || message.ambient || message.isReplay || message.is_replay ||
+          (message.session_id && this.chat.conversationID && message.session_id !== this.chat.conversationID)) return;
+      const startID = message.type === 'assistant' ? message.message?.id :
+        message.event?.type === 'message_start' ? message.event.message?.id : null;
+      if (this.rememberProviderStart(startID) && !this.turnTiming && message.session_id && this.chat.conversationID === message.session_id) {
+        this.resumeProviderTurn();
+      }
+    }
     if (!this.turnInterrupted && (!message.session_id || !this.chat.conversationID || message.session_id === this.chat.conversationID)) {
       this.subagentTracker.claude(message, !!this.turnTiming);
       if (this.turnTiming) this.activityTracker.claude(message);
     }
-    if(message.parent_tool_use_id!=null && ['assistant','stream_event','result'].includes(message.type))return;
     switch (message.type) {
       case 'control_request': {
         const id = message.request_id, request = message.request || {}, input = request.input || {};
@@ -822,7 +850,8 @@ export class AISession extends EventEmitter {
         }
         break;
       case 'turn/started':
-        if (!this.turnTiming) return;
+        if (!this.turnTiming && (!params.threadId || params.threadId !== this.chat.conversationID ||
+            !this.rememberProviderStart(params.turn?.id) || !this.resumeProviderTurn())) return;
         if (this.turnTiming && this.turnID && typeof params.turn?.id === 'string' && params.turn.id !== this.turnID) return;
         if (!this.isBusy) this.thinkingStart = this.chat.messages.length;
         this.turnID = params.turn?.id || this.turnID; this.isBusy = true; this.canInterrupt = true; break;
