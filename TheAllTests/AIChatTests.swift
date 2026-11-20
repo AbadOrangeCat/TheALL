@@ -1042,6 +1042,13 @@ final class AIChatTests: XCTestCase {
         pipe.emit(["type": "result", "session_id": "activity-map", "is_error": false])
         settle()
         XCTAssertTrue(map.isHidden, "Completing the last activity dismisses the map")
+        pipe.emit(["type": "stream_event", "session_id": "activity-map", "event": [
+            "type": "message_start", "message": ["id": "resumed"]]])
+        settle()
+        XCTAssertFalse(map.isHidden, "The map reopens when the provider resumes the task")
+        pipe.emit(["type": "result", "session_id": "activity-map", "is_error": false])
+        settle()
+        XCTAssertTrue(map.isHidden)
         XCTAssertEqual(editor.string, "Keep this draft")
     }
 
