@@ -82,6 +82,41 @@ final class AICompletionTests: XCTestCase {
         session.stop()
     }
 
+    func testClaudeMapReappearsForEachAutomaticContinuation() {
+        let pipe = Pipe()
+        let session = AIChatSession(provider: .claude, model: "fixture", directory: "/tmp", transport: pipe)
+        var completions = 0
+        session.onTurnCompleted = { _ in completions += 1 }
+        session.start(configuration); pipe.respond()
+        session.input = "Check again later"; session.send()
+        func start(_ id: String, extra: [String: Any] = [:]) {
+            pipe.onMessage?(["type": "stream_event", "session_id": "root", "event": [
+                "type": "message_start", "message": ["id": id]]].merging(extra) { _, new in new })
+        }
+        func finish(_ id: String) {
+            pipe.onMessage?(["type": "result", "uuid": id, "session_id": "root", "subtype": "success", "result": id])
+        }
+        start("first"); finish("r1")
+        XCTAssertTrue(session.activityMap.isEmpty)
+        start("first"); start("child", extra: ["parent_tool_use_id": "worker"])
+        start("other", extra: ["session_id": "foreign"]); start("replayed", extra: ["isReplay": true])
+        XCTAssertTrue(session.activityMap.isEmpty)
+        start("second")
+        XCTAssertEqual(session.activityMap, [.init(station: "model", active: 1)])
+        finish("r1")
+        XCTAssertTrue(session.isBusy)
+        finish("r2")
+        XCTAssertTrue(session.activityMap.isEmpty)
+        pipe.onMessage?(["type": "assistant", "session_id": "root", "message": ["id": "third", "content": [
+            ["type": "tool_use", "id": "read", "name": "Read"]]]])
+        XCTAssertEqual(session.activityMap, [.init(station: "files", active: 1)])
+        finish("r3")
+        XCTAssertTrue(session.activityMap.isEmpty)
+        XCTAssertEqual(session.messages.filter { $0.role == .user }.count, 1)
+        XCTAssertEqual(completions, 1)
+        session.stop()
+    }
+
     func testLotMapMemoryBrowserSkillsAndHooks() {
         let pipe = Pipe()
         let session = AIChatSession(provider: .claude, model: "fixture", directory: "/tmp", transport: pipe)

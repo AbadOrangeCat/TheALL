@@ -815,3 +815,63 @@ test('Codex quota accepts sparse primary and secondary windows from the active p
   assert.deepEqual(f.session.accountQuota,[{windowMinutes:300,remainingPercent:100,resetsAt:4000000000},{windowMinutes:10080,remainingPercent:58}]);
   assert.equal(f.child.sent.some(m=>m.method==='account/rateLimits/read'), false);
 });
+
+test('Claude reopens the Lot Map for a fresh background continuation', async t => {
+  const f = await fixture(t);
+  const completions = [];
+  f.session.on('completed', event => completions.push(event));
+  await f.session.start();
+  await f.session.send({ text: 'Watch the build' });
+  const emit = frame => f.child.emitJSON({ session_id: 'parent', ...frame });
+  const start = (id, fields = {}) => emit({
+    type: 'stream_event', event: { type: 'message_start', message: { id } }, ...fields
+  });
+  const result = uuid => emit({ type: 'result', subtype: 'success', uuid });
+  emit({ type: 'system', subtype: 'init' });
+  start('first');
+  result('first-result');
+  start('first');
+  start('child', { parent_tool_use_id: 'agent' });
+  start('foreign', { session_id: 'other' });
+  start('ambient', { ambient: true });
+  start('replayed', { isReplay: true });
+  assert.deepEqual(f.session.activityMap, []);
+  start('follow-up');
+  assert.deepEqual(f.session.activityMap, [activityRow('model', 1)]);
+  result('first-result');
+  emit({ type: 'assistant', message: { id: 'follow-up', content: [{ type: 'tool_use', id: 'read', name: 'Read' }] } });
+  assert.deepEqual(f.session.activityMap, [activityRow('files', 1)]);
+  result('second-result');
+  assert.deepEqual(f.session.activityMap, []);
+  assert.equal(completions.length, 1);
+  assert.equal(f.chat.messages.filter(m => m.role === 'user').length, 1);
+});
+
+test('Codex reopens the Lot Map for a new turn in the connected thread', async t => {
+  const f = await fixture(t, 'openai', (message, child) => {
+    if (message.method === 'turn/start') child.respond(message, { turn: { id: 'first' } });
+  });
+  const completions = [];
+  f.session.on('completed', event => completions.push(event));
+  await f.session.start();
+  await f.session.send({ text: 'Watch the build' });
+  const turn = (method, id, threadId = 'thread-1') => f.child.emitJSON({
+    method: 'turn/' + method, params: { threadId, turn: { id, status: method === 'started' ? 'inProgress' : 'completed' } }
+  });
+  turn('completed', 'first');
+  turn('started', 'first');
+  turn('started', 'foreign', 'another');
+  assert.deepEqual(f.session.activityMap, []);
+  turn('started', 'follow-up');
+  assert.deepEqual(f.session.activityMap, [activityRow('model', 1)]);
+  turn('completed', 'first');
+  f.child.emitJSON({ method: 'item/started', params: {
+    threadId: 'thread-1', turnId: 'follow-up', item: { id: 'cmd', type: 'commandExecution' }
+  } });
+  assert.deepEqual(f.session.activityMap, [activityRow('shell', 1)]);
+  turn('completed', 'follow-up');
+  turn('started', 'follow-up');
+  assert.deepEqual(f.session.activityMap, []);
+  assert.equal(completions.length, 1);
+  assert.equal(f.chat.messages.filter(m => m.role === 'user').length, 1);
+});

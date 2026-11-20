@@ -440,6 +440,10 @@ final class AIChatSession {
     @ObservationIgnored private var completionToken: UUID?
     @ObservationIgnored private var turnStartedAt: Date?
     @ObservationIgnored private var turnStartedUptime: TimeInterval?
+    // A provider can start another turn after reporting a successful result.
+    // Only a user submission owns a completion token and notification.
+    @ObservationIgnored private var canResumeClaudeTurn = false
+    @ObservationIgnored private var recentClaudeStarts: [String] = []
     @ObservationIgnored private var awaitingSubmittedTurn = false
     private var turnWasInterrupted = false
     @ObservationIgnored private var seenCompletionIDs: [String] = []
@@ -546,6 +550,8 @@ final class AIChatSession {
     }
 
     func start(_ configuration: AILaunchConfiguration, resuming sessionID: String? = nil) {
+        canResumeClaudeTurn = false
+        recentClaudeStarts.removeAll()
         quotaWindows.removeAll()
         if let pending = steering { finishSteering(pending, result: pending.written ? .uncertain : .rejected) }
         completeRemoteSubmission(remoteRequestWasWritten ? .uncertain : .rejected)
@@ -726,6 +732,7 @@ final class AIChatSession {
         turnReasoningEffort = reasoningEffort
         turnAppliedReasoningEffort = nil
         turnEffortVerified = false
+        canResumeClaudeTurn = false
         awaitingSubmittedTurn = true
         turnWasInterrupted = false
         thinkingStartIndex = messages.count
@@ -1396,7 +1403,32 @@ final class AIChatSession {
         }
     }
 
+    private func noteClaudeMessageStart(_ id: String?, session: String?) {
+        guard let id, !id.isEmpty, id.utf8.count <= 256, !recentClaudeStarts.contains(id) else { return }
+        recentClaudeStarts.append(id)
+        if recentClaudeStarts.count > 256 { recentClaudeStarts.removeFirst() }
+        guard canResumeClaudeTurn, isReady, !isBusy, !turnWasInterrupted,
+              let session, session == conversationID else { return }
+        canResumeClaudeTurn = false
+        thinkingStartIndex = messages.count
+        isBusy = true
+        canInterrupt = true
+    }
+
     private func receiveClaude(_ message: [String: Any]) {
+        let kind = message["type"] as? String
+        if ["assistant", "stream_event", "result"].contains(kind ?? ""),
+           message["parent_tool_use_id"] == nil || message["parent_tool_use_id"] is NSNull {
+            let session = message["session_id"] as? String
+            guard message["ambient"] as? Bool != true, message["isReplay"] as? Bool != true,
+                  message["is_replay"] as? Bool != true,
+                  session == nil || conversationID == nil || session == conversationID else { return }
+            if kind == "assistant" {
+                noteClaudeMessageStart((message["message"] as? [String: Any])?["id"] as? String, session: session)
+            } else if let event = message["event"] as? [String: Any], event["type"] as? String == "message_start" {
+                noteClaudeMessageStart((event["message"] as? [String: Any])?["id"] as? String, session: session)
+            }
+        }
         subagentTracker.redact = { [weak self] in self?.sanitized($0) ?? "" }
         if !turnWasInterrupted { subagentTracker.claude(message, busy: isBusy, conversationID: conversationID); publishSubagents() }
         // Child output belongs to its worker, not the parent's response stream.
@@ -1548,7 +1580,7 @@ final class AIChatSession {
                 errorMessage = sanitized((message["errors"] as? [String])?.joined(separator: "\n")
                     ?? message["result"] as? String ?? L10n.string("ai.chat.failed"))
             }
-            guard isBusy, awaitingSubmittedTurn else { return }
+            guard isBusy else { return }
             let consumed = Set((message["user_message_uuids"] as? [String] ?? []) + [message["user_message_uuid"] as? String].compactMap { $0 })
             claudeSteerIDs.subtract(consumed)
             if !claudeSteerIDs.isEmpty {
@@ -1557,6 +1589,7 @@ final class AIChatSession {
             }
             claudeResultBeforeSteer = nil
             let success = completeClaudeReply(message)
+            canResumeClaudeTurn = success && !turnWasInterrupted
             recordTurnCompletion(success: success)
             finishTurn()
         default: break
@@ -1632,9 +1665,11 @@ final class AIChatSession {
                   let run = params["run"] as? [String: Any] else { return }
             recordHook(run["id"] as? String, finished: method == "hook/completed", outcome: run["status"] as? String)
         case "turn/started":
+            guard isReady, let id = (params["turn"] as? [String: Any])?["id"] as? String,
+                  !id.isEmpty, !seenCompletionIDs.contains(id), turnID == nil || turnID == id else { return }
             acceptSubmittedTurn()
             if !isBusy { thinkingStartIndex = messages.count }
-            turnID = (params["turn"] as? [String: Any])?["id"] as? String
+            turnID = id
             isBusy = true
             canInterrupt = true
         case "serverRequest/resolved":
