@@ -5,7 +5,7 @@ import { icon, iconMarkup } from './icons.mjs';
 const $=id=>document.getElementById(id);
 const bridge=window.theall;
 if(!bridge)throw new Error('The desktop window is not connected to TheAll');
-let updateState={phase:'idle'}, updateSignature='';
+let updateState={phase:'idle'}, cliState={}, updateSignature='';
 const state={workspaces:[],selected:null,settings:{},activePane:null,section:'appearance',polling:false,viewSignatures:new Map(),views:new Map(),drag:null,metadata:new Map(),modelLoads:new Map()};
 const invoke=async(method,payload={})=>{const result=await bridge.invoke(method,payload);if(['connection.save','connection.remove'].includes(method)){state.settings=await bridge.invoke('settings.get');state.modelLoads.delete(payload.provider);}return result;};
 function node(tag,cls,text){const value=document.createElement(tag);if(cls)value.className=cls;if(text!==undefined)value.textContent=text;return value;}
@@ -176,18 +176,41 @@ function updateText(){return t(({available:'updateInstall',downloading:'updateDo
 function renderUpdate(){
  const busy=['downloading','waiting','installing','checking'].includes(updateState.phase);
  const card=$('update-shortcut');card.hidden=!updateState.version;card.disabled=busy;
- $('update-title').textContent=updateState.phase==='error'?t('updateFailed'):`${t('updateAvailable')} ${updateState.version||''}`;
+ $('update-title').textContent=updateState.phase==='error'?t('updateFailed'):'TheAll · '+t('updateAvailable');
  $('update-detail').textContent=updateText()+(updateState.phase==='downloading'?` ${Math.floor((updateState.progress||0)*100)}%`:'');
- card.title=updateState.error||'';renderUpdateSettings();
+ card.title=updateState.error||'';
+ const shortcuts=$('cli-shortcuts');shortcuts.replaceChildren();
+ for(const [provider,row] of Object.entries(cliState)){
+   if(!['available','manual','installing','error'].includes(row.phase))continue;
+   const card=button('',()=>row.phase==='manual'?showSettings('update'):installCLI(provider),'update-shortcut');
+   card.append(node('strong','',cliName(provider)),node('small','',cliText(row)));
+   card.disabled=row.phase==='installing';shortcuts.append(card);
+ }
+ renderUpdateSettings();
 }
+function cliName(provider){return provider==='openai'?'Codex CLI':'Claude Code CLI';}
+function cliText(row){
+ const key={checking:'updateChecking',current:'updateCurrent',missing:'cliMissing',checkError:'cliCheckError',
+   installing:'cliInstalling',manual:'cliManual',available:'updateAvailable',error:'updateFailed'}[row.phase];
+ return row.phase==='current' && row.current ? row.current+' · '+t(key) : t(key);
+}
+async function installCLI(provider){cliState=await invoke('cli.install',{provider});renderUpdate();}
 function renderUpdateSettings(){
  const box=$('update-settings');if(!box)return;box.replaceChildren(node('p','help',updateText()));
  if(updateState.error)box.append(node('p','error-text',updateState.error));
  const busy=['downloading','waiting','installing','checking'].includes(updateState.phase);
  const actions=node('div','row-actions');const check=button(t('updateCheck'),async()=>{updateState=await invoke('update.check');renderUpdate();});check.disabled=busy||updateState.phase==='disabled';actions.append(check);
- if(updateState.version){const install=button(t('updateInstall')+' '+updateState.version,async()=>{updateState=await invoke('update.install');renderUpdate();},'primary');install.disabled=busy;actions.append(install);}box.append(actions);
+ if(updateState.version){const install=button(t('updateInstall'),async()=>{updateState=await invoke('update.install');renderUpdate();},'primary');install.disabled=busy;actions.append(install);}box.append(actions);
+ for(const [provider,row] of Object.entries(cliState)){
+   const line=node('p','help',cliName(provider)+' · '+cliText(row));box.append(line);
+   if(['error','available'].includes(row.phase))box.append(button(t('updateInstall'),()=>installCLI(provider)));
+ }
+ if(Object.keys(cliState).length){
+   const checkCLI=button('CLI · '+t('updateCheck'),async()=>{cliState=await invoke('cli.check');renderUpdate();});
+   checkCLI.disabled=Object.values(cliState).some(r=>['checking','installing'].includes(r.phase));box.append(checkCLI);
+ }
 }
-async function pollUpdate(){try{const next=await invoke('update.status'),signature=JSON.stringify([getLocale(),next]);if(signature!==updateSignature){updateSignature=signature;updateState=next;renderUpdate();}}catch{}}
+async function pollUpdate(){try{const [next,cli]=await Promise.all([invoke('update.status'),invoke('cli.status')]);const signature=JSON.stringify([getLocale(),next,cli]);if(signature!==updateSignature){updateSignature=signature;updateState=next;cliState=cli;renderUpdate();}}catch{}}
 matchMedia('(prefers-color-scheme:dark)').addEventListener('change',()=>applySettings());
 document.documentElement.classList.toggle('mac',/Mac/.test(navigator.platform));
 document.querySelectorAll('[data-icon]').forEach(el=>el.insertAdjacentHTML('afterbegin',iconMarkup(el.dataset.icon)));

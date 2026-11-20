@@ -9,11 +9,11 @@ struct AIChatMarkdown: View, Equatable {
     let theme: AppTheme
 
     var body: some View {
-        let blocks = AIChatMarkdownDocument(text).blocks
+        let groups = AIChatMarkdownDocument(text).selectionGroups
         VStack(alignment: .leading, spacing: 14) {
-            ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
-                switch block {
-                case .text(let content, let style): paragraph(content, style: style)
+            ForEach(Array(groups.enumerated()), id: \.offset) { _, group in
+                switch group[0] {
+                case .text: AIChatSelectableProse(blocks: group, theme: theme)
                 case .code(let code, let language): AIChatCodeBlock(code: code, language: language, theme: theme)
                 case .table(let headers, let rows, let alignments):
                     AIChatMarkdownTable(headers: headers, rows: rows, alignments: alignments, theme: theme)
@@ -28,30 +28,123 @@ struct AIChatMarkdown: View, Equatable {
             AIChatMarkdownDocument.isWebLink(url) ? .systemAction : .discarded
         })
     }
+}
 
-    @ViewBuilder private func paragraph(_ content: AttributedString, style: AIChatMarkdownDocument.Style) -> some View {
-        switch style {
-        case .heading(let level):
-            Text(content).font(.system(size: level <= 2 ? 18 : 16, weight: .semibold))
-                .padding(.top, 6).textSelection(.enabled).accessibilityAddTraits(.isHeader)
-        case .list(let marker, let depth):
-            HStack(alignment: .top, spacing: 8) {
-                Text(marker).foregroundStyle(Color(nsColor: theme.textSecondary)).frame(minWidth: 14, alignment: .trailing)
-                prose(content)
-            }.padding(.leading, CGFloat(min(depth, 8)) * 16)
-        case .quote:
-            HStack(spacing: 12) {
-                RoundedRectangle(cornerRadius: 1).fill(Color(nsColor: theme.borderStrong)).frame(width: 3)
-                prose(content).foregroundStyle(Color(nsColor: theme.textSecondary))
-            }.fixedSize(horizontal: false, vertical: true)
-        case .paragraph: prose(content)
+/// One text storage for adjacent paragraphs, headings and list items: selection
+/// belongs to AppKit and can cross their boundaries, including wrapped lines.
+struct AIChatSelectableProse: NSViewRepresentable {
+    let blocks: [AIChatMarkdownDocument.Content]
+    let theme: AppTheme
+
+    final class TextView: NSTextView, NSTextViewDelegate {
+        func synchronize(_ content: NSAttributedString) {
+            guard textStorage?.isEqual(to: content) != true else { return }
+            let ranges = selectedRanges.map(\.rangeValue)
+            textStorage?.setAttributedString(content)
+            selectedRanges = ranges.map { range in
+                let start = min(range.location, content.length)
+                return NSValue(range: NSRange(location: start, length: min(range.length, content.length - start)))
+            }
+        }
+        func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {
+            guard let url = link as? URL, AIChatMarkdownDocument.isWebLink(url) else { return true }
+            return false
         }
     }
 
-    private func prose(_ content: AttributedString) -> some View {
-        Text(content).font(.system(size: 14)).lineSpacing(4).textSelection(.enabled)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .fixedSize(horizontal: false, vertical: true)
+    func makeNSView(context: Context) -> TextView {
+        let view = TextView(frame: .zero)
+        view.isEditable = false; view.isSelectable = true; view.isRichText = true
+        view.drawsBackground = false; view.textContainerInset = .zero
+        view.textContainer?.lineFragmentPadding = 0
+        view.textContainer?.widthTracksTextView = false
+        view.isVerticallyResizable = false; view.isHorizontallyResizable = false
+        view.isAutomaticLinkDetectionEnabled = false
+        view.delegate = view
+        view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        return view
+    }
+
+    func updateNSView(_ view: TextView, context: Context) {
+        view.linkTextAttributes = [.foregroundColor: theme.accent, .underlineStyle: NSUnderlineStyle.single.rawValue]
+        view.synchronize(Self.attributedText(blocks, theme: theme))
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: TextView, context: Context) -> NSSize? {
+        let width = max(1, proposal.width ?? 320)
+        guard let container = nsView.textContainer, let layout = nsView.layoutManager else { return nil }
+        container.size = NSSize(width: width, height: .greatestFiniteMagnitude)
+        layout.ensureLayout(for: container)
+        return NSSize(width: width, height: ceil(layout.usedRect(for: container).height))
+    }
+
+    static func attributedText(_ blocks: [AIChatMarkdownDocument.Content], theme: AppTheme) -> NSAttributedString {
+        let result = NSMutableAttributedString(string: "")
+        for block in blocks {
+            guard case let .text(content, style) = block else { continue }
+            if result.length > 0 { result.append(NSAttributedString(string: "\n", attributes: result.attributes(at: result.length - 1, effectiveRange: nil))) }
+            let paragraph = NSMutableParagraphStyle()
+            paragraph.lineSpacing = 4; paragraph.paragraphSpacing = 14
+            var prefix = "", size: CGFloat = 14, weight = NSFont.Weight.regular, color = theme.textPrimary
+            switch style {
+            case .heading(let level): size = level <= 2 ? 18 : 16; weight = .semibold; paragraph.paragraphSpacingBefore = 6
+            case .list(let marker, let depth):
+                let indent = CGFloat(min(depth, 8)) * 16
+                prefix = marker.isEmpty ? "" : marker + "\t"
+                paragraph.firstLineHeadIndent = marker.isEmpty ? indent + 22 : indent
+                paragraph.headIndent = indent + max(22, (marker as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: size)]).width + 8)
+                paragraph.tabStops = [NSTextTab(textAlignment: .left, location: paragraph.headIndent)]
+            case .quote:
+                color = theme.textSecondary
+                let border = NSTextBlock()
+                border.setWidth(3, type: .absoluteValueType, for: .border, edge: .minX)
+                border.setBorderColor(theme.borderStrong, for: .minX)
+                border.setWidth(12, type: .absoluteValueType, for: .padding, edge: .minX)
+                paragraph.textBlocks = [border]
+            case .paragraph: break
+            }
+            let base: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: size, weight: weight), .foregroundColor: color, .paragraphStyle: paragraph]
+            result.append(NSAttributedString(string: prefix, attributes: base))
+            for run in content.runs {
+                var attributes = base
+                let intent = run.inlinePresentationIntent ?? []
+                var font = intent.contains(.code) ? NSFont.monospacedSystemFont(ofSize: 13, weight: .regular) : NSFont.systemFont(ofSize: size, weight: weight)
+                if intent.contains(.stronglyEmphasized) { font = NSFontManager.shared.convert(font, toHaveTrait: .boldFontMask) }
+                if intent.contains(.emphasized) { font = NSFontManager.shared.convert(font, toHaveTrait: .italicFontMask) }
+                attributes[.font] = font
+                if intent.contains(.code) { attributes[.backgroundColor] = theme.surface }
+                if intent.contains(.strikethrough) { attributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
+                if let url = run.link, AIChatMarkdownDocument.isWebLink(url) { attributes[.link] = url }
+                result.append(NSAttributedString(string: String(content[run.range].characters), attributes: attributes))
+            }
+        }
+        return result
+    }
+}
+
+struct AIChatCopyButton: View {
+    let text: String
+    let label: String
+    let identifier: String
+    @State private var copied = false
+
+    static func copy(_ text: String, to pasteboard: NSPasteboard) {
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
+    }
+    var body: some View {
+        Button {
+            Self.copy(text, to: .general); copied = true
+        } label: {
+            Label(L10n.string(copied ? "ai.markdown.copied" : label), systemImage: copied ? "checkmark" : "doc.on.doc")
+                .font(.system(size: 11))
+        }.buttonStyle(.plain).accessibilityIdentifier(identifier)
+            .task(id: copied) {
+                guard copied else { return }
+                try? await Task.sleep(for: .seconds(2))
+                guard !Task.isCancelled else { return }
+                copied = false
+            }
     }
 }
 
@@ -59,27 +152,13 @@ struct AIChatCodeBlock: View {
     let code: String
     let language: String
     let theme: AppTheme
-    @State private var copied = false
-
-    static func copy(_ code: String, to pasteboard: NSPasteboard) {
-        pasteboard.clearContents()
-        pasteboard.setString(code, forType: .string)
-    }
-
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 8) {
                 Text(language.isEmpty ? L10n.string("ai.markdown.code") : language)
                     .font(.system(size: 11, weight: .medium, design: .monospaced)).lineLimit(1)
                 Spacer(minLength: 4)
-                Button {
-                    Self.copy(code, to: .general)
-                    copied = true
-                } label: {
-                    Label(L10n.string(copied ? "ai.markdown.copied" : "ai.markdown.copyCode"),
-                          systemImage: copied ? "checkmark" : "doc.on.doc")
-                        .font(.system(size: 11))
-                }.buttonStyle(.plain).accessibilityIdentifier("chat-copy-code")
+                AIChatCopyButton(text: code, label: "ai.markdown.copyCode", identifier: "chat-copy-code")
             }
             .foregroundStyle(Color(nsColor: theme.textSecondary)).padding(.horizontal, 12).padding(.vertical, 9)
             .background(Color(nsColor: theme.sidebar))
@@ -93,12 +172,6 @@ struct AIChatCodeBlock: View {
         .background(Color(nsColor: theme.surface))
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color(nsColor: theme.border), lineWidth: 1))
-        .task(id: copied) {
-            guard copied else { return }
-            try? await Task.sleep(for: .seconds(2))
-            guard !Task.isCancelled else { return }
-            copied = false
-        }
     }
 }
 

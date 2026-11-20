@@ -1,4 +1,4 @@
-# Third-party software in TheAll 0.1.12
+# Third-party software in TheAll 0.1.13
 
 TheAll includes the Ghostty terminal engine, the Sparkle updater, and third-party
 libraries and assets. The original license texts in this directory apply to
@@ -25,10 +25,10 @@ The z2d **0.10.0** rendering library is used under the Mozilla Public License 2.
 with its included Cairo and Pixman notices. Its license texts are in `z2d/`.
 The corresponding z2d source files are unmodified.
 
-The versioned release provides `TheAll-0.1.12-third-party-sources.tar.gz` alongside
+The versioned release provides `TheAll-0.1.13-third-party-sources.tar.gz` alongside
 the application downloads, at no charge:
 
-https://github.com/AbadOrangeCat/TheALL/releases/tag/v0.1.12
+https://github.com/AbadOrangeCat/TheALL/releases/tag/v0.1.13
 
 The source archive includes the complete original gettext 0.24 source archive,
 the exact z2d package used by Ghostty, license texts, Ghostty's libintl headers
@@ -45,3 +45,10 @@ represented as endorsing TheAll.
 The subagent status strip adapts SmoothUI AI Task List by Eduardo Calvo (MIT).
 Its full notice is retained in `SmoothUI-MIT.txt`; the shared web version embeds
 the same notice. See https://smoothui.dev/docs/components/ai-task-list.
+
+## Activity map
+
+The live activity map adapts the SVG drawing, station glyphs and palettes of lot-map by
+Aleksei Volodin (MIT), revision e3a93ec. Its full notice is retained in
+`lot-map-MIT.txt`; the shared web version ships the same notice as `lot-map-LICENSE.txt`.
+See https://github.com/alexeyw/lot-map.

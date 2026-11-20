@@ -178,6 +178,8 @@ export async function createRuntime({ dataDir, webRoot, desktopRoot, encrypt, de
     const limit = Math.min(Math.max(Number(search.get('limit') ?? 100), 1), 250), start = Math.max(end - limit, 0);
     return { id: chat.id, workspaceId: store.owner(chat.id).id, access: device.access, provider: chat.provider || '',
       model: chat.model || '', reasoningEffort: chat.reasoningEffort || '', directory: chat.directory, messages: messages.slice(start,end).map(cleanMessage), start, total: messages.length,
+      accountQuota: session?.accountQuota || [],
+      activityMap: session?.activityMap || [],
       subagents: session?.subagents || [], isReady: !!session?.isReady, isBusy: !!session?.isBusy, canInterrupt: device.access.writable && !!session?.canInterrupt, canSteer: device.access.writable && !!session?.canSteer, steerToken: device.access.writable ? session?.steerToken ?? null : null,
       canResume: device.access.writable && !!chat.provider && !session?.isReady,
       models: modelCatalog(chat), defaultModel: session?.defaultModel || '',
@@ -579,6 +581,20 @@ export async function createRuntime({ dataDir, webRoot, desktopRoot, encrypt, de
   desktopServer=await listen('127.0.0.1',0,'desktop');
   if(state.settings.relayURL)try{await desktop('mobile.relay.configure',{url:state.settings.relayURL});}catch(e){relayState={state:'disconnected',connected:false,error:safeError(e)};}
   return {url:desktopServer.origin,desktopToken,bootID,desktop,enableLAN,
+    async withCLIUpdate(provider, operation) {
+      demand(!closed && !updateInstalling, 'TheAll is updating', 409);
+      demand(![...starting.keys()].some(id => state.chats[id]?.provider === provider), 'Wait for the CLI to start', 409);
+      if ([...sessions.values()].some(s => s.chat.provider === provider && s.subagents?.some(a => a.status === 'running'))) {
+        throw new Error('Wait for background agents to finish before updating this CLI.');
+      }
+      return changeConnection(provider, async () => {
+        // Windows can lock the executable of an idle CLI. Release it before upgrading;
+        // the next send resumes the saved conversation with the new executable.
+        for (const [id, session] of sessions) if (session.chat.provider === provider) await stopChat(id);
+        changed();
+        return operation();
+      });
+    },
     tryBeginUpdate() { if (closed || updateInstalling || updateBusy()) return false; updateInstalling = true; return true; },
     abortUpdate() { updateInstalling = false; },
     async close(){

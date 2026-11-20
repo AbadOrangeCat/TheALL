@@ -129,6 +129,8 @@ macOS 使用应用级 `UpdateStore` 和 Sparkle；Windows 由主进程更新服�
 - `SUEnableAutomaticChecks` — 设为 YES
 - `SUScheduledCheckInterval` — 21600 秒（6 小时）
 
+桌面端也会检查当前聊天使用的 Codex CLI 和 Claude Code。发现新版本时，CLI 入口与 TheAll 更新按钮显示在同一侧栏区域。点击后，应用按识别出的安装方式更新，并重新读取实际版本。设置中的更新页支持手动检查。无法识别安装来源时，请使用原安装方式更新。
+
 普通 macOS Debug 可检查但不能安装正式发布包；测试宿主禁用线上更新。Windows 未打包的开发实例禁用线上自动更新。旧版没有更新功能，需要先手动安装一次包含新功能的版本。
 
 ## 手机连接

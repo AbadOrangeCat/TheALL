@@ -106,7 +106,7 @@ final class MobileEventHub {
                 values += [session.provider?.rawValue ?? "", session.directory, session.historyError ?? "", session.errorMessage ?? ""]
                 values += session.models.flatMap { [$0.id, $0.title] }
                 if let chat = session.chat {
-                    values += [String(ObjectIdentifier(chat).hashValue), String(chat.revision), chat.model, chat.directory,
+                    values += [String(ObjectIdentifier(chat).hashValue), String(chat.revision), String(chat.activityRevision), String(chat.hasLiveActivity), chat.model, chat.directory,
                                String(chat.isBusy), String(chat.isReady), String(chat.canInterrupt), chat.errorMessage ?? ""]
                     values += chat.approvals.flatMap { [$0.id, $0.title] }
                 }

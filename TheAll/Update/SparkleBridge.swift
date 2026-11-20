@@ -9,6 +9,7 @@ final class SparkleBridge: NSObject, SPUUpdaterDelegate {
     let store: UpdateStore
     private var updater: SPUUpdater?
     private var driver: UpdateUserDriver?
+    private var cliChecks: Task<Void, Never>?
     private var launchCheck: Task<Void, Never>?
 
     init(store: UpdateStore = .shared) { self.store = store; super.init() }
@@ -35,6 +36,18 @@ final class SparkleBridge: NSObject, SPUUpdaterDelegate {
     }
 
     func start() {
+        guard !Self.isTestHost else { return }
+        if cliChecks == nil {
+            cliChecks = Task { @MainActor [weak self] in
+                do { try await Task.sleep(for: .seconds(4)) } catch { return }
+                while !Task.isCancelled {
+                    if self?.updater?.automaticallyChecksForUpdates ?? true {
+                        await CLIUpdateStore.shared.check()
+                    }
+                    do { try await Task.sleep(for: .seconds(6 * 3600)) } catch { return }
+                }
+            }
+        }
         guard isActive, updater == nil else { return }
         let driver = UpdateUserDriver(store: store, canInstall: { [weak self] in self?.canInstall == true },
             isBusy: {

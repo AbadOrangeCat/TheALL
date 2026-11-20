@@ -941,8 +941,8 @@ dialog>p {
 .markdown-table-scroll:focus-visible,.markdown-code pre:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
 @media(max-width:480px) { .markdown-table-scroll th,.markdown-table-scroll td { padding:9px 11px; max-width:240px; } }
 
-/* Fixed in the composer, independently of transcript scrolling. */
-.subagent-strip { border:1px solid var(--border); border-radius:12px; padding:10px 12px; margin-bottom:12px; background:var(--panel); }
+/* Subagent detail below the activity map. */
+.subagent-strip { border:1px solid var(--border); border-radius:12px; padding:8px 10px; margin:0 5px 5px; background:var(--panel); }
 .subagent-heading { display:flex; justify-content:space-between; gap:12px; font-size:12px; color:var(--muted); margin-bottom:6px; }
 .subagent-list { list-style:none; padding:0; margin:0; max-height:min(150px,20vh); overflow-y:auto; overscroll-behavior:contain; }
 .subagent-row { position:relative; display:flex; align-items:flex-start; gap:8px; padding:7px 0; font-size:13px; line-height:1.4; transition:opacity .25s ease,transform .25s cubic-bezier(.2,.8,.2,1); }
@@ -961,3 +961,20 @@ dialog>p {
 @media(prefers-reduced-motion:reduce) { .subagent-row { transition:none; transform:none; } .subagent-running::after { animation:none; } }
 @keyframes subagent-check { from { stroke-dashoffset:1; } to { stroke-dashoffset:0; } }
 @keyframes subagent-underline { from { background-position-x:0%; } to { background-position-x:200%; } }
+
+.transcript-stage { flex:1; min-height:0; display:flex; flex-direction:column; position:relative; overflow:hidden; }
+.activity-map {
+  position:absolute; z-index:1; inset-block-start:8px; inset-inline-end:10px;
+  max-width:calc(100% - 20px); max-height:calc(100% - 12px); overflow:auto;
+  color:var(--text); background:var(--panel); border:1px solid var(--border);
+  border-radius:12px; box-shadow:0 3px 14px #0002; font-size:12px;
+}
+.activity-map[open] { width:300px; }
+.activity-map summary { display:flex; align-items:center; gap:7px; min-height:34px; padding:5px 10px; cursor:pointer; font-weight:600; }
+.activity-map summary::-webkit-details-marker { display:none; }
+.activity-map summary::after { content:''; width:6px; height:6px; margin-inline-start:auto; border-right:1.5px solid currentColor; border-bottom:1.5px solid currentColor; transform:rotate(45deg); }
+.activity-map[open] summary::after { transform:rotate(225deg); }
+.activity-map summary:focus-visible { outline:2px solid var(--accent); outline-offset:-3px; }
+.map-beacon { display:inline-block; width:7px; height:7px; border-radius:50%; background:var(--accent); }
+#lot-map-scene { margin:0 5px 5px; }
+@media (max-width:480px) { .activity-map[open] { width:min(72%, 270px); } }

@@ -201,6 +201,8 @@ try{
  await pane.locator('#draft').fill('Wait for steering before completing.');await pane.locator('#draft').press('Control+Enter');
  await pane.waitForFunction(()=>!document.getElementById('stop').hidden && document.getElementById('draft').value==='');
  await pane.waitForFunction(()=>!document.getElementById('subagent-strip').hidden && document.querySelectorAll('.subagent-running').length===3);
+ await pane.locator('#activity-map svg g[data-station=agents][data-active="3"]').waitFor({state:'visible'});
+ assert.equal(await pane.locator('#activity-map svg g[data-station]').count(),10);
  const fixedBefore=await pane.locator('#subagent-strip').boundingBox();
  await pane.evaluate(()=>{document.getElementById('transcript').scrollTop=0;});
  const fixedAfter=await pane.locator('#subagent-strip').boundingBox();assert.equal(fixedBefore.y,fixedAfter.y,'workers stay above input when transcript scrolls');
@@ -220,6 +222,8 @@ try{
  await pane.waitForFunction(()=>document.getElementById('draft').value==='' && document.getElementById('stop').hidden);
  assert.equal(await pane.locator('.message-timing').count(),timingsBefore+1,'one completion after steering');
  const apiAfter=await pane.evaluate(async id=>(await fetch('/api/chats/'+id)).json(),terminalId);
+ assert.deepEqual(apiAfter.activityMap, []);
+ await pane.locator('#activity-map').waitFor({state:'hidden'});
  assert.equal(apiAfter.steerToken,null);
  assert.equal(apiAfter.canSteer,false);
  assert(apiAfter.messages.some(m=>m.role==='user' && m.text==='Use only source files.' && m.isSteering));
@@ -236,7 +240,8 @@ try{
    DesktopUpdater.prototype.status=function(){return {...globalThis.theallUpdateFixture};};
    DesktopUpdater.prototype.install=function(){globalThis.theallUpdateFixture.phase='downloading';globalThis.theallUpdateFixture.progress=.5;return this.status();};
  });
- await page.locator('#update-shortcut').waitFor({state:'visible'});await shot('6-update');
+ await page.locator('#update-shortcut').waitFor({state:'visible'});assert.doesNotMatch(await page.locator('#update-shortcut').innerText(), /9\.0\.0/);
+ await shot('6-update');
  assert(await page.evaluate(()=>!!(document.getElementById('update-shortcut').compareDocumentPosition(document.getElementById('phone-shortcut'))&Node.DOCUMENT_POSITION_FOLLOWING)));
  if(process.env.THEALL_TEST_UPDATE_SCREENSHOT){await page.locator('#close-settings').click();await page.screenshot({path:process.env.THEALL_TEST_UPDATE_SCREENSHOT});}
  await page.locator('#update-shortcut').click();await page.waitForFunction(()=>document.getElementById('update-detail').textContent.includes('50%'));

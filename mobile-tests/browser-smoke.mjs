@@ -35,6 +35,8 @@ function wsSend(socket, message) {
 function push(message = { type: 'changed', bootID }) { for (const socket of eventSockets) wsSend(socket, message); }
 const screenshotPath = process.env.SCREENSHOT_PATH || join(tmpdir(), 'theall-mobile-preview.png');
 let subagents = [];
+let activityMap = [], accountQuota = [];
+let chatProvider = 'claude';
 let running = false, steerReady = true, rejectSteer = false, unknownSteer = false, interruptCount = 0;
 const steers = [];
 const requests = []; let rejectFileSend = false; const uploadedFiles = new Map();
@@ -110,7 +112,7 @@ const server = createServer(async (req, res) => {
       const messages = url.pathname.endsWith('/c') ? all : [];
       const end = Math.min(Number(url.searchParams.get('before') ?? messages.length), messages.length);
       const start = Math.max(0, end - 100);
-      return json(200, { id: url.pathname.endsWith('/c') ? 'c' : 'd', bootID, access, provider: 'claude', model: 'claude-sonnet', directory: '/Users/you/Projects/atlas', messages: messages.slice(start, end), start, total: messages.length, subagents, isReady: running, canResume: !running, isBusy: running, canSteer: access.writable && running && steerReady, steerToken: running ? 'task-1' : null, canInterrupt: running, questions: url.pathname.endsWith('/d') ? [{ id: 'qg', title: 'Pick an option', questions: [{ id: 'q', prompt: 'Which task?', options: ['Build', 'Test'], multiple: true, secret: false }] }] : [], defaultModel: 'claude-sonnet', reasoningEffort: '', models: [{ id: 'claude-sonnet', title: 'Claude Sonnet', reasoningEfforts: ['low', 'high'], defaultReasoningEffort: 'high' }, { id: 'no-reasoning', title: 'No effort support' }] });
+      return json(200, { id: url.pathname.endsWith('/c') ? 'c' : 'd', bootID, access, provider: chatProvider, model: 'claude-sonnet', directory: '/Users/you/Projects/atlas', messages: messages.slice(start, end), start, total: messages.length, subagents, activityMap, accountQuota, isReady: running, canResume: !running, isBusy: running, canSteer: access.writable && running && steerReady, steerToken: running ? 'task-1' : null, canInterrupt: running, questions: url.pathname.endsWith('/d') ? [{ id: 'qg', title: 'Pick an option', questions: [{ id: 'q', prompt: 'Which task?', options: ['Build', 'Test'], multiple: true, secret: false }] }] : [], defaultModel: 'claude-sonnet', reasoningEffort: '', models: [{ id: 'claude-sonnet', title: 'Claude Sonnet', reasoningEfforts: ['low', 'high'], defaultReasoningEffort: 'high' }, { id: 'no-reasoning', title: 'No effort support' }] });
     }
     return json(404, { error: 'Unknown test endpoint' });
   }
@@ -233,18 +235,39 @@ try {
   await pause(5500); assert.equal(workspaceReads, readsBeforeQuiet, 'live transport disables idle polling');
   all.at(-1).text += '\nLive pushed update'; push();
   await until(() => evaluate('document.getElementById("messages").textContent.includes("Live pushed update")'), 'event-driven transcript update');
+  assert.equal(await evaluate('document.getElementById("activity-map")?.hidden'), true, 'idle chat hides the map');
+  accountQuota = [{windowMinutes:300, remainingPercent:73}];
+  activityMap = [{ station: 'agents', active: 3, completed: 0, failed: 0 }, { station: 'shell', active: 0, completed: 2, failed: 1 }];
   subagents=[{id:'review',title:'Review source files',detail:'Checking the API contract',status:'running'},{id:'tests',title:'Run project tests',detail:'Checking Windows and macOS',status:'running'},{id:'docs',title:'Check documentation',detail:'',status:'running'}];push();
   await until(()=>evaluate('!document.getElementById("subagent-strip").hidden && document.querySelectorAll(".subagent-running").length===3'),'background workers visible while parent idle');
   await call('Emulation.setDeviceMetricsOverride',{width:320,height:844,deviceScaleFactor:1,mobile:true});
   assert.equal(await evaluate('document.documentElement.scrollWidth<=innerWidth'),true);
+  await until(() => evaluate('document.getElementById("activity-map").open && !document.getElementById("activity-map").hidden'), 'background work opens the map');
+  assert.deepEqual(await evaluate('[...document.querySelectorAll("#activity-map svg g[data-station]")].map(g => g.dataset.station).sort()'), ['agents','browser','files','hooks','memory','model','network','shell','skills','you']);
+  assert.equal(await evaluate('document.querySelector("#activity-map [data-station=shell]").dataset.failed'), '1');
+  assert.equal(await evaluate('document.getElementById("activity-map").getBoundingClientRect().bottom <= document.getElementById("composer").getBoundingClientRect().top'), true);
+  assert(await evaluate('document.getElementById("activity-map").getBoundingClientRect().width <= 240'), 'compact map leaves room beside it at 320px');
+  const mapY = await evaluate('document.getElementById("activity-map").getBoundingClientRect().y');
+  assert.equal(await evaluate('document.querySelector("#activity-map #subagent-strip")?.id'), 'subagent-strip');
+  assert.equal(await evaluate('document.getElementById("subagent-strip").getBoundingClientRect().top >= document.querySelector(".lot-quota").getBoundingClientRect().bottom - 1'), true);
   const agentY=await evaluate('document.getElementById("subagent-strip").getBoundingClientRect().y');
   await evaluate('document.getElementById("transcript").scrollTop=0');
   assert.equal(await evaluate('document.getElementById("subagent-strip").getBoundingClientRect().y'),agentY);
   assert.equal(await evaluate('document.getElementById("subagent-strip").getBoundingClientRect().bottom<=document.getElementById("draft").getBoundingClientRect().top'),true);
+  assert.equal(await evaluate('document.getElementById("activity-map").getBoundingClientRect().y'), mapY);
+  assert.match(await evaluate('document.querySelector("#activity-map svg").textContent'), /Claude Code/i);
+  assert.match(await evaluate('document.querySelector(".lot-quota").textContent'), /73%/);
+  assert.equal(await evaluate('document.querySelector(".lot-quota").getBoundingClientRect().top >= document.querySelector("#lot-map-scene").getBoundingClientRect().bottom - 1'), true);
+  const mapShot = await call('Page.captureScreenshot', {format:'png'});
+  await writeFile(process.env.MAP_SCREENSHOT_PATH || join(tmpdir(), 'theall-activity-map-mobile.png'), Buffer.from(mapShot.data, 'base64'));
+  await evaluate('document.querySelector("#activity-map summary").click()');
   const agentsShot=await call('Page.captureScreenshot',{format:'png'});await writeFile(process.env.SUBAGENT_SCREENSHOT_PATH||join(tmpdir(),'theall-subagents-mobile.png'),Buffer.from(agentsShot.data,'base64'));
   subagents[0].status='done';push();await until(()=>evaluate('document.querySelectorAll(".subagent-done").length===1'),'one child completed');
   subagents[1].status='done';push();await until(()=>evaluate('document.getElementById("subagent-strip").hidden'),'one child remains, strip hidden');
-  subagents=[];push();await call('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
+  assert.equal(await evaluate('!document.getElementById("activity-map").hidden && !document.getElementById("activity-map").open'), true, 'one remaining worker retains the collapsed map');
+  subagents=[]; activityMap=[]; accountQuota=[]; push();
+  await until(() => evaluate('document.getElementById("activity-map").hidden'), 'all work ended');
+  await call('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
   assert.equal(await evaluate('document.getElementById("send").disabled'), false, 'archived canResume chat can send');
   assert.equal(await evaluate('document.querySelectorAll(".message-timing").length'), 1);
   assert.match(await evaluate('document.querySelector(".message-timing").textContent'), /Completed.*Took.*1 min/);
@@ -407,7 +430,8 @@ try {
     assert(await evaluate('document.getElementById("add-photos").ariaLabel.length > 0'));
   }
   // A running task accepts supplemental instructions without changing its next-turn settings.
-  running = true; push();
+  chatProvider = 'openai'; running = true; activityMap = [{station: 'model', active: 1, completed: 0, failed: 0}]; push();
+  await until(() => evaluate('!document.getElementById("activity-map").hidden && document.getElementById("activity-map").open'), 'new run reopens map');
   await until(() => evaluate('!document.getElementById("stop").hidden && !document.getElementById("send").hidden'), 'steer and stop coexist');
   await evaluate(`document.querySelector('.language-select').value='en';document.querySelector('.language-select').dispatchEvent(new Event('change'));
     document.getElementById('model').value='no-reasoning';document.getElementById('model').dispatchEvent(new Event('change'));
@@ -427,6 +451,7 @@ try {
   }
   await evaluate(`document.querySelector('.language-select').value='zh-Hans';document.querySelector('.language-select').dispatchEvent(new Event('change'));`);
   const steerShot=await call('Page.captureScreenshot',{format:'png'});await writeFile(process.env.STEER_SCREENSHOT_PATH || join(tmpdir(),'theall-steer-preview.png'),Buffer.from(steerShot.data,'base64'));
+  assert.match(await evaluate('document.querySelector("#activity-map svg").textContent'), /Codex/i);
   rejectSteer = true;
   await evaluate(`document.getElementById('draft').dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',ctrlKey:true,bubbles:true,cancelable:true}));`);
   await until(() => steers.length === 1, 'keyboard submits steer');
@@ -458,10 +483,12 @@ try {
   assert.equal(await evaluate('document.querySelector("[data-message-id=steer-applied]").closest(".turn").querySelectorAll(".message.user").length >= 2'),true,'cancelled steer remains in the original task');
   await evaluate('document.getElementById("stop").click()');
   await until(() => interruptCount===1 && evaluate('document.getElementById("stop").hidden'), 'separate stop interrupts');
+  assert.equal(await evaluate('document.getElementById("activity-map").hidden'), true, 'stop hides map');
   assert.equal(requests.length,5,'steer and stop never issue ordinary send');
   // Read-only grants suppress steer even when a task is running.
   running=true;access={workspaceId:null,writable:false};push();
   await until(()=>evaluate('document.getElementById("composer").hidden && document.getElementById("send").hidden && document.getElementById("stop").hidden'),'read-only hides steer');
+  assert.equal(await evaluate('document.getElementById("activity-map").hidden'), false, 'read-only view still shows activity');
   running=false;
   await evaluate(`document.querySelector('.language-select').value='ko';document.querySelector('.language-select').dispatchEvent(new Event('change'));`);
   // A scope change must remove previously authorized transcript and its draft.

@@ -84,7 +84,7 @@ final class AIChatMarkdownTests: XCTestCase {
         let clipboard = NSPasteboard(name: .init("TheAllMarkdownTests-" + UUID().uuidString))
         defer { clipboard.releaseGlobally() }
         let code = "\tlet name = \"中文\"\n\n  print(name)  \n"
-        AIChatCodeBlock.copy(code, to: clipboard)
+        AIChatCopyButton.copy(code, to: clipboard)
         XCTAssertEqual(clipboard.string(forType: .string), code)
         XCTAssertEqual(AIChatMarkdownImageSource.localURL(URL(string: "images/test%20chart.png")!, directory: "/tmp/project")?.path,
                        "/tmp/project/images/test chart.png")
@@ -96,6 +96,80 @@ final class AIChatMarkdownTests: XCTestCase {
         let png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLttAAAAABJRU5ErkJggg=="
         XCTAssertNotNil(AIChatMarkdownImageSource.bitmap(URL(string: "data:image/png;base64," + png)!, directory: "/tmp"))
         XCTAssertNil(AIChatMarkdownImageSource.bitmap(URL(string: "data:image/svg+xml;base64,PHN2Zy8+")!, directory: "/tmp"))
+    }
+
+    @MainActor func testReplySupportsSelectionAcrossWrappedTextParagraphsAndListItems() throws {
+        let source = "## Results\n\n" + String(repeating: "A wrapped sentence 中文。", count: 8)
+            + "\n\n- First item\n- Second **bold** item\n\nLast paragraph with `code` and [link](https://example.com)."
+        let host = NSHostingView(rootView: AIChatMarkdown(text: source, directory: "/tmp", theme: .systemFallback(isDark: false)))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 700), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = host; window.makeKeyAndOrderFront(nil)
+        defer { window.contentView = nil; window.close() }
+        RunLoop.current.run(until: Date().addingTimeInterval(0.2)); host.layoutSubtreeIfNeeded()
+        func textViews(_ view: NSView) -> [NSTextView] {
+            (view as? NSTextView).map { [$0] } ?? view.subviews.flatMap(textViews)
+        }
+        let text = try XCTUnwrap(textViews(host).first { $0.string.contains("First item") && $0.string.contains("Last paragraph") },
+            "A reply needs one native selection surface across paragraphs and list items")
+        XCTAssertTrue(text.isSelectable); XCTAssertFalse(text.isEditable)
+        XCTAssertNil(text.enclosingScrollView, "Prose must use the existing transcript scroll view")
+        let start = (text.string as NSString).range(of: "sentence").location
+        let end = NSMaxRange((text.string as NSString).range(of: "Last paragraph"))
+        let range = NSRange(location: start, length: end - start)
+        let layout = try XCTUnwrap(text.layoutManager), container = try XCTUnwrap(text.textContainer)
+        func point(_ index: Int) -> NSPoint {
+            let glyph = layout.glyphIndexForCharacter(at: index)
+            let rect = layout.boundingRect(forGlyphRange: NSRange(location: glyph, length: 1), in: container)
+            return text.convert(NSPoint(x: rect.minX + 1, y: rect.midY), to: nil)
+        }
+        func event(_ type: NSEvent.EventType, _ point: NSPoint) throws -> NSEvent {
+            try XCTUnwrap(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+        }
+        NSApp.postEvent(try event(.leftMouseDragged, point(end)), atStart: false)
+        NSApp.postEvent(try event(.leftMouseUp, point(end)), atStart: false)
+        text.mouseDown(with: try event(.leftMouseDown, point(start)))
+        let dragged = (text.string as NSString).substring(with: text.selectedRange())
+        XCTAssertTrue(dragged.contains("First item") && dragged.contains("Second bold item") && dragged.contains("Last paragraph"), dragged)
+        text.setSelectedRange(range)
+        let clipboard = NSPasteboard(name: .init("TheAllSelection-" + UUID().uuidString))
+        defer { clipboard.releaseGlobally() }
+        XCTAssertTrue(text.writeSelection(to: clipboard, types: text.writablePasteboardTypes))
+        XCTAssertEqual(clipboard.string(forType: .string), (text.string as NSString).substring(with: range))
+        XCTAssertTrue(clipboard.string(forType: .string)?.contains("•\tFirst item\n•\tSecond bold item") == true)
+        // Width changes must reflow without replacing the text view or its selection.
+        window.setContentSize(NSSize(width: 560, height: 700))
+        RunLoop.current.run(until: Date().addingTimeInterval(0.1)); host.layoutSubtreeIfNeeded()
+        XCTAssertTrue(textViews(host).contains { $0 === text })
+        XCTAssertEqual(text.selectedRange(), range)
+        host.rootView = AIChatMarkdown(text: source + " More streamed text.", directory: "/tmp", theme: .systemFallback(isDark: false))
+        RunLoop.current.run(until: Date().addingTimeInterval(0.1)); host.layoutSubtreeIfNeeded()
+        XCTAssertTrue(text.string.hasSuffix("More streamed text."))
+        XCTAssertEqual(text.selectedRange(), range, "Streaming must preserve the reader's selection")
+        text.selectAll(nil)
+        XCTAssertEqual(text.selectedRange(), NSRange(location: 0, length: (text.string as NSString).length))
+    }
+
+    @MainActor func testSelectableProseRetainsRichStylesAndSafeLinks() throws {
+        let source = "## Heading\n\n**bold** *italic* `code` ~~gone~~ [safe](https://example.com) [bad](javascript:alert(1))\n\n> quoted words"
+        let text = AIChatSelectableProse.attributedText(AIChatMarkdownDocument(source).blocks, theme: .systemFallback(isDark: false))
+        func attribute(_ key: NSAttributedString.Key, at word: String) -> Any? {
+            text.attribute(key, at: (text.string as NSString).range(of: word).location, effectiveRange: nil)
+        }
+        XCTAssertEqual((attribute(.font, at: "Heading") as? NSFont)?.pointSize, 18)
+        XCTAssertTrue((attribute(.font, at: "bold") as? NSFont)?.fontDescriptor.symbolicTraits.contains(.bold) == true)
+        XCTAssertTrue((attribute(.font, at: "italic") as? NSFont)?.fontDescriptor.symbolicTraits.contains(.italic) == true)
+        XCTAssertTrue((attribute(.font, at: "code") as? NSFont)?.fontDescriptor.symbolicTraits.contains(.monoSpace) == true)
+        XCTAssertEqual(attribute(.strikethroughStyle, at: "gone") as? Int, NSUnderlineStyle.single.rawValue)
+        XCTAssertEqual(attribute(.link, at: "safe") as? URL, URL(string: "https://example.com"))
+        XCTAssertNil(attribute(.link, at: "bad"))
+        let quote = try XCTUnwrap(attribute(.paragraphStyle, at: "quoted words") as? NSParagraphStyle)
+        XCTAssertEqual(quote.textBlocks.count, 1, "Quoted text must retain its visible left border")
+        let clipboard = NSPasteboard(name: .init("TheAllReplyCopy-" + UUID().uuidString))
+        defer { clipboard.releaseGlobally() }
+        let reply = source + "\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n```swift\n  print(42)\n```\n\n![Chart](chart.png)"
+        AIChatCopyButton.copy(reply, to: clipboard)
+        XCTAssertEqual(clipboard.string(forType: .string), reply, "Whole-reply copying retains raw Markdown and code whitespace")
     }
 
     @MainActor func testRichContentLayoutFitsNarrowAndWideWindows() throws {
@@ -163,6 +237,8 @@ final class AIChatMarkdownTests: XCTestCase {
 
     @MainActor func testOverflowAdaptsToResizingAndRoutesWheelInput() throws {
         let source = """
+        Selectable prose must keep native scrolling under the pointer.
+
         ```swift
         let result = compareEmbeddings(company, baseline: "previous_version")
         print(result)
@@ -205,6 +281,15 @@ final class AIChatMarkdownTests: XCTestCase {
             window.setContentSize(NSSize(width: width, height: 640)); settle()
             outer.contentView.scroll(to: NSPoint(x: 0, y: 500))
             outer.reflectScrolledClipView(outer.contentView); settle()
+            func proseViews(_ view: NSView) -> [NSTextView] {
+                (view as? NSTextView).map { [$0] } ?? view.subviews.flatMap(proseViews)
+            }
+            let prose = try XCTUnwrap(proseViews(host).first)
+            let proseFrame = prose.convert(prose.bounds, to: host).intersection(host.bounds)
+            XCTAssertGreaterThan(proseFrame.height, 10)
+            let beforeProseWheel = outer.contentView.bounds.minY
+            try wheel(over: NSPoint(x: proseFrame.midX, y: proseFrame.midY), vertical: -30)
+            XCTAssertGreaterThan(outer.contentView.bounds.minY, beforeProseWheel, "Wheel input over selectable prose must reach the transcript")
             let inner = scrollViews(host).filter { $0 !== outer }
             XCTAssertEqual(inner.count, width == 880 ? 0 : 2)
             if inner.isEmpty {

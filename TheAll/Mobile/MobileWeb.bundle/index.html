@@ -13,6 +13,8 @@
   <link rel="icon" href="/icons/icon-192.png">
   <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
   <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/lot-map.css">
+  <script defer src="/lot-map.js"></script>
   <script type="module" src="/app.js"></script>
 </head>
 <body>
@@ -55,16 +57,23 @@
       <div id="global-error" class="banner error" role="alert" hidden></div>
       <section id="welcome" class="welcome"><img src="/icons/icon-192.png" width="72" height="72" alt=""><h2 data-i18n="welcomeTitle">Keep your ideas moving.</h2><p data-i18n="welcomeDetail">Open a workspace or start a conversation. Everything runs on your Mac.</p><button id="welcome-new" class="primary" data-i18n="newChat">New conversation</button></section>
       <section id="chat-area" class="chat-area" hidden>
-        <div id="transcript" class="transcript" tabindex="0" aria-label="Conversation history">
-          <button id="load-older" class="load-older" hidden data-i18n="older">Load earlier messages</button>
-          <div id="messages" class="messages"></div>
-          <div id="thinking-indicator" class="thinking-indicator" hidden><span class="spinner"></span><span data-i18n="working">Working on your Mac…</span></div>
-          <div id="questions" class="questions"></div>
-          <div id="chat-error" class="banner error" role="alert" hidden></div>
+        <div class="transcript-stage">
+          <div id="transcript" class="transcript" tabindex="0" aria-label="Conversation history">
+            <button id="load-older" class="load-older" hidden data-i18n="older">Load earlier messages</button>
+            <div id="messages" class="messages"></div>
+            <div id="thinking-indicator" class="thinking-indicator" hidden><span class="spinner"></span><span data-i18n="working">Working on your Mac…</span></div>
+            <div id="questions" class="questions"></div>
+            <div id="chat-error" class="banner error" role="alert" hidden></div>
+          </div>
+          <details id="activity-map" class="activity-map" hidden>
+            <summary><span class="map-beacon" aria-hidden="true"></span><span data-i18n="activityMap">Activity map</span></summary>
+            <div id="lot-map-scene"></div>
+            <p class="lot-quota" hidden></p>
+            <section id="subagent-strip" class="subagent-strip" aria-labelledby="subagent-title" hidden><div class="subagent-heading"><span id="subagent-title" data-i18n="subagents">Subagents</span><span id="subagent-count" role="status"></span></div><ul id="subagent-list" class="subagent-list"></ul></section>
+          </details>
         </div>
         <button id="jump-bottom" class="jump-bottom" aria-label="Jump to latest message" hidden>↓</button>
         <form id="composer" class="composer">
-          <section id="subagent-strip" class="subagent-strip" aria-labelledby="subagent-title" hidden><div class="subagent-heading"><span id="subagent-title" data-i18n="subagents">Subagents</span><span id="subagent-count" role="status"></span></div><ul id="subagent-list" class="subagent-list"></ul></section>
           <div id="mutation-error" class="mutation-error" role="alert" hidden><span></span><button id="retry-operation" class="text-button" type="button" data-i18n="retry">Retry same request</button><button id="discard-operation" class="text-button" type="button" data-i18n="discardRetry">Keep draft; stop retrying</button></div>
           <p id="setup-notice" class="small muted" hidden data-i18n="setupNotice">Configure this AI connection in TheAll on your Mac before sending messages.</p>
           <div id="file-previews" class="file-previews" hidden></div>

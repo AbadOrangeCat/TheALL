@@ -1,6 +1,6 @@
 # Third-party components and corresponding source
 
-TheAll 0.1.12's Apple Silicon release includes Ghostty's native terminal engine,
+TheAll 0.1.13's Apple Silicon release includes Ghostty's native terminal engine,
 Sparkle, and the dependencies and assets documented below. The original license
 texts ship in `TheAll.app/Contents/Resources/ThirdPartyLicenses/` and alongside
 the app in the release archive. These components retain their own licenses;
@@ -12,8 +12,8 @@ License, with its contributed-module notices retained.
 
 ## Source downloads
 
-The [v0.1.12 release](https://github.com/AbadOrangeCat/TheALL/releases/tag/v0.1.12)
-provides **TheAll-0.1.12-third-party-sources.tar.gz** next to the DMG and ZIP,
+The [v0.1.13 release](https://github.com/AbadOrangeCat/TheALL/releases/tag/v0.1.13)
+provides **TheAll-0.1.13-third-party-sources.tar.gz** next to the DMG and ZIP,
 at no charge. It contains complete original source archives for gettext 0.24
 and z2d 0.10.0, license texts, the exact Ghostty libintl build configuration and
 headers, a rebuild recipe, and a copy of the original libintl object archive with debug information
@@ -93,7 +93,7 @@ After extracting the corresponding-source archive on an Apple Silicon Mac with
 Python 3 and Xcode command line tools:
 
 ```sh
-cd TheAll-0.1.12-third-party-sources
+cd TheAll-0.1.13-third-party-sources
 python3 rebuild-libintl.py
 ```
 
@@ -138,3 +138,7 @@ Before distributing a build:
 ### SmoothUI AI Task List
 
 Subagent status motion is adapted from [SmoothUI AI Task List](https://smoothui.dev/docs/components/ai-task-list), Copyright (c) 2024 Eduardo Calvo, under MIT. The native port uses SwiftUI and the shared Windows/mobile port uses existing JavaScript/CSS. No animation dependency is installed. Native builds bundle `Resources/ThirdPartyLicenses/SmoothUI-MIT.txt`; shared JS carries the full notice.
+### lot-map
+
+The live activity map adapts the SVG drawing, station glyphs and palettes of [lot-map](https://github.com/alexeyw/lot-map) (`hooks/{draw,setup,palette,classify}.ts`, revision `e3a93ec01f72803483767154564de9f1fa8d4ca4`), Copyright (c) 2026 Aleksei Volodin, under MIT. The adapted code is `TheAll/Mobile/MobileWeb.bundle/lot-map.js`, shared by the Mac app (in a web view), Windows and the mobile web app. No lot-map package is installed. Native builds bundle `Resources/ThirdPartyLicenses/lot-map-MIT.txt`; the shared web files carry `lot-map-LICENSE.txt`.
+

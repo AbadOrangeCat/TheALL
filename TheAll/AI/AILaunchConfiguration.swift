@@ -14,15 +14,26 @@ struct AILaunchConfiguration {
             .appendingPathComponent("claude")
     }
 
+    static func cliSearchPaths(_ inheritedPath: String = ProcessInfo.processInfo.environment["PATH"] ?? "") -> [String] {
+        ([NSHomeDirectory() + "/.local/bin", "/opt/homebrew/bin", "/usr/local/bin"]
+            + inheritedPath.components(separatedBy: ":") + ["/usr/bin", "/bin", "/usr/sbin", "/sbin"])
+            .filter { $0.hasPrefix("/") }
+    }
+
+    static func resolveCLI(_ provider: AIProvider, paths: [String] = cliSearchPaths()) -> String? {
+        resolveTool(provider.executable, paths: paths)
+    }
+
+    static func resolveTool(_ name: String, paths: [String]) -> String? {
+        paths.map { $0 + "/" + name }.first(where: FileManager.default.isExecutableFile(atPath:))
+    }
+
     static func make(provider: AIProvider, connection: AIConnection,
                      executable: String? = nil,
                      inheritedPath: String = ProcessInfo.processInfo.environment["PATH"] ?? "") throws -> Self {
         let connection = try connection.validated(for: provider)
-        let searchPaths = ([NSHomeDirectory() + "/.local/bin", "/opt/homebrew/bin", "/usr/local/bin"]
-            + inheritedPath.components(separatedBy: ":") + ["/usr/bin", "/bin", "/usr/sbin", "/sbin"])
-            .filter { $0.hasPrefix("/") }
-        guard let binary = executable ?? searchPaths.map({ $0 + "/" + provider.executable })
-            .first(where: { FileManager.default.isExecutableFile(atPath: $0) })
+        let searchPaths = cliSearchPaths(inheritedPath)
+        guard let binary = executable ?? resolveCLI(provider, paths: searchPaths)
         else { throw AIConnectionError.missingCLI(provider.executable) }
 
         // Empty overrides prevent inherited credentials / alternate Claude cloud
@@ -87,7 +98,7 @@ struct AILaunchConfiguration {
         switch provider {
         case .claude:
             result.arguments += ["--print", "--input-format", "stream-json", "--output-format", "stream-json",
-                                 "--verbose", "--include-partial-messages", "--replay-user-messages", "--permission-prompt-tool", "stdio",
+                                 "--verbose", "--include-partial-messages", "--include-hook-events", "--replay-user-messages", "--permission-prompt-tool", "stdio",
                                  "--dangerously-skip-permissions"]
         case .openai:
             result.arguments += ["-c", "approval_policy=\"never\"", "-c", "sandbox_mode=\"danger-full-access\"",

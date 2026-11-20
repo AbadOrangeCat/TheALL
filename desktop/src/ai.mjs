@@ -1,3 +1,4 @@
+import { ActivityMap } from './activity-map.mjs';
 import { SubagentTracker } from './subagents.mjs';
 import { EventEmitter } from 'node:events';
 import { spawn } from 'node:child_process';
@@ -58,7 +59,12 @@ export async function resolveCLI(provider, { executable, platform = process.plat
       // npm shims are shell programs. Use the provider's fixed, installed JS entry,
       // never interpolate a user directory, model or prompt into cmd.exe.
       const [pkg, entry] = PACKAGE[provider];
-      const proposed = path.join(path.dirname(candidate), 'node_modules', pkg, entry);
+      const packageRoot = path.join(path.dirname(candidate), 'node_modules', pkg);
+      if (provider === 'claude') {
+        const native = path.join(packageRoot, 'bin', 'claude.exe');
+        if (await executableFile(native, platform)) return { command: native, prefix: [], runAsNode: false };
+      }
+      const proposed = path.join(packageRoot, entry);
       try { if ((await stat(proposed)).isFile()) script = proposed; } catch { /* Try next candidate. */ }
       if (!script) {
         if (executable) throw new Error('This CLI shell wrapper is unsupported. Select the native .exe or the provider’s npm JavaScript entry.');
@@ -97,7 +103,7 @@ export async function makeLaunchConfiguration({ provider, connection, chat, data
     childEnv[connection.useBearerToken ? 'ANTHROPIC_AUTH_TOKEN' : 'ANTHROPIC_API_KEY'] = connection.apiKey;
     childEnv.ANTHROPIC_BASE_URL = connection.baseURL || 'https://api.anthropic.com';
     args.push('--setting-sources', '', '--settings', '{"apiKeyHelper":""}', '--print', '--input-format', 'stream-json',
-      '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--replay-user-messages', '--permission-prompt-tool', 'stdio', '--dangerously-skip-permissions');
+      '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--include-hook-events', '--replay-user-messages', '--permission-prompt-tool', 'stdio', '--dangerously-skip-permissions');
     if (chat.conversationID) args.push('--resume', chat.conversationID);
   } else {
     childEnv.CODEX_HOME = path.join(dataDir, 'codex');
@@ -132,6 +138,8 @@ export class AISession extends EventEmitter {
     this.timeout = timeout; this.now = now; this.elapsedNow = elapsedNow; this.turnTiming = null; this.turnInterrupted = false;
     this.isReady = false; this.isBusy = false; this.canInterrupt = false;
     this.questions = []; this.error = null; this.models = [];
+    this.quotaWindows = new Map();
+    this.activityTracker = new ActivityMap();
     this.subagentTracker = new SubagentTracker(value=>this.redact(value));
     this.chat.messages ||= []; this.chat.model ||= '';
     this.child = null; this.stopped = true; this.generation = 0;
@@ -155,6 +163,23 @@ export class AISession extends EventEmitter {
   changed() { this.emit('change'); }
 
   get subagents() { return this.subagentTracker.items; }
+
+  get accountQuota() {
+    const now = Date.now() / 1000;
+    return [...this.quotaWindows.values()].filter(row => (row.resetsAt ?? Infinity) > now)
+      .sort((a,b) => a.windowMinutes - b.windowMinutes);
+  }
+
+  recordQuota(minutes, utilization, scale, resetsAt) {
+    if (![300, 10080].includes(minutes)) return;
+    this.quotaWindows.delete(minutes);
+    if (!Number.isFinite(utilization) || utilization < 0 || utilization > scale) return;
+    if (resetsAt != null && (!Number.isSafeInteger(resetsAt) || resetsAt <= Date.now()/1000 || resetsAt > 253402300799)) return;
+    this.quotaWindows.set(minutes, {windowMinutes: minutes, remainingPercent: Math.round(100 - utilization / scale * 100),
+      ...(resetsAt == null ? {} : {resetsAt})});
+  }
+
+  get activityMap() { return this.activityTracker.snapshot(this.isBusy && !this.turnInterrupted, this.subagents); }
 
   get steerToken() { return this.isBusy ? this.completionToken : null; }
 
@@ -315,6 +340,7 @@ export class AISession extends EventEmitter {
     // Awaiting file reads may allow another sender to win admission.
     requireAuthorization();
     if (!this.isReady || this.isBusy || this.pendingSteer || this.questions.length) throw new Error('This conversation is not ready for another message.');
+    this.activityTracker.clear();
     this.isBusy = true; this.error = null; this.turnModel = model;
     this.turnAppliedEffort = null; this.turnEffortVerified = false;
     this.chat.model = model; this.chat.reasoningEffort = reasoningEffort; this.thinkingStart = this.chat.messages.length;
@@ -424,6 +450,7 @@ export class AISession extends EventEmitter {
         const result = await this.rpc('turn/steer', { threadId: this.chat.conversationID, expectedTurnId: turnID, clientUserMessageId: commandID, input }, { fatalTimeout: false });
         if (result.turnId !== turnID) throw new Error('The AI process did not confirm the expected running task.');
       }
+      this.activityTracker.submitted();
       append(); if (!this.steerNotApplied.has(commandID)) this.error = null;
       return { accepted: true };
     } catch (error) {
@@ -452,8 +479,10 @@ export class AISession extends EventEmitter {
 
   appendUser(text, images, files = []) {
     const id = randomUUID(); this.completionToken = id;
+    for (const [minutes, row] of this.quotaWindows) if (row.resetsAt == null) this.quotaWindows.delete(minutes);
     this.turnTiming = { started: this.elapsedNow() }; this.turnInterrupted = false;
     this.subagentTracker.finish();
+    this.activityTracker.submitted();
     this.chat.messages.push({ id, role: 'user', text: this.redact(text), model: this.turnModel,
       isError: false, isIntermediate: false, images: images.map(imageMetadata), ...(files.length ? { files: files.map(fileMetadata) } : {}) });
     this.emit('submitted', text); this.changed();
@@ -462,6 +491,7 @@ export class AISession extends EventEmitter {
   async interrupt() {
     if (!this.isBusy || !this.canInterrupt) return false;
     this.completionToken = null; this.turnInterrupted = true;
+    this.activityTracker.clear();
     this.subagentTracker.clear(); this.changed();
     if (this.chat.provider === 'claude') {
       const result = await this.control('interrupt', { cancel_queued: true });
@@ -493,6 +523,7 @@ export class AISession extends EventEmitter {
   removeQuestion(id) { this.questions = this.questions.filter(q => q.id !== id); this.questionReplies.delete(id); }
 
   finishTurn(status) {
+    this.activityTracker.clear();
     if(this.isReady && !this.turnInterrupted)this.subagentTracker.finish();else this.subagentTracker.clear();
     if (this.turnTiming && status) {
       const messages = this.chat.messages.slice(this.thinkingStart);
@@ -513,7 +544,7 @@ export class AISession extends EventEmitter {
   }
 
   fail(error, disconnect = false) {
-    if(disconnect)this.subagentTracker.clear();
+    if(disconnect){ this.subagentTracker.clear(); this.quotaWindows.clear(); }
     this.error = this.redact(error?.message || error);
     this.finishTurn('failed');
     if (disconnect) {
@@ -551,6 +582,7 @@ export class AISession extends EventEmitter {
   }
 
   async close() {
+    this.quotaWindows.clear();
     this.subagentTracker.clear();
     this.stopped = true; this.generation++;
     this.isReady = false; this.finishTurn('interrupted');
@@ -649,7 +681,18 @@ export class AISession extends EventEmitter {
   reply(message) { this.write(message).catch(error => this.fail(error, true)); }
 
   receiveClaude(message) {
-    if(!this.turnInterrupted && (!message.session_id || !this.chat.conversationID || message.session_id===this.chat.conversationID))this.subagentTracker.claude(message,!!this.turnTiming && !this.turnInterrupted);
+    if (message.type === 'rate_limit_event') {
+      if (!this.isBusy || this.turnInterrupted || message.ambient || message.parent_tool_use_id != null ||
+          (message.session_id && this.chat.conversationID && this.chat.conversationID !== message.session_id)) return;
+      const info = message.rate_limit_info;
+      const minutes = {five_hour:300, seven_day:10080}[info?.rateLimitType];
+      this.recordQuota(minutes, info?.utilization, 1, info?.resetsAt);
+      return;
+    }
+    if (!this.turnInterrupted && (!message.session_id || !this.chat.conversationID || message.session_id === this.chat.conversationID)) {
+      this.subagentTracker.claude(message, !!this.turnTiming);
+      if (this.turnTiming) this.activityTracker.claude(message);
+    }
     if(message.parent_tool_use_id!=null && ['assistant','stream_event','result'].includes(message.type))return;
     switch (message.type) {
       case 'control_request': {
@@ -765,6 +808,19 @@ export class AISession extends EventEmitter {
     this.subagentTracker.codex(message,this.chat.conversationID,this.turnInterrupted ? null : this.turnID);
     if (method !== 'serverRequest/resolved' && params.threadId && this.chat.conversationID && params.threadId !== this.chat.conversationID) return;
     switch (method) {
+      case 'account/rateLimits/updated': {
+        const limits = params.rateLimits;
+        if (!this.isReady || !this.isBusy || this.turnInterrupted || !limits || (limits.limitId != null && limits.limitId !== 'codex')) break;
+        for (const window of [limits.primary, limits.secondary]) {
+          if (window) this.recordQuota(window.windowDurationMins, window.usedPercent, 100, window.resetsAt);
+        }
+        break;
+      }
+      case 'hook/started': case 'hook/completed':
+        if (this.turnTiming && !this.turnInterrupted && this.turnID && params.turnId === this.turnID && params.threadId === this.chat.conversationID) {
+          this.activityTracker.hook(params.run?.id, method, params.run?.status);
+        }
+        break;
       case 'turn/started':
         if (!this.turnTiming) return;
         if (this.turnTiming && this.turnID && typeof params.turn?.id === 'string' && params.turn.id !== this.turnID) return;
@@ -784,6 +840,9 @@ export class AISession extends EventEmitter {
       case 'item/started': case 'item/completed': {
         const item = params.item || {};
         if (!item.id) return;
+        if (this.turnTiming && !this.turnInterrupted && this.turnID && params.turnId === this.turnID && params.threadId === this.chat.conversationID) {
+          this.activityTracker.codex(method, item);
+        }
         if (item.type === 'agentMessage') {
           if (['commentary', 'partial_answer', 'final_answer'].includes(item.phase)) this.phases.set(item.id, item.phase);
           if (item.text) this.update(item.id, 'assistant', item.text);

@@ -36,6 +36,98 @@ final class AICompletionTests: XCTestCase {
     }
     private let configuration = AILaunchConfiguration(command: "unused", environment: [:], executable: "/usr/bin/true")
 
+    func testQuotaOnlyUsesLiveWindowReportsFromThisSession() throws {
+        let pipe = Pipe()
+        let session = AIChatSession(provider: .claude, model: "fixture", directory: "/tmp", transport: pipe)
+        session.start(configuration); pipe.respond()
+        session.input = "Inspect"; session.send()
+        func report(_ kind: String, _ usage: Any) {
+            pipe.onMessage?(["type": "rate_limit_event", "rate_limit_info": ["rateLimitType": kind, "utilization": usage]])
+        }
+        report("five_hour", 0.25)
+        report("seven_day", 1)
+        report("seven_day_opus", 0.6)
+        XCTAssertEqual(session.accountQuota, [.init(windowMinutes: 300, remainingPercent: 75, resetsAt: nil),
+                                             .init(windowMinutes: 10080, remainingPercent: 0, resetsAt: nil)])
+        report("five_hour", true)
+        XCTAssertEqual(session.accountQuota.count, 1)
+        XCTAssertFalse(String(decoding: try JSONEncoder().encode(session.snapshot), as: UTF8.self).contains("remainingPercent"))
+        session.stop()
+        XCTAssertTrue(session.accountQuota.isEmpty)
+    }
+
+    func testClaudeActivityMapTracksStreamedToolsAndBackgroundAgents() throws {
+        let pipe = Pipe()
+        let session = AIChatSession(provider: .claude, model: "fixture", directory: "/tmp", transport: pipe)
+        session.start(configuration); pipe.respond()
+        XCTAssertTrue(session.activityMap.isEmpty)
+        session.input = "Inspect"; session.send()
+        let model = AIActivityStation(station: "model", active: 1)
+        XCTAssertEqual(session.activityMap, [.init(station: "you", completed: 1), model])
+        let block: [String: Any] = ["type": "tool_use", "name": "Read", "id": "tool-a", "input": ["path": "private-input"]]
+        pipe.onMessage?(["type": "stream_event", "event": ["type": "content_block_start", "content_block": block]])
+        pipe.onMessage?(["type": "assistant", "message": ["id": "message", "content": [block]]])
+        XCTAssertEqual(session.activityMap, [.init(station: "you", completed: 1), .init(station: "files", active: 1)])
+        let result: [String: Any] = ["type": "user", "message": ["content": [
+            ["type": "tool_result", "tool_use_id": "tool-a", "is_error": true, "content": "private-output"]]]]
+        pipe.onMessage?(result); pipe.onMessage?(result)
+        XCTAssertEqual(session.activityMap, [.init(station: "you", completed: 1), model, .init(station: "files", failed: 1)])
+        XCTAssertFalse(String(decoding: try JSONEncoder().encode(session.activityMap), as: UTF8.self).contains("private"))
+        pipe.onMessage?(["type": "system", "subtype": "task_started", "task_id": "worker", "task_type": "local_agent", "is_backgrounded": true])
+        pipe.onMessage?(["type": "result", "subtype": "success", "result": "Ready"])
+        XCTAssertEqual(session.activityMap, [.init(station: "agents", active: 1)])
+        pipe.onMessage?(["type": "system", "subtype": "task_notification", "task_id": "worker", "status": "completed"])
+        XCTAssertTrue(session.activityMap.isEmpty)
+        XCTAssertFalse(String(decoding: try JSONEncoder().encode(session.snapshot), as: UTF8.self).contains("activityMap"))
+        session.stop()
+    }
+
+    func testLotMapMemoryBrowserSkillsAndHooks() {
+        let pipe = Pipe()
+        let session = AIChatSession(provider: .claude, model: "fixture", directory: "/tmp", transport: pipe)
+        session.start(configuration); pipe.respond()
+        session.input = "Inspect"; session.send()
+        let tools: [(String, [String: String])] = [("Read", ["file_path": "/home/user/.claude/projects/p/memory/notes.md"]),
+                                                   ("mcp__Claude_Browser__navigate", [:]), ("Skill", [:])]
+        for (name, input) in tools {
+            let block: [String: Any] = ["type": "tool_use", "id": name, "name": name]
+            pipe.onMessage?(["type": "stream_event", "event": ["type": "content_block_start", "content_block": block]])
+            pipe.onMessage?(["type": "assistant", "message": ["id": name, "content": [block.merging(["input": input]) { _, new in new }]]])
+        }
+        pipe.onMessage?(["type": "system", "subtype": "hook_response", "hook_id": "first", "outcome": "error"])
+        XCTAssertEqual(session.activityMap, [.init(station: "you", completed: 1), .init(station: "memory", active: 1),
+                                             .init(station: "browser", active: 1), .init(station: "skills", active: 1),
+                                             .init(station: "hooks", failed: 1)])
+        session.stop()
+    }
+
+    func testCodexActivityMapScopesAndDeduplicatesItemEvents() {
+        let pipe = Pipe()
+        let session = AIChatSession(provider: .openai, model: "fixture", directory: "/tmp", transport: pipe)
+        session.start(configuration); pipe.respond(); pipe.respond(["data": [["model": "fixture", "isDefault": true]]]); pipe.respond(["thread": ["id": "root"]])
+        session.input = "Inspect"; session.send(); pipe.respond(["turn": ["id": "turn"]])
+        func item(_ method: String, _ type: String, _ id: String, turn: String = "turn", extra: [String: Any] = [:]) {
+            let properties = extra.merging(["type": type, "id": id]) { _, new in new }
+            pipe.onMessage?(["method": method, "params": ["turnId": turn, "threadId": "root", "item": properties]])
+        }
+        item("item/started", "commandExecution", "old", turn: "previous")
+        item("item/started", "commandExecution", "shell")
+        item("item/completed", "webSearch", "search")
+        item("item/completed", "webSearch", "search")
+        XCTAssertEqual(session.activityMap, [.init(station: "you", completed: 1), .init(station: "shell", active: 1), .init(station: "network", completed: 1)])
+        item("item/completed", "commandExecution", "shell", extra: ["exitCode": 1])
+        XCTAssertEqual(session.activityMap, [.init(station: "you", completed: 1), .init(station: "model", active: 1), .init(station: "shell", failed: 1), .init(station: "network", completed: 1)])
+        pipe.onMessage?(["method": "turn/completed", "params": ["threadId": "root", "turn": ["id": "turn", "status": "failed"]]])
+        XCTAssertTrue(session.activityMap.isEmpty)
+        session.input = "Again"; session.send(); pipe.respond(["turn": ["id": "next"]])
+        pipe.onMessage?(["method": "turn/started", "params": ["threadId": "root", "turn": ["id": "next"]]])
+        XCTAssertEqual(session.activityMap, [.init(station: "you", completed: 1), .init(station: "model", active: 1)])
+        XCTAssertTrue(session.interrupt())
+        XCTAssertTrue(session.activityMap.isEmpty)
+        session.stop()
+        XCTAssertTrue(session.activityMap.isEmpty)
+    }
+
     func testClaudeSubagentsUseActualLifecycleAndNeverPersistOrCompleteParent() throws {
         let pipe = Pipe()
         let chat = AIChatSession(provider: .claude, model: "fixture", directory: "/tmp", transport: pipe)

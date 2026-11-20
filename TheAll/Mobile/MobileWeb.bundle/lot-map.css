@@ -1,0 +1,21 @@
+.lot-window, .lot-window body, #lot-map-window {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: transparent;
+}
+
+svg.theall-lot-board {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.lot-window body { display:flex; flex-direction:column; }
+.lot-window #lot-map-window { flex:1; min-height:0; height:auto; }
+.lot-quota {
+  margin:0; padding:3px 8px 5px; text-align:center;
+  color:inherit; font:500 11px/1.3 system-ui,sans-serif; font-variant-numeric:tabular-nums;
+}
+.lot-window { color-scheme:light dark; color:CanvasText; }
