@@ -57,18 +57,37 @@ export function mergePage(previous, incoming) {
   return { ...incoming, start, messages };
 }
 
-export function turns(messages) {
+// `running`: the last turn is still in progress. Its replies that already have
+// later steps are progress notes; only the newest reply can still be the answer.
+// The finished turn marks them `isIntermediate` itself.
+export function turns(messages, { running = false } = {}) {
   const result = [];
+  let lastTurn = [];
   for (const message of messages) {
     const steering = message.role === 'user' && message.isSteering === true && result.length > 0;
-    if ((message.role === 'user' && !steering) || !result.length) result.push({ id: message.id, user: null, progress: [], answers: [] });
+    if ((message.role === 'user' && !steering) || !result.length) { result.push({ id: message.id, user: null, progress: [], answers: [] }); lastTurn = []; }
     const turn = result.at(-1);
+    lastTurn.push(message);
     if (steering) turn.answers.push(message);
     else if (message.role === 'user') turn.user = message;
     else if (message.role === 'thinking' || message.isIntermediate) turn.progress.push(message);
     else if (message.role !== 'tool' || message.isError) turn.answers.push(message);
   }
+  const turn = result.at(-1);
+  if (running && turn) {
+    const notes = new Set(lastTurn.slice(0, -1).filter(m => m.role === 'assistant' && !m.isError && turn.answers.includes(m)));
+    if (notes.size) {
+      turn.progress = lastTurn.filter(m => notes.has(m) || turn.progress.includes(m));
+      turn.answers = turn.answers.filter(m => !notes.has(m));
+    }
+  }
   return result;
+}
+
+/** One line describing the newest progress step, for the folded summary of a running turn. */
+export function progressPreview(message, limit = 160) {
+  const line = String(message?.text || '').split(/\n+/).map(part => part.replace(/^[\s#>*`\-]+|[*`]+/g, '').trim()).filter(Boolean).at(-1) || '';
+  return [...line].length > limit ? [...line].slice(0, limit).join('') + '…' : line;
 }
 
 // LAN HTTP is not a secure context. getRandomValues remains available there;

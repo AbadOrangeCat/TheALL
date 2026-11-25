@@ -15,23 +15,8 @@ export function adaptApp(source) {
   result = replaceOnce(result, 'function updateComposer() {', 'function updateComposer() {\n  if (desktopHost) queueMicrotask(() => desktopHooks.onComposer?.());');
   // A desktop renderer must never register a service worker that can intercept its privileged UI.
   result = replaceOnce(result, "if (secure && 'serviceWorker' in navigator)", "if (!desktopHost && secure && 'serviceWorker' in navigator)");
-  const progressStart = result.indexOf('      if (turn.progress.length) {');
-  const progressEnd = result.indexOf('      for (const message of turn.answers)', progressStart);
-  if (progressStart < 0 || progressEnd < 0) throw new Error('Shared progress renderer changed; review desktop folding');
-  result = result.slice(0, progressStart) + `      for (const message of turn.progress) {
-        const key = data.id + ':' + message.id;
-        const hasAnswer = turn.answers.some(m => m.role === 'assistant' && m.text?.trim());
-        const saved = state.progress.get(key);
-        const open = hasAnswer && !saved?.finished ? false : saved?.open ?? !hasAnswer;
-        const details = el('details', 'progress'); details.open = open;
-        state.progress.set(key, { open, finished: hasAnswer });
-        details.append(el('summary', '', t('thinking')));
-        details.append(messageNode(message, data.provider, data.id, previousNodes));
-        details.addEventListener('toggle', () => { if (details.isConnected) state.progress.set(key, { open: details.open, finished: hasAnswer }); updateJump(); });
-        section.append(details);
-      }
-` + result.slice(progressEnd);
-  result = replaceOnce(result, 'for (const turn of turns(data.messages)) {', `for (const turn of turns(desktopHost ? desktopMessages(data.messages) : data.messages)) {`);
+  // Windows uses the shared folding: one "Thinking · N updates" row per turn, like the Mac.
+  result = replaceOnce(result, 'const allTurns = turns(data.messages, {', `const allTurns = turns(desktopHost ? desktopMessages(data.messages) : data.messages, {`);
   result += `\nfunction desktopMessages(messages) {
     const limit = window.parent?.theallDesktop?.settings?.scrollbackLimit ?? 10000000;
     let bytes = 0, start = messages.length;

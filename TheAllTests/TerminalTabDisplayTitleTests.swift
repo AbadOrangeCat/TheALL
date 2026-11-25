@@ -48,6 +48,21 @@ final class TerminalTabDisplayTitleTests: XCTestCase {
         XCTAssertEqual(tab.displayTitle(sessionTitleStore: store), "Right pane session")
     }
 
+    func testNewSplitKeepsTheConversationName() {
+        // Splitting focuses the new, still-empty pane; the tab keeps the name
+        // of the conversation it already has instead of reverting to "terminal N".
+        let leftId = UUID()
+        let rightId = UUID()
+        var tab = TerminalTab(title: "terminal 1", terminalId: leftId)
+        tab.layout = .split(UUID(), .horizontal, 0.5, .terminal(leftId), .terminal(rightId))
+        tab.focusedTerminalId = rightId
+        let store = makeStore()
+        XCTAssertEqual(tab.displayTitle(sessionTitleStore: store), "terminal 1")
+        store.update(terminalId: leftId, title: "Fix the login crash", at: 1)
+        XCTAssertEqual(tab.displayTitle(sessionTitleStore: store), "Fix the login crash")
+        XCTAssertEqual(tab.displayTitle { store.titlesSnapshot()[$0] }, "Fix the login crash")
+    }
+
     func testCodableDefaultsUserRenamedToFalse() throws {
         // Legacy tab data without `userRenamed` key must decode with default false.
         // focusedTerminalId must reference the layout's terminalId — they're

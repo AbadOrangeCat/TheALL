@@ -94,6 +94,7 @@ body { font-size:var(--chat-size); background:var(--canvas); }
 .setup-actions { display:flex; gap:8px; }
 .setup-error { color:var(--danger); font-size:12px; white-space:pre-wrap; }
 .setup-error:empty { display:none; }
+.setup-hint { color:var(--muted); font-size:11px; line-height:1.5; margin:-4px 0 0; }
 
 /* Native composer options also apply to the structured chat input on Windows. */
 body.hide-mouse,body.hide-mouse * { cursor:none!important; }

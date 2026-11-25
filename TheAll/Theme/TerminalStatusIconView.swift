@@ -1,7 +1,8 @@
 import AppKit
 import QuartzCore
 
-/// 10×10 dot / spinning arc showing one of four terminal states.
+/// 10×10 dot / spinning arc: spinner while running, amber dot when a question
+/// waits, blue dot for a finished turn not yet viewed, red for an unviewed failure.
 /// Mutates only via `update(status:theme:)` — callers hand it the latest state,
 /// the view decides which CALayer trees / animations to show.
 final class TerminalStatusIconView: NSView {
@@ -84,7 +85,8 @@ final class TerminalStatusIconView: NSView {
             if readAt != nil {
                 return (NSColor.clear, theme.textTertiary, 1)
             }
-            return (theme.success, NSColor.clear, 0)
+            // Finished but not yet viewed.
+            return (theme.unread, NSColor.clear, 0)
         case .failed(_, _, _, _, _, let readAt):
             if readAt != nil {
                 return (NSColor.clear, theme.textTertiary, 1)

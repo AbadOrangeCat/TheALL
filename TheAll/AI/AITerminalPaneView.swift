@@ -145,8 +145,50 @@ private struct AIConnectionForm: View {
     let onChooseDirectory: () -> Void
     let onRestore: (AIChatLegacyConversation) -> Void
     let onForget: () -> Void
+    @State private var pasteSummary: String?
+    @State private var pasteWarning: String?
     private var theme: AppTheme { session.theme }
     private func text(_ key: String) -> String { L10n.string("ai." + key) }
+
+    /// Pasting a whole settings block into the key or URL field fills every
+    /// recognized field instead of storing the block as the key.
+    private func pasteAware(_ field: WritableKeyPath<AIConnection, String>, provider: AIProvider) -> Binding<String> {
+        Binding(get: { session.draft[keyPath: field] }, set: { value in
+            if let parsed = AIConnectionPaste.parse(value) { apply(parsed, provider: provider) }
+            else { session.draft[keyPath: field] = value }
+        })
+    }
+
+    private func pasteFromClipboard(_ provider: AIProvider) {
+        guard let parsed = NSPasteboard.general.string(forType: .string).flatMap(AIConnectionPaste.parseClipboard) else {
+            pasteSummary = nil
+            pasteWarning = text("paste.nothing")
+            return
+        }
+        apply(parsed, provider: provider)
+    }
+
+    private func apply(_ parsed: AIConnectionPaste, provider: AIProvider) {
+        var draft = session.draft
+        parsed.apply(to: &draft, provider: provider)
+        session.draft = draft
+        var names = parsed.fields.map { field -> String in
+            switch field {
+            case .apiKey: return "API Key"
+            case .baseURL: return text("paste.field.url")
+            case .model: return text("model")
+            }
+        }
+        if provider == .claude, parsed.useBearerToken == true { names.append(text("paste.bearer")) }
+        let list = ListFormatter()
+        list.locale = session.locale
+        var summary = L10n.string("ai.paste.applied", list.string(from: names) ?? names.joined(separator: ", "))
+        if !parsed.ignored.isEmpty {
+            summary += " " + L10n.string("ai.paste.ignored", parsed.ignored.joined(separator: ", "))
+        }
+        pasteSummary = summary
+        pasteWarning = parsed.provider.flatMap { $0 == provider ? nil : L10n.string("ai.paste.otherProvider", $0.tool) }
+    }
 
     var body: some View {
         // Observe locale even though strings are resolved through L10n for the
@@ -226,6 +268,7 @@ private struct AIConnectionForm: View {
         .background(Color(nsColor: theme.canvas))
         .tint(Color(nsColor: theme.accent))
         .environment(\.colorScheme, theme.isDark ? .dark : .light)
+        .onChange(of: session.provider) { _, _ in pasteSummary = nil; pasteWarning = nil }
     }
 
     @ViewBuilder private func connectionFields(_ provider: AIProvider) -> some View {
@@ -237,12 +280,27 @@ private struct AIConnectionForm: View {
             .fixedSize(horizontal: false, vertical: true)
         VStack(alignment: .leading, spacing: DT.Space.lg) {
             VStack(alignment: .leading, spacing: 6) {
-                Text("API Key").font(.callout.weight(.medium))
-                SecureField("API Key", text: $session.draft.apiKey).textFieldStyle(.roundedBorder)
+                HStack {
+                    Text("API Key").font(.callout.weight(.medium))
+                    Spacer(minLength: 8)
+                    Button { pasteFromClipboard(provider) } label: {
+                        Label(text("paste.button"), systemImage: "doc.on.clipboard")
+                    }
+                    .buttonStyle(.borderless).font(.caption)
+                    .help(text("paste.hint"))
+                }
+                SecureField("API Key", text: pasteAware(\.apiKey, provider: provider)).textFieldStyle(.roundedBorder)
+                Text(pasteSummary ?? text("paste.hint"))
+                    .font(.caption).foregroundStyle(Color(nsColor: theme.textSecondary))
+                    .fixedSize(horizontal: false, vertical: true)
+                if let pasteWarning {
+                    Text(pasteWarning).font(.caption).foregroundStyle(Color(nsColor: theme.danger))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             VStack(alignment: .leading, spacing: 6) {
                 Text(text("url")).font(.callout.weight(.medium))
-                TextField(provider.defaultBaseURL, text: $session.draft.baseURL).textFieldStyle(.roundedBorder)
+                TextField(provider.defaultBaseURL, text: pasteAware(\.baseURL, provider: provider)).textFieldStyle(.roundedBorder)
                     .accessibilityLabel("Base URL")
                 Text(text(provider == .claude ? "claude.urlHint" : "openai.urlHint"))
                     .font(.caption).foregroundStyle(Color(nsColor: theme.textSecondary))

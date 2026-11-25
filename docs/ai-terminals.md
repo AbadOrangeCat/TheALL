@@ -40,10 +40,15 @@ native. A phone message arriving during browsing is included on the next browsin
 pass; it does not replace the saved desktop draft. All tool operations run automatically, including file edits,
 deletions, dependency installation, tests and pushes, as explicitly selected by the user.
 Only questions requiring a user answer appear above the input. Routine Bash/Read/tool records are
-hidden; actual provider thinking/summary text is shown expanded during generation.
-After a successful final reply, thinking and intermediate progress messages collapse
-individually; clicking a disclosure reveals its original content. Expansion choices
-persist while scrolling. Failed/interrupted turns remain visible. Claude uses the
+hidden. Thinking and progress notes fold into one compact "Thinking · N updates" row per
+run of steps, including while the turn runs: the row shows a spinner and a one-line
+preview of the newest step, and clicking it reveals every step in full (selectable). During
+a running turn, a reply that already has later steps counts as a progress note, so only the
+newest reply can still be the answer. After a successful final reply, the exact progress
+messages are marked by the provider protocol. Expansion choices persist while scrolling. A
+turn that ends without an answer opens its steps, and errors always stay visible as their
+own rows. This changes only the display: saved messages, copying and CLI context are
+unchanged. Mac, Windows and the phone share these rules. Claude uses the
 canonical result and stop reasons; Codex uses message phases, retaining partial/final
 answers and conservatively keeping multiple final blocks for older protocols.
 User questions have an accent-tinted card and a colored leading border, separate from
@@ -93,6 +98,34 @@ or other split panes do not overwrite it. Manual names, including manually confi
 the same default name, are preserved. The owning workspace is found by terminal ID,
 so switching workspaces while submission is pending cannot rename the wrong one.
 Old saved workspaces with Default/workspace N names remain eligible; custom names are retained.
+
+Each conversation's tab is named the same way, from its first question, instead of
+"terminal N". The name is stored per pane in `TerminalSessionTitleStore`; a split tab
+shows the focused pane's name and otherwise the first named pane, so a new empty split
+keeps the tab's name. Conversations saved before this feature get a name from their
+first question when restored. Renaming a tab locks its name; "Reset to auto title"
+restores the automatic one.
+
+Tabs and sidebar rows show what each conversation is doing: a spinning arc while a turn
+runs (including turns Claude Code or Codex continue on their own), an amber dot while a
+question waits for an answer, and a **blue dot** when a turn has finished but has not been
+viewed (red if it failed). A turn counts as viewed when it finishes, or when its tab is
+selected, while that tab is on screen in the focused TheAll window with Settings closed;
+focusing a pane also clears it. Stopping a turn clears the indicator. The state is kept
+in memory, like the hook-based terminal status. These indicators appear without enabling
+any Settings → Agents status hook.
+
+The API Key and Base URL fields accept a whole pasted settings block. TheAll recognizes
+Claude Code `settings.json` (`env.ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_API_KEY`,
+`ANTHROPIC_BASE_URL`, `ANTHROPIC_MODEL`), `OPENAI_API_KEY` / `OPENAI_BASE_URL`, shell
+`export`, Windows `set` / `setx`, PowerShell `$env:` lines, `.env` files, Codex TOML
+`base_url` / `model`, and loose `API Key: …` notes. `ANTHROPIC_AUTH_TOKEN` also turns on
+Bearer authentication. Unrelated variables are listed as not used, and a note appears when
+the names belong to the other provider. Typing or pasting a bare key is unchanged; the
+"Paste settings" button also accepts a bare key or URL from the clipboard. Parsing happens
+locally and nothing is saved until you choose Save and open. The Mac parser
+(`AIConnectionPaste`) and the Windows one (`desktop/renderer/connection-paste.mjs`) follow
+the same rules.
 
 Connections are separate macOS Keychain items per provider and app bundle ID.
 Endpoint, key, model, and Claude authentication method are saved together. Model
@@ -314,7 +347,7 @@ Debug builds can check but cannot install release updates. No release is publish
 
 ## Live activity map
 
-Sending a message opens an activity map in the upper-right corner of the current chat. Claude Code and Codex use the original ten Lot Map stations (You, Model, Memory, Files, Shell, Network, Browser, Agents, Skills and Hooks) on macOS, Windows and the paired mobile web app. The model station indicates a busy turn awaiting a tool or response. The circular SVG uses the upstream station icons, palette and animated pulses. Only activities identified in the CLI stream light up. Click the title to collapse the map. The map disappears when the turn and its background agents finish or you stop the task. It uses existing local CLI events and sends no additional model requests.
+Sending a message opens an activity map in the upper-right corner of the current chat. Claude Code and Codex use the original ten Lot Map stations (You, Model, Memory, Files, Shell, Network, Browser, Agents, Skills and Hooks) on macOS, Windows and the paired mobile web app. The model station indicates a busy turn awaiting a tool or response. The circular SVG uses the upstream station icons, palette and animated pulses. Only activities identified in the CLI stream light up. Memory covers the CLIs' memory folders (including the separate Claude/Codex configuration folders TheAll uses) and `CLAUDE.md` / `CLAUDE.local.md` / `AGENTS.md`. Network covers WebFetch/WebSearch, unknown MCP servers and shell commands that go online, such as `curl`, `gh`, `git clone/fetch/pull/push` and package installs. Browser covers browser MCP servers, opening a URL (`open`/`start`), Playwright/Puppeteer and AppleScript driving a browser. TheAll does not load your own MCP servers, so Browser stays dark unless the model uses one of these. Click the title to collapse the map. The map disappears when the turn and its background agents finish or you stop the task. It uses existing local CLI events and sends no additional model requests.
 
 The footer shows the percentage remaining in each reported five-hour or seven-day account window, including zero. It reads rate-limit events from the current CLI session. Windows and macOS expose the same values to their paired mobile clients. The footer disappears when no current reading is available. A connection using an API key or a custom endpoint may never receive these events.
 

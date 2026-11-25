@@ -1,5 +1,5 @@
 import { renderMarkdown } from './markdown.js';
-import { APIError, request, subagentState, chatPath, mergePage, turns, operation, readPairToken, isPrivateLANHTTP } from './core.js';
+import { APIError, request, subagentState, chatPath, mergePage, turns, progressPreview, operation, readPairToken, isPrivateLANHTTP } from './core.js';
 
 import { NotificationPreferences, readNotificationChat, notificationMessage } from './notifications.js';
 import { turnTiming } from './timing.js';
@@ -579,7 +579,7 @@ document.addEventListener('visibilitychange', updateComposer);
 function renderChat(initial = false) {
   const data = state.chats.get(state.selected); updateHeader();
   if (!data) { $('messages').replaceChildren(el('p', 'muted small', t('loading'))); updateComposer(); return; }
-  const signature = JSON.stringify([data.messages, data.provider, language(), state.access.writable]);
+  const signature = JSON.stringify([data.messages, data.isBusy, data.provider, language(), state.access.writable]);
   const nearBottom = atBottom(); const anchor = readingAnchor(); const oldTop = $('transcript').scrollTop;
   if (signature !== state.rendering) {
     state.rendering = signature;
@@ -588,18 +588,24 @@ function renderChat(initial = false) {
     const previousNodes = new Map([...$('messages').querySelectorAll('[data-message-id]')].map(node => [node.dataset.messageId, node]));
     const fragment = document.createDocumentFragment();
     if (!data.messages.length) fragment.append(el('p', 'muted small', t(state.access.writable ? 'noMessages' : 'readOnlyMessages')));
-    for (const turn of turns(data.messages)) {
+    const allTurns = turns(data.messages, { running: !!data.isBusy });
+    for (const [index, turn] of allTurns.entries()) {
       const section = el('section', 'turn');
       if (turn.user) section.append(messageNode(turn.user, data.provider, data.id, previousNodes));
       if (turn.progress.length) {
+        // Thinking and progress stay folded into one line, including while the turn runs.
+        // A finished turn without an answer opens it, since the progress is all it produced.
         const key = `${data.id}:${turn.id}`; const hasAnswer = turn.answers.some(m => m.role === 'assistant' && m.text?.trim());
-        const saved = state.progress.get(key);
-        const open = hasAnswer && !saved?.finished ? false : saved?.open ?? !hasAnswer;
+        const live = !!data.isBusy && index === allTurns.length - 1;
+        const open = state.progress.get(key)?.open ?? (!live && !hasAnswer);
         const details = el('details', 'progress'); details.open = open;
-        state.progress.set(key, { open, finished: hasAnswer });
-        details.append(el('summary', '', `${t('thinking')} · ${turn.progress.length} ${t('updates')}`));
+        state.progress.set(key, { open });
+        const summary = el('summary', '', `${t('thinking')} · ${turn.progress.length} ${t('updates')}`);
+        const preview = live ? progressPreview(turn.progress.at(-1)) : '';
+        if (preview) summary.append(el('span', 'progress-preview', preview));
+        details.append(summary);
         for (const message of turn.progress) details.append(messageNode(message, data.provider, data.id, previousNodes));
-        details.addEventListener('toggle', () => { if (details.isConnected) state.progress.set(key, { open: details.open, finished: hasAnswer }); updateJump(); });
+        details.addEventListener('toggle', () => { if (details.isConnected) state.progress.set(key, { open: details.open }); updateJump(); });
         section.append(details);
       }
       for (const message of turn.answers) section.append(messageNode(message, data.provider, data.id, previousNodes));

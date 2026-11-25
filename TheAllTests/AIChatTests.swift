@@ -1052,6 +1052,95 @@ final class AIChatTests: XCTestCase {
         XCTAssertEqual(editor.string, "Keep this draft")
     }
 
+    @MainActor func testTypingAfterLongPasteShowsCurrentLine() throws {
+        let session = AITerminalSession()
+        let chat = AIChatSession(provider: .claude, model: "", directory: "/tmp", transport: Transport())
+        let pane = AIChatNativePane(session: session, chat: chat, onFocus: {}, onEdit: {})
+        let window = NSWindow(contentRect: NSRect(x: 30, y: 30, width: 760, height: 600),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = pane
+        window.orderFront(nil)
+        defer { window.close() }
+        func settle() { RunLoop.current.run(until: Date().addingTimeInterval(0.15)) }
+        func findEditor(_ view: NSView) -> AIChatComposer.Editor? {
+            view as? AIChatComposer.Editor ?? view.subviews.lazy.compactMap(findEditor).first
+        }
+        settle()
+        let editor = try XCTUnwrap(findEditor(pane))
+        window.makeFirstResponder(editor)
+        let draft = (0..<172).map { String(repeating: "这是长草稿的一行。Mixed-width text. ", count: $0 % 8 + 1) }.joined(separator: "\n")
+        let pasteboard = NSPasteboard.withUniqueName()
+        defer { pasteboard.releaseGlobally() }
+        pasteboard.setString(draft, forType: .string)
+        XCTAssertTrue(editor.readSelection(from: pasteboard, type: .string))
+        settle()
+        let scroll = try XCTUnwrap(editor.enclosingScrollView)
+        // The user can scroll up to review a paste while the insertion point stays at its end.
+        scroll.contentView.scroll(to: .zero)
+        editor.setMarkedText("ji", selectedRange: NSRange(location: 2, length: 0), replacementRange: editor.selectedRange())
+        settle()
+        XCTAssertTrue(editor.hasMarkedText())
+        let viewportDuringComposition = window.convertToScreen(scroll.contentView.convert(scroll.contentView.bounds, to: nil))
+        let candidate = editor.firstRect(forCharacterRange: editor.markedRange(), actualRange: nil)
+        XCTAssertTrue(viewportDuringComposition.contains(NSPoint(x: candidate.midX, y: candidate.midY)))
+        editor.insertText("继续", replacementRange: editor.markedRange())
+        settle()
+        XCTAssertEqual(chat.input, draft + "继续")
+        let caret = editor.firstRect(forCharacterRange: editor.selectedRange(), actualRange: nil)
+        let viewport = window.convertToScreen(scroll.contentView.convert(scroll.contentView.bounds, to: nil))
+        XCTAssertTrue(viewport.contains(NSPoint(x: caret.midX, y: caret.midY)), "Caret \(caret) outside \(viewport)")
+        // Capture the viewport in the composed pane, excluding border, caret and scrollbar.
+        let area = scroll.convert(scroll.bounds.insetBy(dx: 18, dy: 8), to: pane)
+        let bitmap = try XCTUnwrap(pane.bitmapImageRepForCachingDisplay(in: area))
+        pane.cacheDisplay(in: area, to: bitmap)
+        var darkest = CGFloat(1), lightest = CGFloat(0)
+        var inkSamples = 0
+        let background = try XCTUnwrap(editor.backgroundColor.usingColorSpace(.deviceRGB))
+        for y in stride(from: 0, to: bitmap.pixelsHigh, by: 3) {
+            for x in stride(from: 0, to: bitmap.pixelsWide, by: 3) {
+                guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) else { continue }
+                darkest = min(darkest, color.brightnessComponent)
+                lightest = max(lightest, color.brightnessComponent)
+                if abs(background.brightnessComponent - color.brightnessComponent) > 0.2 { inkSamples += 1 }
+            }
+        }
+        XCTAssertGreaterThan(lightest - darkest, 0.2)
+        XCTAssertGreaterThan(inkSamples, 40, "The visible editing area should contain painted text")
+    }
+
+    @MainActor func testFreshChatEffortMenuUsesVisibleComposerButton() throws {
+        let session = AITerminalSession()
+        let pipe = Transport()
+        let chat = AIChatSession(provider: .claude, model: "model-a", directory: "/tmp", transport: pipe)
+        chat.start(configuration)
+        pipe.respond(["models": [["value": "model-a", "supportsEffort": true, "supportedEffortLevels": ["low", "high"]]]])
+        let host = AIChatNativePane(session: session, chat: chat, onFocus: {}, onEdit: {})
+        let window = NSWindow(contentRect: NSRect(x: 80, y: 70, width: 760, height: 540),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        window.orderFront(nil)
+        defer { chat.stop(); window.close() }
+        func effortButton(in view: NSView) -> NSPopUpButton? {
+            if let button = view as? NSPopUpButton, button.itemTitles.contains("high"),
+               !button.visibleRect.isEmpty, !button.isHiddenOrHasHiddenAncestor { return button }
+            return view.subviews.lazy.compactMap { effortButton(in: $0) }.first
+        }
+        for width in [760, 420] {
+            window.setContentSize(NSSize(width: width, height: 540))
+            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+            let button = try XCTUnwrap(effortButton(in: host))
+            let frame = button.convert(button.bounds, to: host)
+            XCTAssertTrue(host.bounds.contains(frame))
+            XCTAssertGreaterThan(frame.midY, host.bounds.midY)
+            button.selectItem(withTitle: "high")
+            XCTAssertTrue(button.sendAction(button.action, to: button.target))
+            XCTAssertEqual(chat.reasoningEffort, "high")
+            chat.reasoningEffort = ""
+        }
+    }
+
     @MainActor func testNativeChatLayoutWithModelsBelowEditorAndScrollableTranscript() throws {
         // Standalone hosting roots create their AX nodes only when assistive
         // access is active. Enable it in this isolated test process.

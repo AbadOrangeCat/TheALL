@@ -34,6 +34,59 @@ struct AIModelPicker: View {
     }
 }
 
+// Keep the menu attached to the actual control in the visible composer's window.
+private struct AIReasoningEffortPicker: NSViewRepresentable {
+    @Binding var selection: String
+    let efforts: [String]
+    let accent: NSColor
+
+    final class Coordinator: NSObject {
+        var selection: Binding<String>
+        init(selection: Binding<String>) { self.selection = selection }
+
+        @objc func choose(_ sender: NSPopUpButton) {
+            if let effort = sender.selectedItem?.representedObject as? String {
+                selection.wrappedValue = effort
+            }
+        }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(selection: $selection) }
+
+    func makeNSView(context: Context) -> NSPopUpButton {
+        let button = NSPopUpButton(frame: .zero, pullsDown: false)
+        button.controlSize = .large
+        button.target = context.coordinator
+        button.action = #selector(Coordinator.choose(_:))
+        button.autoenablesItems = false
+        button.setAccessibilityIdentifier("chat-reasoning-effort")
+        return button
+    }
+
+    func updateNSView(_ button: NSPopUpButton, context: Context) {
+        context.coordinator.selection = $selection
+        let obsolete = !selection.isEmpty && !efforts.contains(selection)
+        let values = [""] + (obsolete ? [selection] : []) + efforts
+        let defaultTitle = L10n.string("ai.effort.default")
+        if button.itemArray.compactMap({ $0.representedObject as? String }) != values
+            || button.item(at: 0)?.title != defaultTitle {
+            button.removeAllItems()
+            for value in values {
+                button.addItem(withTitle: value.isEmpty ? defaultTitle : value)
+                button.lastItem?.representedObject = value
+            }
+        }
+        for item in button.itemArray {
+            item.isEnabled = !obsolete || item.representedObject as? String != selection
+        }
+        button.selectItem(at: values.firstIndex(of: selection) ?? 0)
+        button.isEnabled = !efforts.isEmpty
+        button.contentTintColor = accent
+        button.toolTip = L10n.string(efforts.isEmpty ? "ai.effort.unavailable" : "ai.effort.title")
+        button.setAccessibilityLabel(L10n.string("ai.effort.title"))
+    }
+}
+
 enum AIChatCompletionLabel {
     static func text(for message: AIChatMessage, locale: Locale) -> String? {
         guard message.role == .assistant, let raw = message.completedAt,
@@ -177,7 +230,6 @@ struct AIChatView: View {
                     acceptsPhotoDrops: !presentation.importingPhotos,
                     onPhotoDragTargeted: { presentation.editorPhotoDropTargeted = $0 })
                     .frame(height: DT.Chat.editorHeight)
-                    .clipShape(RoundedRectangle(cornerRadius: DT.Radius.card, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: DT.Radius.card, style: .continuous)
                         .strokeBorder(Color(nsColor: theme.border), lineWidth: DT.Stroke.hairline))
                 ViewThatFits(in: .horizontal) {
@@ -257,19 +309,8 @@ struct AIChatView: View {
     private func modelControls(showsStop: Bool) -> some View {
         HStack(spacing: DT.Space.sm) {
             AIModelPicker(session: session, selection: Binding(get: { chat.model }, set: { session.selectModel($0) }), showsRefresh: false)
-            Picker(L10n.string("ai.effort.title"), selection: $chat.reasoningEffort) {
-                Text(L10n.string("ai.effort.default")).tag("")
-                if !chat.reasoningEffort.isEmpty, !chat.supportedReasoningEfforts.contains(chat.reasoningEffort) {
-                    Text(chat.reasoningEffort).tag(chat.reasoningEffort).disabled(true)
-                }
-                ForEach(chat.supportedReasoningEfforts, id: \.self) { effort in Text(effort).tag(effort) }
-            }
-            .pickerStyle(.menu).labelsHidden().controlSize(.large)
-            .frame(minWidth: 64, maxWidth: 130)
-            .disabled(chat.supportedReasoningEfforts.isEmpty)
-            .help(L10n.string(chat.supportedReasoningEfforts.isEmpty ? "ai.effort.unavailable" : "ai.effort.title"))
-            .accessibilityLabel(L10n.string("ai.effort.title"))
-            .accessibilityIdentifier("chat-reasoning-effort")
+            AIReasoningEffortPicker(selection: $chat.reasoningEffort, efforts: chat.supportedReasoningEfforts, accent: theme.accent)
+                .frame(minWidth: 64, maxWidth: 130)
             Button(L10n.string(chat.isBusy ? "ai.chat.steer" : "ai.chat.send"), action: send)
                 .buttonStyle(.borderedProminent)
                 .disabled(!chat.canSend || presentation.importingPhotos)
@@ -497,12 +538,93 @@ final class AIChatPresentation {
     var forceScroll = 0
     var expandedIntermediateIDs = Set<String>()
     var collapsedThinkingIDs = Set<String>()
+    /// Folded step rows the user opened or closed; others use their default.
+    var stepExpansion: [String: Bool] = [:]
     var showsPhotoPicker = false
     var importingPhotos = false
     var photoError: String?
     var previewPhoto: AIChatImage?
     var photoDropTargeted = false
     var editorPhotoDropTargeted = false
+}
+
+/// The Mac transcript keeps a bounded number of message rows, like the phone's
+/// "Load earlier messages" pages. Each row is its own SwiftUI host, so a long
+/// conversation with thousands of tool steps would otherwise keep thousands of
+/// view graphs alive in every open tab.
+enum AIChatTranscriptWindow {
+    static let page = 100
+
+    /// Where the newest page starts.
+    static func latestStart(_ messages: [AIChatMessage], page: Int = page) -> Int {
+        earlierStart(messages, before: messages.count, page: page)
+    }
+
+    /// Where the transcript starts after revealing one more page before `start`.
+    /// Begins at the question that opens that round when one is within half a page.
+    static func earlierStart(_ messages: [AIChatMessage], before start: Int, page: Int = page) -> Int {
+        let target = max(0, min(start, messages.count) - page)
+        guard target > 0 else { return 0 }
+        let floor = max(0, target - page / 2)
+        return messages[floor...target].lastIndex { $0.role == .user && !$0.isSteering } ?? target
+    }
+}
+
+/// One transcript row: a message, or a run of thinking and progress steps folded together.
+enum AIChatTranscriptItem: Equatable {
+    case message(AIChatMessage)
+    case steps(id: String, [AIChatMessage])
+
+    var id: String {
+        switch self {
+        case .message(let message): return message.id
+        case .steps(let id, _): return id
+        }
+    }
+}
+
+/// Display only: thinking and progress notes take one compact row per run of
+/// steps instead of a row each. Messages, history and the CLI context are unchanged.
+/// Mirrors `turns(…, { running })` in MobileWeb.bundle/core.js.
+enum AIChatTranscriptLayout {
+    /// A running turn's replies that already have later steps (including hidden
+    /// tool calls) are progress notes; only the newest one can still be the answer.
+    /// A finished turn marks its notes `isIntermediate` itself.
+    static func runningNotes(_ messages: [AIChatMessage], isBusy: Bool) -> Set<String> {
+        guard isBusy, messages.count > 1 else { return [] }
+        let start = (messages.lastIndex { $0.role == .user && !$0.isSteering } ?? -1) + 1
+        guard start < messages.count - 1 else { return [] }
+        return Set(messages[start..<(messages.count - 1)]
+            .filter { $0.role == .assistant && !$0.isError && !$0.isIntermediate }.map(\.id))
+    }
+
+    /// Errors always stay visible as their own rows.
+    static func isStep(_ message: AIChatMessage, notes: Set<String>) -> Bool {
+        !message.isError && (message.role == .thinking || message.isIntermediate || notes.contains(message.id))
+    }
+
+    static func items<C: Collection>(_ messages: C, notes: Set<String>) -> [AIChatTranscriptItem] where C.Element == AIChatMessage {
+        var items: [AIChatTranscriptItem] = []
+        for message in messages {
+            guard isStep(message, notes: notes) else { items.append(.message(message)); continue }
+            if case .steps(let id, var steps)? = items.last {
+                steps.append(message)
+                items[items.count - 1] = .steps(id: id, steps)
+            } else {
+                items.append(.steps(id: "steps:" + message.id, [message]))
+            }
+        }
+        return items
+    }
+
+    /// One line describing the newest step, shown on the folded row while a turn runs.
+    static func preview(_ message: AIChatMessage?, limit: Int = 160) -> String {
+        let markup = CharacterSet(charactersIn: "#>*`-").union(.whitespaces)
+        let line = (message?.text ?? "").components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: markup).replacingOccurrences(of: "**", with: "").replacingOccurrences(of: "`", with: "") }
+            .last { !$0.isEmpty } ?? ""
+        return line.count > limit ? String(line.prefix(limit)) + "…" : line
+    }
 }
 
 /// AppKit owns scrolling and row geometry. Stable, individually hosted messages
@@ -521,6 +643,14 @@ final class AIChatNativePane: NSView {
     private var chromeHosts: [NSHostingView<AIChatView>] = []
     private var layoutWidth: CGFloat = 0
     private var importAttachments: (NSPasteboard) -> Bool = { _ in false }
+    private let earlier = NSButton(title: "", target: nil, action: nil)
+    /// First message the user asked to see by loading earlier pages.
+    private var pinnedFirstID: String?
+    /// First message currently shown; kept while the user reads above the bottom
+    /// so new messages never shift the rows under them.
+    private var shownFirstID: String?
+    private var atBottom = true
+    private var releaseEarlier: DispatchWorkItem?
 
     init(session: AITerminalSession, chat: AIChatSession, onFocus: @escaping () -> Void,
          onEdit: @escaping () -> Void, onChooseDirectory: @escaping () -> Void = {},
@@ -557,6 +687,11 @@ final class AIChatNativePane: NSView {
         stack.alignment = .leading
         stack.spacing = DT.Space.lg
         stack.detachesHiddenViews = true
+        earlier.target = self
+        earlier.action = #selector(showEarlier)
+        earlier.isBordered = false
+        earlier.font = .systemFont(ofSize: 12, weight: .medium)
+        earlier.setAccessibilityIdentifier("chat-show-earlier")
         document.addSubview(stack)
         addSubview(header)
         addSubview(scroll)
@@ -592,9 +727,10 @@ final class AIChatNativePane: NSView {
             jump.trailingAnchor.constraint(equalTo: scroll.trailingAnchor, constant: -12),
             jump.bottomAnchor.constraint(equalTo: scroll.bottomAnchor, constant: -12)
         ])
-        scroll.onBottomChange = { [weak jump] atBottom in
+        scroll.onBottomChange = { [weak self, weak jump] atBottom in
             presentation.isAtBottom = atBottom
             jump?.isHidden = atBottom
+            self?.atBottom = atBottom
         }
         scroll.observeDocument()
         observeScrollRequest()
@@ -603,6 +739,49 @@ final class AIChatNativePane: NSView {
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     override var isFlipped: Bool { true }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        releaseEarlier?.cancel()
+        releaseEarlier = nil
+        guard window == nil else { return }
+        // A tab left in the background drops pages loaded beyond the newest one.
+        // The delay keeps a split or tab reorder, which re-parents the pane, intact.
+        let release = DispatchWorkItem { [weak self] in
+            guard let self, self.window == nil, self.pinnedFirstID != nil || self.shownFirstID != nil else { return }
+            self.pinnedFirstID = nil
+            self.shownFirstID = nil
+            self.updateTranscript()
+        }
+        releaseEarlier = release
+        DispatchQueue.main.asyncAfter(deadline: .now() + 30, execute: release)
+    }
+
+    @objc private func showEarlier() {
+        let all = chat.visibleMessages
+        let first = shownFirstID.flatMap { id in all.firstIndex { $0.id == id } } ?? transcriptStart(all)
+        guard first > 0 else { return }
+        pinnedFirstID = all[AIChatTranscriptWindow.earlierStart(all, before: first)].id
+        // Keep the rows on screen where they are while older ones appear above.
+        let height = document.frame.height
+        let origin = scroll.contentView.bounds.origin
+        updateTranscript()
+        scroll.layoutSubtreeIfNeeded()
+        let added = document.frame.height - height
+        scroll.contentView.scroll(to: NSPoint(x: origin.x, y: origin.y + max(0, added)))
+        scroll.reflectScrolledClipView(scroll.contentView)
+    }
+
+    /// Index of the first message to show.
+    private func transcriptStart(_ all: [AIChatMessage]) -> Int {
+        let latest = AIChatTranscriptWindow.latestStart(all)
+        func index(_ id: String?) -> Int? { id.flatMap { id in all.firstIndex { $0.id == id } } }
+        // Pages the user loaded stay until the tab has been in the background for a while.
+        if let pinned = index(pinnedFirstID) { return min(pinned, latest) }
+        pinnedFirstID = nil
+        if !atBottom, let shown = index(shownFirstID) { return min(shown, latest) }
+        return latest
+    }
 
     override func layout() {
         super.layout()
@@ -667,22 +846,53 @@ final class AIChatNativePane: NSView {
     }
 
     private func updateTranscript() {
-        let messages = chat.visibleMessages
+        let all = chat.visibleMessages
+        let start = transcriptStart(all)
+        let messages = all[start...]
+        shownFirstID = messages.first?.id
         let activeID = chat.activeThinkingID
-        var views: [NSView] = messages.isEmpty ? [welcome] : []
-        let ids = Set(messages.map(\.id))
+        var views: [NSView] = all.isEmpty ? [welcome] : []
+        if start > 0 {
+            earlier.title = L10n.string("ai.chat.showEarlier", start)
+            earlier.contentTintColor = session.theme.accent
+            views.append(earlier)
+        }
+        let items = AIChatTranscriptLayout.items(messages,
+            notes: AIChatTranscriptLayout.runningNotes(chat.messages, isBusy: chat.isBusy))
+        // Rows outside the window are released with their SwiftUI graphs.
+        let ids = Set(items.map(\.id))
         rows = rows.filter { ids.contains($0.key) }
-        for (index, message) in messages.enumerated() {
-            let row = AIChatNativeRow(width: max(1, (layoutWidth > 0 ? layoutWidth : 760) - 2 * DT.Space.lg),
-                row: AIChatMessageRow(message: message,
-                showsDivider: message.role == .user && !message.isSteering && index > 0,
-                providerTitle: session.provider?.tool ?? "AI", directory: chat.directory,
-                theme: session.theme, locale: session.locale, imageStore: chat.imageStore, fileStore: chat.fileStore,
-                isActive: activeID == message.id, expanded: expansion(for: message).wrappedValue,
-                onExpansionChange: { [weak self] in self?.expansion(for: message).wrappedValue = $0 },
-                onOpenPhoto: { [weak self] in self?.presentation.previewPhoto = $0 }))
+        let width = max(1, (layoutWidth > 0 ? layoutWidth : 760) - 2 * DT.Space.lg)
+        let firstID = all.first?.id
+        // Steps after the last question belong to the running turn.
+        let runningFrom = chat.isBusy ? items.lastIndex { if case .message(let m) = $0 { m.role == .user && !m.isSteering } else { false } } ?? -1 : items.count
+        var activeSteps = false
+        for (position, item) in items.enumerated() {
+            let content: AIChatNativeRow.Content
+            switch item {
+            case .message(let message):
+                content = .message(AIChatMessageRow(message: message,
+                    showsDivider: message.role == .user && !message.isSteering && message.id != firstID,
+                    providerTitle: session.provider?.tool ?? "AI", directory: chat.directory,
+                    theme: session.theme, locale: session.locale, imageStore: chat.imageStore, fileStore: chat.fileStore,
+                    isActive: activeID == message.id, expanded: expansion(for: message).wrappedValue,
+                    onExpansionChange: { [weak self] in self?.expansion(for: message).wrappedValue = $0 },
+                    onOpenPhoto: { [weak self] in self?.presentation.previewPhoto = $0 }))
+            case .steps(let id, let steps):
+                let active = position > runningFrom
+                activeSteps = activeSteps || (active && position == items.count - 1)
+                // A finished turn without an answer opens its steps: they are all it produced.
+                var answered = false
+                if position + 1 < items.count, case .message(let next) = items[position + 1] { answered = next.role != .user || next.isSteering }
+                let presentation = presentation
+                content = .steps(AIChatStepsRow(id: id, steps: steps, directory: chat.directory, theme: session.theme,
+                    locale: session.locale, isActive: active,
+                    expanded: presentation.stepExpansion[id] ?? (!active && !answered),
+                    onExpansionChange: { presentation.stepExpansion[id] = $0 }))
+            }
+            let row = AIChatNativeRow(width: width, content: content)
             let host: NSHostingView<AIChatNativeRow>
-            if let existing = rows[message.id] {
+            if let existing = rows[item.id] {
                 host = existing
                 if host.rootView != row { host.rootView = row }
             } else {
@@ -691,11 +901,12 @@ final class AIChatNativePane: NSView {
                 host.safeAreaRegions = []
                 host.translatesAutoresizingMaskIntoConstraints = false
                 host.setContentHuggingPriority(.required, for: .vertical)
-                rows[message.id] = host
+                rows[item.id] = host
             }
             views.append(host)
         }
-        if chat.showsThinkingPlaceholder { views.append(status) }
+        // A running step row already shows its spinner and newest step.
+        if chat.showsThinkingPlaceholder && !activeSteps { views.append(status) }
         arrange(views)
         document.layer?.backgroundColor = session.theme.canvas.cgColor
         scroll.backgroundColor = session.theme.canvas
@@ -939,16 +1150,88 @@ private struct AIChatSubagentRow: View {
 }
 
 private struct AIChatNativeRow: View, Equatable {
+    enum Content: Equatable {
+        case message(AIChatMessageRow)
+        case steps(AIChatStepsRow)
+    }
     let width: CGFloat
-    let row: AIChatMessageRow
+    let content: Content
+    private var theme: AppTheme {
+        switch content {
+        case .message(let row): return row.theme
+        case .steps(let row): return row.theme
+        }
+    }
     var body: some View {
-        row.equatable()
+        Group {
+            switch content {
+            case .message(let row): row.equatable()
+            case .steps(let row): row.equatable()
+            }
+        }
             .frame(maxWidth: DT.Chat.contentWidth)
             .frame(width: width, alignment: .center)
             .fixedSize(horizontal: false, vertical: true)
-            .foregroundStyle(Color(nsColor: row.theme.textPrimary))
-            .tint(Color(nsColor: row.theme.accent))
-            .environment(\.colorScheme, row.theme.isDark ? .dark : .light)
+            .foregroundStyle(Color(nsColor: theme.textPrimary))
+            .tint(Color(nsColor: theme.accent))
+            .environment(\.colorScheme, theme.isDark ? .dark : .light)
+    }
+}
+
+/// Thinking and progress notes of one run, folded to a single line. Expanding
+/// shows every step in full, selectable like any reply.
+private struct AIChatStepsRow: View, Equatable {
+    let id: String
+    let steps: [AIChatMessage]
+    let directory: String
+    let theme: AppTheme
+    let locale: Locale
+    let isActive: Bool
+    let expanded: Bool
+    let onExpansionChange: (Bool) -> Void
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.id == rhs.id && lhs.steps == rhs.steps && lhs.directory == rhs.directory && lhs.theme == rhs.theme
+            && lhs.locale == rhs.locale && lhs.isActive == rhs.isActive && lhs.expanded == rhs.expanded
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button { onExpansionChange(!expanded) } label: {
+                HStack(spacing: 6) {
+                    if isActive { ProgressView().controlSize(.small) } else { Image(systemName: "sparkles") }
+                    Text(L10n.string("ai.chat.steps", steps.count))
+                    Spacer(minLength: 8)
+                    Image(systemName: expanded ? "chevron.up" : "chevron.down").font(.caption2)
+                }
+                .font(.caption.weight(.medium))
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("chat-steps")
+            if !expanded, isActive {
+                let preview = AIChatTranscriptLayout.preview(steps.last)
+                if !preview.isEmpty {
+                    Text(verbatim: preview).font(.caption).lineLimit(1).truncationMode(.tail).padding(.top, 4)
+                        .accessibilityIdentifier("chat-steps-preview")
+                }
+            }
+            if expanded {
+                ForEach(steps) { step in
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(L10n.string(step.role == .thinking ? "ai.chat.thinking" : "ai.chat.progress"))
+                            .font(.caption2.weight(.semibold))
+                        AIChatMarkdown(text: step.text, directory: directory, theme: theme).equatable()
+                    }
+                    .padding(.top, DT.Space.md)
+                }
+            }
+        }
+        .foregroundStyle(Color(nsColor: theme.textSecondary))
+        .padding(DT.Space.md)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .overlay(RoundedRectangle(cornerRadius: DT.Radius.window, style: .continuous)
+            .strokeBorder(Color(nsColor: theme.border), lineWidth: DT.Stroke.hairline))
     }
 }
 
@@ -1198,6 +1481,9 @@ struct AIChatComposer: NSViewRepresentable {
             // text as a fresh draft so it cannot overwrite another entry's edit.
             if editingUndoManager.isUndoing || editingUndoManager.isRedoing { resetHistory() }
             super.didChangeText()
+            if window?.firstResponder === self, selectedRange().length == 0 {
+                scrollRangeToVisible(selectedRange())
+            }
         }
 
         override func becomeFirstResponder() -> Bool {
@@ -1329,7 +1615,17 @@ struct AIChatComposer: NSViewRepresentable {
         let scroll = NSScrollView()
         scroll.hasVerticalScroller = true
         scroll.borderType = .noBorder
-        let editor = Editor(frame: .zero)
+        // Clip the fixed viewport, so the growing text document can draw natively.
+        scroll.wantsLayer = true
+        scroll.layer?.cornerRadius = DT.Radius.card
+        scroll.layer?.cornerCurve = .continuous
+        scroll.layer?.masksToBounds = true
+        // Keep wrapping, document height and caret scrolling on the same layout
+        // manager, including the line-fragment queries used by history navigation.
+        let editor = Editor(usingTextLayoutManager: false)
+        editor.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        editor.textContainer?.heightTracksTextView = false
+        editor.textContainer?.containerSize = NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
         editor.isRichText = false
         editor.allowsUndo = true
         editor.isAutomaticQuoteSubstitutionEnabled = false
@@ -1356,7 +1652,8 @@ struct AIChatComposer: NSViewRepresentable {
         editor.onPasteImages = onPasteImages
         editor.acceptsPhotoDrops = acceptsPhotoDrops
         editor.onPhotoDragTargeted = onPhotoDragTargeted
-        editor.textColor = theme.textPrimary
+        // Setting NSTextView.textColor reapplies attributes to the entire draft.
+        if editor.textColor != theme.textPrimary { editor.textColor = theme.textPrimary }
         editor.insertionPointColor = theme.accent
         editor.backgroundColor = theme.canvas
         scroll.backgroundColor = theme.canvas

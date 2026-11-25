@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 const bundle = new URL('../TheAll/Mobile/MobileWeb.bundle/', import.meta.url);
 const source = await readFile(new URL('core.js', bundle), 'utf8');
-const { APIError, request, chatPath, mergePage, turns, operation, readPairToken, safeLink, randomUUID, isPrivateLANHTTP } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
+const { APIError, request, chatPath, mergePage, turns, progressPreview, operation, readPairToken, safeLink, randomUUID, isPrivateLANHTTP } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
 
 test('API reads use same-origin cookies, no-store and no token in headers or query', async () => {
   let observed;
@@ -182,4 +182,19 @@ test('quick connection and shortcut instructions are translated in all five lang
   for (const code of ['en', 'zh-Hans', 'fr', 'ja', 'ko']) {
     for (const key of ['pairing', 'quickLANNote', 'installAndroidLAN', 'installNetworkLAN']) assert.ok(catalog[code][key], `${code}.${key}`);
   }
+});
+test('a running turn folds replies that already have later steps; only the newest can still be the answer', () => {
+  const messages = [
+    { id: 'q', role: 'user', text: 'Fix the build' },
+    { id: 'note', role: 'assistant', text: 'Let me check the logs' },
+    { id: 'tool', role: 'tool', text: 'Bash' },
+    { id: 'think', role: 'thinking', text: 'The linker fails\n## Checking **flags**' },
+    { id: 'live', role: 'assistant', text: 'The build now' },
+  ];
+  const running = turns(messages, { running: true });
+  assert.deepEqual(running[0].progress.map(m => m.id), ['note', 'think']);
+  assert.deepEqual(running[0].answers.map(m => m.id), ['live']);
+  assert.deepEqual(turns(messages)[0].answers.map(m => m.id), ['note', 'live'], 'Finished turns keep their own marking');
+  assert.equal(progressPreview(messages[3]), 'Checking flags');
+  assert.equal(progressPreview({ text: 'x'.repeat(200) }).length, 161);
 });

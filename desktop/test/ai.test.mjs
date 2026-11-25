@@ -875,3 +875,19 @@ test('Codex reopens the Lot Map for a new turn in the connected thread', async t
   assert.equal(completions.length, 1);
   assert.equal(f.chat.messages.filter(m => m.role === 'user').length, 1);
 });
+
+test('every finished turn reports its outcome for the tab dot, including failures and interruptions', async t => {
+  const f = await fixture(t, 'claude', (m, child) => { if (m.request?.subtype === 'interrupt') child.respond(m); });
+  const finished = []; f.session.on('finished', event => finished.push([event.chatId, event.status])); await f.session.start();
+  assert.deepEqual(finished, [], 'Starting the CLI is not a turn');
+  await f.session.send({ text: 'First' }); f.child.emitJSON({ type: 'result', uuid: 'r1', subtype: 'success', result: 'Done' });
+  assert.deepEqual(finished, [['chat-1', 'completed']]);
+  await f.session.send({ text: 'Second' });
+  f.child.emitJSON({ type: 'result', uuid: 'r2', subtype: 'error_during_execution', is_error: true, errors: ['Failed'] });
+  assert.deepEqual(finished.map(([, status]) => status), ['completed', 'failed']);
+  await f.session.send({ text: 'Third' }); await f.session.interrupt();
+  f.child.emitJSON({ type: 'result', uuid: 'r3', subtype: 'success', result: 'Partial' });
+  assert.deepEqual(finished.map(([, status]) => status), ['completed', 'failed', 'interrupted']);
+  await f.session.close();
+  assert.equal(finished.length, 3, 'Closing an idle session reports nothing');
+});

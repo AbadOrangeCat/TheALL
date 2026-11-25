@@ -9,7 +9,7 @@ export function themeTokens(mode='system',systemDark=true){
  const fg=hex(configured.foreground)||(defaultDark?[.92,.92,.93]:[.10,.10,.105]);
  const dark=Math.max(...bg)<.5;
  const accent=hex(configured.palette3||configured.palette11||configured.palette6||configured.palette14)||(dark?[.953,.659,.196]:[.850,.450,.050]);
- return {'--canvas':css(bg),'--surface':css(bg),'--sidebar':css(mix(bg,fg,dark?.04:.05)),'--border':css(mix(bg,fg,.12)),'--border-strong':css(mix(bg,fg,.22)),'--text':css(fg),'--muted':css(mix(fg,bg,.4)),'--tertiary':css(mix(fg,bg,.65)),'--accent':css(accent),'--accent-muted':css(accent).replace(')', ' / 0.1)'),'--danger':css(dark?[.973,.318,.286]:[.827,.184,.184]),'--success':css(dark?[.247,.729,.314]:[.180,.600,.235]),'color-scheme':dark?'dark':'light'};
+ return {'--canvas':css(bg),'--surface':css(bg),'--sidebar':css(mix(bg,fg,dark?.04:.05)),'--border':css(mix(bg,fg,.12)),'--border-strong':css(mix(bg,fg,.22)),'--text':css(fg),'--muted':css(mix(fg,bg,.4)),'--tertiary':css(mix(fg,bg,.65)),'--accent':css(accent),'--accent-muted':css(accent).replace(')', ' / 0.1)'),'--danger':css(dark?[.973,.318,.286]:[.827,.184,.184]),'--success':css(dark?[.247,.729,.314]:[.180,.600,.235]),'--unread':css(dark?[.345,.651,1]:[.035,.412,.855]),'color-scheme':dark?'dark':'light'};
 }
 export function applyTheme(document,settings={}){
  const root=document.documentElement;

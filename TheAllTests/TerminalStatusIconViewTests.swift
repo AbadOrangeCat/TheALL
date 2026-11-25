@@ -95,12 +95,17 @@ final class TerminalStatusIconViewTests: XCTestCase {
 
     private static let darkTheme = AppTheme.systemFallback(isDark: true)
 
-    func testUnreadSuccessIsSolidFill() {
+    func testUnreadSuccessIsSolidBlueFill() {
+        // A finished turn nobody has viewed yet: a blue dot, distinct from the
+        // amber accent of running / needs-input.
         guard let style = TerminalStatusIconView.renderStyle(
             for: .success(exitCode: 0, duration: 1, finishedAt: Date(), agent: .claude),
             theme: Self.darkTheme)
         else { XCTFail("renderStyle must return non-nil for .success"); return }
-        XCTAssertEqual(style.fill, Self.darkTheme.success)
+        XCTAssertEqual(style.fill, Self.darkTheme.unread)
+        XCTAssertNotEqual(Self.darkTheme.unread, Self.darkTheme.accent)
+        let blue = Self.darkTheme.unread.usingColorSpace(.sRGB)
+        XCTAssertGreaterThan(blue?.blueComponent ?? 0, blue?.redComponent ?? 1)
         XCTAssertEqual(style.stroke, NSColor.clear)
         XCTAssertEqual(style.lineWidth, 0)
     }

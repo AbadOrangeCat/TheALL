@@ -15,6 +15,7 @@ import { loadLANIdentity } from './tls.mjs';
 import { PushNotifications } from './web-push.mjs';
 import { APP_VERSION } from './version.mjs';
 import { FileAttachments, fileMetadata } from './attachments.mjs';
+import { nameFromPrompt } from './naming.mjs';
 
 const BODY_LIMIT = 32 * 1024 * 1024;
 const execute = promisify(execFile);
@@ -70,6 +71,8 @@ export async function createRuntime({ dataDir, webRoot, desktopRoot, encrypt, de
   const attachments = new FileAttachments(store.directory);
   const sessions = new Map(), starting = new Map(), receipts = new Map(), pending = new Set(), events = new Set();
   const metadataCache = new Map(), relayTransitions = new Set();
+  // Finished turns not yet viewed on the desktop: chat id → 'completed' | 'failed'. In memory only, like the Mac.
+  const unread = new Map();
   const providerGenerations = new Map(), changingProviders = new Set(), sessionGenerations = new WeakMap();
   const bootID = randomUUID(), desktopToken = token();
   const entryGeneration = { desktop: 0, lan: 0, relay: 0 };
@@ -84,6 +87,23 @@ export async function createRuntime({ dataDir, webRoot, desktopRoot, encrypt, de
     if (chatId) { const owner = store.owner(chatId); return !!owner && allowed(device, owner.id); }
     return true;
   }});
+  // A tab keeps "Chat" until its first question names it; renaming locks the name.
+  const needsTabName = tab => tab.needsAutomaticName ?? tab.title === 'Chat';
+  function nameTab(tab, text) {
+    const name = nameFromPrompt(text).slice(0, 100);
+    if (!tab || !name || !needsTabName(tab)) return false;
+    tab.title = name; tab.needsAutomaticName = false; return true;
+  }
+  const tabOf = id => store.owner(id)?.tabs.find(t => terminalIDs(t.layout).includes(id));
+  function nameTabsFromHistory() {
+    let named = false;
+    for (const w of state.workspaces) for (const t of w.tabs) {
+      if (!needsTabName(t)) continue;
+      const first = terminalIDs(t.layout).map(id => state.chats[id]?.messages.find(m => m.role === 'user' && m.text?.trim())).find(Boolean);
+      if (first) named = nameTab(t, first.text) || named;
+    }
+    if (named) try { save(); } catch { /* Storage errors surface on the next write. */ }
+  }
   function save() {
     clearTimeout(saveTimer); saveTimer = undefined;
     try { store.save(); storageError = null; }
@@ -153,6 +173,11 @@ export async function createRuntime({ dataDir, webRoot, desktopRoot, encrypt, de
       directory(chat.directory);
       const session = new Session({ chat, connection, dataDir: store.directory });
       sessions.set(chat.id, session); sessionGenerations.set(session,providerGeneration); session.on('change', changed);
+      session.on('finished', event => {
+        if (closed || sessions.get(chat.id) !== session || event?.chatId !== chat.id) return;
+        if (event.status === 'interrupted') unread.delete(chat.id); else unread.set(chat.id, event.status === 'completed' ? 'completed' : 'failed');
+        changed();
+      });
       session.on('completed', event => {
         if (closed || sessions.get(chat.id) !== session || event?.chatId !== chat.id) return;
         try { save(); } catch { return; }
@@ -192,7 +217,8 @@ export async function createRuntime({ dataDir, webRoot, desktopRoot, encrypt, de
         conversations: w.tabs.flatMap(t => terminalIDs(t.layout).map((id,i) => {
           const c = state.chats[id], s = sessions.get(id);
           return { id, workspaceId: w.id, tabId: t.id, title: t.title + (terminalIDs(t.layout).length > 1 ? ` · ${i+1}` : ''),
-            provider: c.provider || '', directory: c.directory, model: c.model, status: s?.questions?.length ? 'needsInput' : s?.isBusy ? 'running' : s?.isReady ? 'idle' : c.provider ? 'offline' : 'setup', messageCount: c.messages.length };
+            provider: c.provider || '', directory: c.directory, model: c.model, status: s?.questions?.length ? 'needsInput' : s?.isBusy ? 'running' : s?.isReady ? 'idle' : c.provider ? 'offline' : 'setup', messageCount: c.messages.length,
+            unread: unread.get(id) || null };
         })) })) };
   }
   async function imagesFrom(body) {
@@ -312,7 +338,7 @@ export async function createRuntime({ dataDir, webRoot, desktopRoot, encrypt, de
           if (input.workspaceId) {
             workspace = state.workspaces.find(w => w.id === input.workspaceId); demand(workspace,'Workspace was removed',404);
             chat = store.newChat(dir,input.provider,model);
-            const tab = {id:randomUUID(),title:'Chat',layout:leaf(chat.id)}; workspace.tabs.push(tab); workspace.selectedTabId=tab.id;
+            const tab = {id:randomUUID(),title:'Chat',needsAutomaticName:true,layout:leaf(chat.id)}; workspace.tabs.push(tab); workspace.selectedTabId=tab.id;
           } else ({workspace,chat}=store.newWorkspace({directory:dir,provider:input.provider,model}));
           save(); changed(); response=json({id:chat.id,workspaceId:workspace.id,access:device.access},201);
         } else {
@@ -335,6 +361,8 @@ export async function createRuntime({ dataDir, webRoot, desktopRoot, encrypt, de
               }}); retain=true;actionAccepted=true;
               const owner=store.owner(chat.id);
               if(owner?.needsAutomaticName) { owner.name=(input.text.trim().split(/\r?\n/)[0] || files[0]?.name || 'Photos').slice(0,48); owner.needsAutomaticName=false; }
+              nameTab(tabOf(chat.id), input.text.trim() ? input.text : files[0]?.name || '');
+              unread.delete(chat.id);
               save(); changed();
             } catch(e) { retain=e.code==='submission_uncertain' || chat.messages.some(m=>m.images?.some(i=>images.some(v=>v.id===i.id)) || m.files?.some(i=>files.some(v=>v.id===i.id))); throw e; }
             finally { if(!retain) { for(const i of images) try{fs.unlinkSync(i.path);}catch{} try{attachments.remove(files);}catch{} } }
@@ -427,7 +455,7 @@ export async function createRuntime({ dataDir, webRoot, desktopRoot, encrypt, de
   function tabFor(payload){const w=workspace(payload.workspaceId),t=w.tabs.find(t=>t.id===(payload.tabId||payload.id));demand(t,'Tab not found',404);return[w,t];}
   async function desktop(method,payload={}) {
     demand(!closed,'TheAll is closing',503);
-    demand(!updateInstalling || ['draft.save','draft.get','settings.get','workspace.metadata','mobile.info','mobile.devices'].includes(method), 'TheAll is installing an update', 503);
+    demand(!updateInstalling || ['draft.save','draft.get','settings.get','workspace.metadata','mobile.info','mobile.devices','chat.seen'].includes(method), 'TheAll is installing an update', 503);
     switch(method){
       case 'settings.get':return{...state.settings,version,connections:Object.fromEntries([...providers].map(p=>[p,store.publicConnection(p)])),mobile:{url:lanServer?.origin||null,relay:relayState}};
       case 'settings.save':{
@@ -490,12 +518,15 @@ export async function createRuntime({ dataDir, webRoot, desktopRoot, encrypt, de
         const connection=payload.provider?await store.readSecret(payload.provider):null;
         demand(!closed&&state.workspaces.includes(w),'Workspace was closed',409);
         const chat=store.newChat(directory(payload.directory||state.settings.defaultDirectory),payload.provider||null,payload.model===undefined?connection?.model||'':selectedModel(payload.model));
-        const tab={id:randomUUID(),title:'Chat',layout:leaf(chat.id)};w.tabs.push(tab);w.selectedTabId=tab.id;save();notify();return{id:tab.id,terminalId:chat.id};}
+        const tab={id:randomUUID(),title:'Chat',needsAutomaticName:true,layout:leaf(chat.id)};w.tabs.push(tab);w.selectedTabId=tab.id;save();notify();return{id:tab.id,terminalId:chat.id};}
+      // The renderer reports conversations the user is looking at; their finished-turn dots clear.
+      case 'chat.seen':{demand(Array.isArray(payload.ids)&&payload.ids.length<=64&&payload.ids.every(id=>typeof id==='string'&&UUID.test(id)),'Invalid conversations');
+        let seen=false;for(const id of payload.ids)seen=unread.delete(id)||seen;if(seen)notify();return{ok:true};}
       case 'tab.select':{const[w,t]=tabFor(payload);w.selectedTabId=t.id;save();notify();return{ok:true};}
-      case 'tab.rename':{const[,t]=tabFor(payload);demand(typeof payload.title==='string'&&payload.title.trim()&&payload.title.length<=100,'Enter a tab name');t.title=payload.title.trim();save();notify();return{ok:true};}
+      case 'tab.rename':{const[,t]=tabFor(payload);demand(typeof payload.title==='string'&&payload.title.trim()&&payload.title.length<=100,'Enter a tab name');t.title=payload.title.trim();t.needsAutomaticName=false;save();notify();return{ok:true};}
       case 'tab.reorder':{const w=workspace(payload.workspaceId);demand(Array.isArray(payload.ids)&&payload.ids.length===w.tabs.length&&new Set(payload.ids).size===payload.ids.length&&payload.ids.every(id=>w.tabs.some(t=>t.id===id)),'Invalid tab order');w.tabs=payload.ids.map(id=>w.tabs.find(t=>t.id===id));save();notify();return{ok:true};}
       case 'tab.close':{const[w,t]=tabFor(payload),ids=terminalIDs(t.layout);w.tabs=w.tabs.filter(v=>v.id!==t.id);
-        if(!w.tabs.length){const chat=store.newChat();w.tabs=[{id:randomUUID(),title:'Chat',layout:leaf(chat.id)}];}if(w.selectedTabId===t.id)w.selectedTabId=w.tabs[0].id;try{save();notify();}finally{await Promise.all(ids.map(stopChat));}return{ok:true};}
+        if(!w.tabs.length){const chat=store.newChat();w.tabs=[{id:randomUUID(),title:'Chat',needsAutomaticName:true,layout:leaf(chat.id)}];}if(w.selectedTabId===t.id)w.selectedTabId=w.tabs[0].id;try{save();notify();}finally{await Promise.all(ids.map(stopChat));}return{ok:true};}
       case 'pane.split':{const[w,t]=tabFor(payload);demand(terminalIDs(t.layout).includes(payload.terminalId)&&terminalIDs(t.layout).length<16,'Cannot split this pane');demand(['horizontal','vertical'].includes(payload.direction),'Invalid split');
         const previous=store.chat(payload.terminalId),chat=store.newChat(payload.directory?directory(payload.directory):previous.directory,payload.provider||null);
         t.layout=walkReplace(t.layout,payload.terminalId,n=>({type:'split',direction:payload.direction,ratio:0.5,first:n,second:leaf(chat.id)}));save();notify();return{terminalId:chat.id};}
@@ -578,6 +609,8 @@ export async function createRuntime({ dataDir, webRoot, desktopRoot, encrypt, de
     return relayKeysPromise;
   }
   async function relayPublicKey(){return(await relayKeys()).publicKey;}
+  // Conversations from before automatic tab names get one from their first question.
+  nameTabsFromHistory();
   desktopServer=await listen('127.0.0.1',0,'desktop');
   if(state.settings.relayURL)try{await desktop('mobile.relay.configure',{url:state.settings.relayURL});}catch(e){relayState={state:'disconnected',connected:false,error:safeError(e)};}
   return {url:desktopServer.origin,desktopToken,bootID,desktop,enableLAN,

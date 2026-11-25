@@ -270,6 +270,33 @@ final class TerminalStatusTests: XCTestCase {
         XCTAssertEqual(TerminalStatus.aggregate(inputs).priorityCaseName, "needsInput")
     }
 
+    func testAggregateUnreadSuccessBeatsReadFailure() {
+        // One pane failed earlier and was viewed; another just finished. The
+        // tab must surface the unviewed result rather than the old failure.
+        let now = Date()
+        let readFailure = TerminalStatus.failed(exitCode: 1, duration: 1, finishedAt: now, agent: .claude,
+                                                summary: nil, readAt: now)
+        let fresh = TerminalStatus.success(exitCode: 0, duration: 1, finishedAt: now, agent: .codex)
+        XCTAssertEqual(TerminalStatus.aggregate([readFailure, fresh]), fresh)
+        XCTAssertEqual(TerminalStatus.aggregate([fresh, readFailure]), fresh)
+        XCTAssertTrue(TerminalStatus.aggregate([readFailure, fresh]).wantsAttention)
+    }
+
+    func testWantsAttentionOnlyForActiveOrUnviewedStates() {
+        let now = Date()
+        XCTAssertTrue(TerminalStatus.running(startedAt: now).wantsAttention)
+        XCTAssertTrue(TerminalStatus.needsInput(since: now).wantsAttention)
+        XCTAssertTrue(TerminalStatus.success(exitCode: 0, duration: 1, finishedAt: now, agent: .claude).wantsAttention)
+        XCTAssertTrue(TerminalStatus.failed(exitCode: 1, duration: 1, finishedAt: now, agent: .claude).wantsAttention)
+        XCTAssertFalse(TerminalStatus.success(exitCode: 0, duration: 1, finishedAt: now, agent: .claude,
+                                              summary: nil, readAt: now).wantsAttention)
+        XCTAssertFalse(TerminalStatus.idle(since: now).wantsAttention)
+        XCTAssertFalse(TerminalStatus.neverRan.wantsAttention)
+        // The hook gate still shows every state, as before.
+        XCTAssertTrue(TerminalStatus.neverRan.showsIndicator(hookIndicators: true))
+        XCTAssertFalse(TerminalStatus.idle(since: now).showsIndicator(hookIndicators: false))
+    }
+
     // MARK: - isRead
 
     func testIsReadFalseForNonTerminalStates() {

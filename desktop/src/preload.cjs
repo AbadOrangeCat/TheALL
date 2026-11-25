@@ -4,7 +4,7 @@ const methods = new Set([
   'folder.select', 'chat.update', 'workspace.rename', 'workspace.delete',
   'mobile.enable', 'mobile.disable', 'mobile.pair', 'mobile.devices', 'mobile.revoke',
   'draft.get', 'draft.save', 'workspace.create', 'workspace.select', 'workspace.reorder',
-  'tab.create', 'tab.select', 'tab.rename', 'tab.close', 'tab.reorder', 'pane.split', 'pane.close', 'pane.resize',
+  'chat.seen', 'tab.create', 'tab.select', 'tab.rename', 'tab.close', 'tab.reorder', 'pane.split', 'pane.close', 'pane.resize',
   'settings.save', 'mobile.relay.status', 'mobile.relay.configure', 'mobile.info', 'mobile.certificate', 'workspace.metadata'
 ]);
 contextBridge.exposeInMainWorld('theall', Object.freeze({

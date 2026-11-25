@@ -16,6 +16,7 @@ struct AIActivityStation: Codable, Equatable {
 
     static let displayOrder = ["you", "model", "memory", "files", "shell", "network", "browser", "agents", "skills", "hooks"]
 
+    // Mirrored by desktop/src/activity-map.mjs; keep both in sync.
     private static func mcpStation(_ server: String?, tool: String?) -> String {
         switch server {
         case "memory": return "memory"
@@ -23,13 +24,72 @@ struct AIActivityStation: Codable, Equatable {
         case "remote-devices" where tool?.hasPrefix("Claude_Browser__") == true: return "browser"
         case "plugin-authoring": return "skills"
         case "terminal": return "shell"
-        default: return "network"
+        default:
+            let name = server?.lowercased() ?? ""
+            if ["browser", "chrome", "playwright", "puppeteer", "safari"].contains(where: name.contains) { return "browser" }
+            if name.contains("memory") { return "memory" }
+            return "network"
         }
     }
 
-    private static func fileStation(_ path: String?) -> String {
+    /// Auto memory and instruction files. TheAll gives Claude Code its own config
+    /// directory (`…/claude/projects/<project>/memory/`, no leading dot) and Windows
+    /// gives Codex `…\codex\`, so both the dotted and undotted folders count.
+    static func fileStation(_ path: String?) -> String {
         let path = path?.replacingOccurrences(of: "\\", with: "/") ?? ""
-        return path.range(of: #"/\.claude/projects/[^/]+/memory/|/\.codex/memories/"#, options: .regularExpression) == nil ? "files" : "memory"
+        return path.range(of: #"/\.?claude/projects/[^/]+/memory(/|$)|/\.?codex/memories(/|$)|(^|/)(CLAUDE|CLAUDE\.local|AGENTS)\.md$"#,
+                          options: .regularExpression) == nil ? "files" : "memory"
+    }
+
+    private static let networkPrograms: Set<String> = ["curl", "wget", "http", "https", "xh", "httpie", "aria2c", "gh", "ssh", "scp",
+        "sftp", "rsync", "ftp", "telnet", "nc", "ping", "dig", "nslookup", "host", "invoke-webrequest", "iwr", "invoke-restmethod", "irm"]
+    private static let networkSubcommands: [String: Set<String>] = [
+        "git": ["clone", "fetch", "pull", "push", "ls-remote"],
+        "npm": ["install", "i", "add", "ci", "update", "upgrade", "publish", "view", "info", "outdated", "audit"],
+        "pnpm": ["install", "i", "add", "update", "upgrade", "publish", "outdated", "audit", "dlx"],
+        "yarn": ["install", "add", "upgrade", "publish", "info", "dlx"],
+        "bun": ["install", "i", "add", "update", "upgrade", "publish"],
+        "pip": ["install", "download"], "pip3": ["install", "download"], "pipx": ["install", "run"],
+        "uv": ["add", "sync", "lock"], "poetry": ["add", "install", "update", "lock", "publish"],
+        "brew": ["install", "update", "upgrade", "fetch", "tap", "reinstall"],
+        "cargo": ["install", "fetch", "update", "publish", "search"],
+        "go": ["get", "install"], "gem": ["install", "update"],
+        "apt": ["install", "update", "upgrade"], "apt-get": ["install", "update", "upgrade"],
+        "dnf": ["install", "update", "upgrade"], "yum": ["install", "update"],
+        "docker": ["pull", "push", "login", "search"], "podman": ["pull", "push", "login", "search"],
+        "winget": ["install", "upgrade", "search"], "choco": ["install", "upgrade", "search"], "scoop": ["install", "update", "search"],
+    ]
+
+    /// Shell commands that reach the internet count as Network, and ones that open
+    /// or drive a web browser count as Browser; everything else stays Shell.
+    static func commandStation(_ command: String?) -> String {
+        guard let command, !command.isEmpty, command.utf8.count <= 64 * 1024 else { return "shell" }
+        var station = "shell"
+        for segment in command.components(separatedBy: CharacterSet(charactersIn: ";|&\n()")) {
+            var words = segment.split(whereSeparator: \.isWhitespace)
+                .map { $0.trimmingCharacters(in: CharacterSet(charactersIn: "\"'`")) }.filter { !$0.isEmpty }
+            while let first = words.first, (first.contains("=") && !first.hasPrefix("-"))
+                    || ["sudo", "env", "time", "nohup", "command", "exec", "xargs", "npx", "bunx", "uvx"].contains(first) {
+                words.removeFirst()
+            }
+            guard let first = words.first else { continue }
+            let program = first.replacingOccurrences(of: "\\", with: "/").components(separatedBy: "/").last?.lowercased() ?? first
+            let rest = words.dropFirst().map { $0.lowercased() }
+            let subcommand = rest.first { !$0.hasPrefix("-") }
+            let opensURL = rest.contains { $0.hasPrefix("http://") || $0.hasPrefix("https://") }
+            if (["open", "xdg-open", "start", "start-process"].contains(program) && opensURL)
+                || ["playwright", "puppeteer"].contains(program)
+                || (program == "osascript" && ["safari", "chrome", "firefox", "edge"].contains { segment.lowercased().contains($0) }) {
+                return "browser"
+            }
+            if networkPrograms.contains(program)
+                || subcommand.map({ networkSubcommands[program]?.contains($0) ?? false }) == true
+                || (program.hasPrefix("python") && rest.contains("pip") && rest.contains("install"))
+                || (program == "go" && subcommand == "mod" && rest.contains("download")) {
+                station = "network"
+            }
+        }
+        return station
     }
 
     static func claudeTool(_ name: String?, input: [String: Any]?) -> String? {
@@ -40,6 +100,7 @@ struct AIActivityStation: Codable, Equatable {
         case "AskUserQuestion", "SendUserFile", "TaskCreate", "TaskUpdate", "TaskList", "TaskGet", "TodoWrite", "EnterPlanMode", "ExitPlanMode": return "you"
         case "Skill", "ToolSearch", "ListSkills", "SearchSkills", "SuggestSkills", "ListPlugins", "SearchPlugins", "SuggestPluginInstall", "ListConnectors", "SearchMcpRegistry", "SuggestConnectors", "WaitForMcpServers": return "skills"
         case "WebFetch", "WebSearch", "Artifact": return "network"
+        case "Bash", "PowerShell": return commandStation(input?["command"] as? String)
         case "ListMcpResourcesTool", "ReadMcpResourceTool", "ReadMcpResourceDirTool": return mcpStation(input?["server"] as? String, tool: nil)
         default:
             guard let name, name.hasPrefix("mcp__") else { return "shell" }
@@ -52,7 +113,7 @@ struct AIActivityStation: Codable, Equatable {
         switch item["type"] as? String {
         case "commandExecution":
             guard let actions = item["commandActions"] as? [[String: Any]], !actions.isEmpty,
-                  actions.allSatisfy({ ["read", "listFiles", "search"].contains($0["type"] as? String ?? "") }) else { return "shell" }
+                  actions.allSatisfy({ ["read", "listFiles", "search"].contains($0["type"] as? String ?? "") }) else { return commandStation(item["command"] as? String) }
             return actions.allSatisfy { fileStation($0["path"] as? String) == "memory" } ? "memory" : "files"
         case "fileChange", "imageView": return fileStation((item["path"] ?? (item["changes"] as? [[String: Any]])?.first?["path"]) as? String)
         case "webSearch": return "network"
@@ -273,6 +334,15 @@ struct AIChatMessage: Identifiable, Codable, Equatable {
     }
 }
 
+/// What the tab strip and sidebar show for a chat. `finished` and
+/// `interrupted` fire once when a turn ends.
+enum AIChatActivity: Equatable {
+    case running
+    case needsInput
+    case finished(success: Bool)
+    case interrupted
+}
+
 struct AIChatApproval: Identifiable {
     let id: String
     let title: String
@@ -427,9 +497,15 @@ final class AIChatSession {
         if rows != subagents { subagents = rows; revision += 1 }
     }
     private func clearSubagents() { subagentTracker = AIChatSubagentTracker(); publishSubagents() }
-    private(set) var approvals: [AIChatApproval] = []
+    private(set) var approvals: [AIChatApproval] = [] {
+        didSet {
+            if isBusy, approvals.isEmpty != oldValue.isEmpty { onActivityChanged?(approvals.isEmpty ? .running : .needsInput) }
+        }
+    }
     private(set) var isReady = false
-    private(set) var isBusy = false
+    private(set) var isBusy = false {
+        didSet { if isBusy, !oldValue { onActivityChanged?(approvals.isEmpty ? .running : .needsInput) } }
+    }
     private(set) var canInterrupt = false
     private(set) var revision = 0 { didSet { onStateChanged?() } }
     private(set) var conversationID: String? { didSet { onStateChanged?() } }
@@ -437,6 +513,9 @@ final class AIChatSession {
     @ObservationIgnored var onFirstMessageSubmitted: ((String) -> Void)?
     @ObservationIgnored var onStateChanged: (() -> Void)?
     @ObservationIgnored var onTurnCompleted: ((UUID) -> Void)?
+    @ObservationIgnored var onActivityChanged: ((AIChatActivity) -> Void)?
+    /// The provider's own verdict for the turn being finished, when it sent one.
+    @ObservationIgnored private var reportedTurnSuccess: Bool?
     @ObservationIgnored private var completionToken: UUID?
     @ObservationIgnored private var turnStartedAt: Date?
     @ObservationIgnored private var turnStartedUptime: TimeInterval?
@@ -1227,6 +1306,12 @@ final class AIChatSession {
     }
 
     private func finishTurn() {
+        let wasBusy = isBusy
+        let success = reportedTurnSuccess ?? (errorMessage == nil)
+        reportedTurnSuccess = nil
+        defer {
+            if wasBusy { onActivityChanged?(turnWasInterrupted ? .interrupted : .finished(success: success)) }
+        }
         if !isReady || turnWasInterrupted { clearSubagents() } else { subagentTracker.endTurn(); publishSubagents() }
         recordTurnCompletion(success: false)
         completionToken = nil; turnStartedAt = nil; turnStartedUptime = nil; awaitingSubmittedTurn = false
@@ -1398,7 +1483,7 @@ final class AIChatSession {
         }
         if claudeSteerIDs.isEmpty, let result = claudeResultBeforeSteer {
             claudeResultBeforeSteer = nil
-            _ = completeClaudeReply(result)
+            reportedTurnSuccess = completeClaudeReply(result)
             finishTurn()
         }
     }
@@ -1590,6 +1675,7 @@ final class AIChatSession {
             claudeResultBeforeSteer = nil
             let success = completeClaudeReply(message)
             canResumeClaudeTurn = success && !turnWasInterrupted
+            reportedTurnSuccess = success
             recordTurnCompletion(success: success)
             finishTurn()
         default: break
@@ -1740,7 +1826,9 @@ final class AIChatSession {
             }
             if let turn = params["turn"] as? [String: Any] {
                 if turn["status"] as? String == "interrupted" { turnWasInterrupted = true }
-                recordTurnCompletion(success: completeCodexReply(turn))
+                let success = completeCodexReply(turn)
+                reportedTurnSuccess = success
+                recordTurnCompletion(success: success)
             }
             finishTurn()
         case "error":

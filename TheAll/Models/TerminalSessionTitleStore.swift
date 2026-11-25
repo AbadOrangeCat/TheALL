@@ -49,6 +49,14 @@ final class TerminalSessionTitleStore {
         scheduleSave()
     }
 
+    /// Native AI chats: a short name from the conversation's first question.
+    /// Never replaces an existing title (agent-provided or already derived).
+    func nameTerminal(_ terminalId: UUID, fromPrompt prompt: String,
+                      at: TimeInterval = Date().timeIntervalSince1970) {
+        guard title(for: terminalId) == nil, let name = WorkspaceName.from(prompt: prompt) else { return }
+        update(terminalId: terminalId, title: name, at: at)
+    }
+
     func clear(terminalId: UUID) {
         lastAt.removeValue(forKey: terminalId.uuidString)
         guard storage.removeValue(forKey: terminalId.uuidString) != nil else { return }

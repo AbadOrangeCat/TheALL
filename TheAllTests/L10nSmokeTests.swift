@@ -379,6 +379,16 @@ final class L10nSmokeTests: XCTestCase {
         "tab.row.close",
         "tab.row.rename",
         "tab.row.resetAutoTitle",
+        "ai.chat.showEarlier",
+        "ai.chat.steps",
+        "ai.paste.applied",
+        "ai.paste.ignored",
+        "ai.paste.otherProvider",
+        "ai.paste.hint",
+        "ai.paste.button",
+        "ai.paste.nothing",
+        "ai.paste.bearer",
+        "ai.paste.field.url",
     ]
 
     override func tearDown() {
