@@ -75,6 +75,14 @@ struct ContentView: View {
         return tab.layout.allTerminalIds()
     }
 
+    /// A finished turn counts as viewed only while its tab is on screen in the
+    /// key window of the active app with Settings closed. Otherwise the tab
+    /// keeps its blue dot until the user comes back to it.
+    private func markVisibleTerminalsReadIfViewing() {
+        guard !showSettings, NSApp.isActive, hostWindow?.isKeyWindow == true else { return }
+        statusStore.markRead(terminalIds: visibleTerminalIds)
+    }
+
     var body: some View {
         let bgOpacity = isFullScreen ? 1.0 : themeManager.backgroundOpacity
         // 中间内容区（卡片 canvas、paneContainer、tab strip、Settings 各层等）都走
@@ -326,6 +334,16 @@ struct ContentView: View {
         // If Workspace ever becomes a class, re-verify this observation path.
         .onChange(of: store.selectedWorkspace?.selectedTabId) { _, _ in
             statusStore.markRead(terminalIds: visibleTerminalIds)
+        }
+        // A turn that finishes in front of the user is already viewed.
+        .onChange(of: statusStore.statusesSnapshot()) { _, _ in markVisibleTerminalsReadIfViewing() }
+        .onChange(of: showSettings) { _, _ in markVisibleTerminalsReadIfViewing() }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { note in
+            guard (note.object as? NSWindow) === hostWindow else { return }
+            markVisibleTerminalsReadIfViewing()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            markVisibleTerminalsReadIfViewing()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.willEnterFullScreenNotification)) { note in
             // 只处理本视图宿主窗口的通知：NSWindow 全屏通知是 per-window 的，

@@ -339,6 +339,11 @@ final class TabContentView: NSView {
         if sessionRegistry == nil {
             pane.session.onFirstMessageSubmitted = { [weak self] prompt in
                 self?.store?.nameWorkspaceFromFirstPrompt(prompt, terminalId: id)
+                self?.sessionTitleStore?.nameTerminal(id, fromPrompt: prompt)
+            }
+            pane.session.onActivityChanged = { [weak self, weak pane] activity in
+                let agent: HookMessage.Agent = pane?.session.chat?.provider == .openai ? .codex : .claude
+                self?.statusStore?.record(activity, terminalId: id, agent: agent)
             }
         }
         pane.onFocusRequested = { [weak self, weak pane] in

@@ -3,6 +3,7 @@ import { t, setLocale } from './localization.mjs';
 import { applyTheme } from './theme.mjs';
 import { PromptHistory } from './history.mjs';
 import { icon, iconMask } from './icons.mjs';
+import { parseConnectionPaste, describeConnectionPaste } from './connection-paste.mjs';
 import { setLanguage, t as chatText } from '/i18n.js';
 const shell=window.parent!==window&&window.parent.location.origin===location.origin?window.parent.theallDesktop:null;
 if(!shell)throw new Error('The chat pane requires the desktop host');
@@ -62,8 +63,14 @@ function showSetupIfNeeded(force=false){
   const form=node('form','setup-form'),keyField=node('label','setup-field'),key=node('input'),baseField=node('label','setup-field'),base=node('input'),actions=node('div','setup-actions'),submit=node('button','primary',t('ai.saveOpen'));
   key.type='password';key.autocomplete='off';key.required=true;keyField.append(node('span','',t('apiKey')),key);
   base.type='url';base.value=providerInfo[setupProvider].url;baseField.append(node('span','',t('ai.url')),base);
-  submit.type='submit';actions.append(submit);form.append(keyField,baseField,actions);
-  form.onsubmit=async e=>{e.preventDefault();submit.disabled=true;try{await shell.invoke('connection.save',{provider:setupProvider,apiKey:key.value,baseURL:base.value,model:'',useBearerToken:false,executable:''});key.value='';await activate();}catch(e){error.textContent=e.message;}finally{submit.disabled=false;}};
+  // Pasting a whole settings block (settings.json, export lines…) fills every recognized field.
+  const pasteNote=node('p','setup-hint',t('ai.paste.hint')),pasteWarning=node('p','setup-error');let pasted={};
+  const onPaste=e=>{const parsed=parseConnectionPaste(e.clipboardData?.getData('text/plain')||'');if(!parsed)return;e.preventDefault();
+   if(parsed.apiKey)key.value=parsed.apiKey;if(parsed.baseURL)base.value=parsed.baseURL;pasted={model:parsed.model??pasted.model,useBearerToken:parsed.useBearerToken??pasted.useBearerToken};
+   const note=describeConnectionPaste(parsed,setupProvider,t,shell.locale);pasteNote.textContent=note.summary;pasteWarning.textContent=note.warning;};
+  key.addEventListener('paste',onPaste);base.addEventListener('paste',onPaste);
+  submit.type='submit';actions.append(submit);form.append(keyField,pasteNote,pasteWarning,baseField,actions);
+  form.onsubmit=async e=>{e.preventDefault();submit.disabled=true;try{await shell.invoke('connection.save',{provider:setupProvider,apiKey:key.value,baseURL:base.value,model:pasted.model||'',useBearerToken:setupProvider==='claude'&&pasted.useBearerToken===true,executable:''});key.value='';await activate();}catch(e){error.textContent=e.message;}finally{submit.disabled=false;}};
   inner.append(back,heading(providerInfo[setupProvider].tool,t('ai.configure')),directory,form);
  }else{
   const brand=node('div','setup-brand'),logo=node('img');logo.src='/icons/icon-192.png';logo.alt='';logo.width=logo.height=24;brand.append(logo,node('span','','TheAll'));

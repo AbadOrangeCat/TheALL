@@ -112,10 +112,10 @@ TheAll/
 │   ├── WorkspaceStore.swift       — @Observable，workspace / tab / split CRUD + UserDefaults 持久化
 │   ├── QuickAction.swift          — BuiltinQuickAction enum + CustomQuickAction struct + QuickActionIcon
 │   ├── QuickActionsStore.swift    — @Observable，enabled / overrides / custom 三段持久化
-│   ├── TerminalStatus.swift       — 单终端运行状态枚举（running / idle / needsInput）
-│   ├── TerminalStatusStore.swift  — @Observable，终端状态聚合（供 sidebar / tab 图标读取）
+│   ├── TerminalStatus.swift       — 单终端运行状态枚举（running / idle / needsInput / 完成未读）
+│   ├── TerminalStatusStore.swift  — @Observable，终端状态聚合（hook 与 AI 聊天回合喂入，供 sidebar / tab 图标读取）
 │   ├── TerminalPwdStore.swift     — @Observable，terminalId → pwd 映射（ghostty PWD action 喂入，sidebar git 分支读取）
-│   ├── TerminalSessionTitleStore.swift  — @Observable，terminalId → agent session title（hook 喂入，tab 标题读取）
+│   ├── TerminalSessionTitleStore.swift  — @Observable，terminalId → session title（hook 或 AI 首问喂入，tab 标题读取）
 │   ├── HookDispatcher.swift       — 按 agent toggle 过滤 hook 事件 + 派生 status icon UI 主开关
 │   ├── HookMessage.swift          — agent/shell hook 的 JSON wire format
 │   └── HookSocketListener.swift   — Unix domain socket 监听，解析 HookMessage → statusStore
@@ -197,7 +197,9 @@ TheAll/
 | 重新生成 Xcode 工程 | `xcodegen generate`（修改 `project.yml` 后执行）|
 | 检查文档漂移 | `./scripts/check-doc-drift.sh`（对比 Directory Structure 与真实 `TheAll/` 目录；同时校验各处版本号与 `project.yml` 一致） |
 | 新增文案 / 支持新语言 | `TheAll/Localization/Localizable.xcstrings`, `TheAll/Localization/L10n.swift`, `TheAllTests/L10nSmokeTests.swift`, `docs/i18n.md` |
-| 修改 tab 自动命名行为（auto title 来源 / 锁定语义） | `Models/TerminalSessionTitleStore.swift`, `Models/Workspace.swift`（displayTitle）, `Models/HookDispatcher.swift`（路由）, `Resources/agent-hooks/agent-hook.py`（claude/codex 来源）, `Resources/agent-hooks/opencode-plugin/theall-status.js`（opencode 来源） |
+| 修改 tab 自动命名行为（auto title 来源 / 锁定语义） | `Models/TerminalSessionTitleStore.swift`, `Models/Workspace.swift`（displayTitle、`WorkspaceName`）, `AI/AIChatSessionRegistry.swift`（AI 聊天首问来源）, `Models/HookDispatcher.swift`（路由）, `Resources/agent-hooks/agent-hook.py`（claude/codex 来源）, `Resources/agent-hooks/opencode-plugin/theall-status.js`（opencode 来源）；Windows 为 `desktop/src/naming.mjs` + `runtime.mjs` |
+| 修改 tab 运行 / 完成未读标识 | `AI/AIChatSession.swift`（`AIChatActivity`）, `AI/AIChatSessionRegistry.swift`, `Models/TerminalStatusStore.swift`（`record`）, `Models/TerminalStatus.swift`（聚合与 `wantsAttention`）, `ContentView.swift`（何时算已查看）, `Theme/TerminalStatusIconView.swift`；Windows 为 `desktop/src/ai.mjs`（`finished`）、`runtime.mjs`（`chat.seen`）、`renderer/desktop.mjs` |
+| 修改连接设置的整段粘贴识别 | `AI/AIConnection.swift`（`AIConnectionPaste`）, `AI/AITerminalPaneView.swift`；Windows 为 `desktop/renderer/connection-paste.mjs`（两端规则保持一致） |
 
 ## Agent Permissions
 

@@ -119,7 +119,7 @@ export class Store {
     return this.state.chats[id];
   }
   newWorkspace({ name = 'Workspace', directory, provider = null, model = '' } = {}) {
-    const chat = this.newChat(directory, provider, model), tab = { id: randomUUID(), title: 'Chat', layout: leaf(chat.id) };
+    const chat = this.newChat(directory, provider, model), tab = { id: randomUUID(), title: 'Chat', needsAutomaticName: true, layout: leaf(chat.id) };
     const workspace = { id: randomUUID(), name, needsAutomaticName: true, tabs: [tab], selectedTabId: tab.id };
     this.state.workspaces.push(workspace); this.state.selectedWorkspaceId = workspace.id;
     return { workspace, chat };

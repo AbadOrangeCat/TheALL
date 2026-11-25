@@ -2,6 +2,7 @@ import { t, setLocale, getLocale, languageNames } from './localization.mjs';
 import { applyTheme } from './theme.mjs';
 import { themes } from './themes.mjs';
 import { icon, iconMarkup } from './icons.mjs';
+import { parseConnectionPaste, describeConnectionPaste } from './connection-paste.mjs';
 const $=id=>document.getElementById(id);
 const bridge=window.theall;
 if(!bridge)throw new Error('The desktop window is not connected to TheAll');
@@ -31,7 +32,7 @@ async function refresh(){
   const data=await response.json();state.workspaces=data.workspaces;
   state.selected=data.selectedWorkspaceId||state.selected||state.workspaces[0]?.id;
   if(!state.workspaces.some(w=>w.id===state.selected))state.selected=state.workspaces[0]?.id;
-  renderWorkspaces();renderTabs();renderPanes();
+  renderWorkspaces();renderTabs();renderPanes();reportSeen();
  }finally{state.polling=false;}
 }
 async function mutate(method,payload){await flush();const result=await invoke(method,payload);await refresh();return result;}
@@ -49,11 +50,17 @@ $('edit-cancel').onclick=()=>$('edit-dialog').close();
 function confirm(title,description){const dialog=$('confirm-dialog');$('confirm-title').textContent=title;$('confirm-description').textContent=description;dialog.returnValue='cancel';dialog.showModal();return new Promise(resolve=>dialog.addEventListener('close',()=>resolve(dialog.returnValue==='confirm'),{once:true}));}
 async function renameWorkspace(w){edit(t('rename'),w.name,name=>mutate('workspace.rename',{id:w.id,name}));}
 async function deleteWorkspace(w){if(await confirm(t('delete'),t('deleteDetail')))await mutate('workspace.delete',{id:w.id});}
-const conversationStatus=list=>['needsInput','running','idle'].find(status=>list.some(c=>c.status===status))||'';
+// The user is looking at the selected tab: the window has focus and Settings is closed.
+const viewing=()=>document.hasFocus()&&document.visibilityState==='visible'&&$('settings-panel').hidden;
+const onScreen=()=>new Set(viewing()?terminals(selectedTab()?.layout):[]);
+// Running and questions first, then a finished turn nobody has viewed yet (blue, red if it failed), like the Mac.
+const displayStatus=(c,seen)=>['needsInput','running'].includes(c.status)||!c.unread||seen.has(c.id)?c.status:c.unread==='failed'?'failed':'unread';
+const conversationStatus=(list,seen=onScreen())=>['needsInput','running','failed','unread','idle'].find(status=>list.some(c=>displayStatus(c,seen)===status))||'';
+function reportSeen(){const seen=onScreen(),ids=(selectedWorkspace()?.conversations||[]).filter(c=>c.unread&&seen.has(c.id)).map(c=>c.id);if(ids.length)invoke('chat.seen',{ids}).catch(()=>{});}
 // Matches the Mac TerminalStatusIconView: spinning arc, filled dot or hollow ring.
 function statusIcon(status){const value=node('span','status-icon '+status);value.hidden=!status;value.setAttribute('aria-hidden','true');return value;}
 function renderWorkspaces(){
- const signature=JSON.stringify([state.selected,getLocale(),state.workspaces.map(w=>[w.id,w.name,w.conversations.map(c=>[c.directory,c.status]),state.metadata.get(w.id)])]);
+ const signature=JSON.stringify([state.selected,getLocale(),[...onScreen()],state.workspaces.map(w=>[w.id,w.name,w.conversations.map(c=>[c.directory,c.status,c.unread]),state.metadata.get(w.id)])]);
  if(state.viewSignatures.get('workspaces')===signature)return;state.viewSignatures.set('workspaces',signature);
  const items=state.workspaces.map(w=>{
   const row=node('div','workspace-row'+(w.id===state.selected?' selected':''));row.tabIndex=0;row.draggable=true;row.title=t('dragHint');row.setAttribute('role','button');row.setAttribute('aria-current',String(w.id===state.selected));
@@ -149,7 +156,14 @@ function connectionForm(provider){
  const base=field(t('baseURL'),'url',saved.baseURL||(provider==='claude'?'https://api.anthropic.com':'https://api.openai.com/v1'));
  const model=field(t('model'),'text',saved.model||'');model.input.placeholder=t('defaultModel');model.input.setAttribute('list',`models-${provider}`);const list=node('datalist');list.id=`models-${provider}`;box.append(list);
  const executable=field(t('executable'),'text',saved.executable||'');const bearer=node('label','help'),check=node('input');check.type='checkbox';check.checked=!!saved.useBearerToken;bearer.append(check,document.createTextNode(' '+t('bearer')));
- box.append(key.wrap,base.wrap,model.wrap,executable.wrap);if(provider==='claude')box.append(bearer);
+ // Pasting a whole settings block (settings.json, export lines…) fills every recognized field.
+ const pasteNote=node('p','help',t('ai.paste.hint')),pasteWarning=node('p','error-text');
+ const onPaste=e=>{const parsed=parseConnectionPaste(e.clipboardData?.getData('text/plain')||'');if(!parsed)return;e.preventDefault();
+  if(parsed.apiKey)key.input.value=parsed.apiKey;if(parsed.baseURL)base.input.value=parsed.baseURL;if(parsed.model)model.input.value=parsed.model;
+  if(provider==='claude'&&parsed.useBearerToken!==undefined)check.checked=parsed.useBearerToken;
+  const note=describeConnectionPaste(parsed,provider,t,getLocale());pasteNote.textContent=note.summary;pasteWarning.textContent=note.warning;};
+ for(const input of [key.input,base.input,model.input])input.addEventListener('paste',onPaste);
+ box.append(key.wrap,pasteNote,pasteWarning,base.wrap,model.wrap,executable.wrap);if(provider==='claude')box.append(bearer);
  const feedback=node('p','save-state'),actions=node('div','row-actions');const save=button(t('save'),()=>{},'primary');save.type='submit';save.onclick=null;
  const load=button(t('loadModels'),async()=>{feedback.textContent='';load.disabled=true;try{const result=await invoke('models.list',{provider});list.replaceChildren(...result.models.map(m=>{const opt=node('option','',m.title||m.id);opt.value=m.id;return opt;}));model.input.focus();}catch(e){feedback.className='error-text';feedback.textContent=e.message;}finally{load.disabled=false;}});
  const forget=button(t('forget'),async()=>{if(await confirm(t('forget'),t('forget'))){await invoke('connection.remove',{provider});state.settings=await invoke('settings.get');renderSettings();}},'danger');actions.append(save,load,forget);box.append(actions,feedback);
@@ -212,6 +226,8 @@ function renderUpdateSettings(){
 }
 async function pollUpdate(){try{const [next,cli]=await Promise.all([invoke('update.status'),invoke('cli.status')]);const signature=JSON.stringify([getLocale(),next,cli]);if(signature!==updateSignature){updateSignature=signature;updateState=next;cliState=cli;renderUpdate();}}catch{}}
 matchMedia('(prefers-color-scheme:dark)').addEventListener('change',()=>applySettings());
+// Coming back to the window counts as viewing the selected tab.
+window.addEventListener('focus',()=>refresh().catch(()=>{}));document.addEventListener('visibilitychange',()=>refresh().catch(()=>{}));
 document.documentElement.classList.toggle('mac',/Mac/.test(navigator.platform));
 document.querySelectorAll('[data-icon]').forEach(el=>el.insertAdjacentHTML('afterbegin',iconMarkup(el.dataset.icon)));
 try{state.settings=await invoke('settings.get');const info=await invoke('app.info');state.settings.version=info.version;$('app-version').textContent='v'+info.version;applySettings();await pollUpdate();setInterval(pollUpdate,1000);await refresh();if(!state.workspaces.length)await createWorkspace();setInterval(()=>refresh().catch(error),1500);async function metadata(){for(const w of state.workspaces){try{state.metadata.set(w.id,await invoke('workspace.metadata',{id:w.id}));}catch{}}renderWorkspaces();}metadata();setInterval(metadata,7000);}catch(e){error(e);}

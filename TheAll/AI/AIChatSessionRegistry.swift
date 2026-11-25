@@ -7,6 +7,9 @@ final class AIChatSessionRegistry {
     let workspaces: WorkspaceStore
     let directories: TerminalPwdStore
     let history: AIChatHistoryStore
+    /// Tab names and tab/sidebar activity. Optional so tests can omit them.
+    let titles: TerminalSessionTitleStore?
+    let statuses: TerminalStatusStore?
     private(set) var sessions: [UUID: AITerminalSession] = [:]
     @ObservationIgnored var onTurnCompleted: ((UUID, UUID) -> Void)?
     private var attachmentImports = 0
@@ -24,11 +27,15 @@ final class AIChatSessionRegistry {
 
     init(workspaces: WorkspaceStore, directories: TerminalPwdStore,
          history: AIChatHistoryStore = .shared,
+         titles: TerminalSessionTitleStore? = nil,
+         statuses: TerminalStatusStore? = nil,
          makeSession: @escaping () -> AITerminalSession = { AITerminalSession() },
          makeTransport: @escaping () -> any AIChatTransport = { AIChatProcess() }) {
         self.workspaces = workspaces
         self.directories = directories
         self.history = history
+        self.titles = titles
+        self.statuses = statuses
         self.makeSession = makeSession
         self.makeTransport = makeTransport
         observeLayout()
@@ -50,13 +57,23 @@ final class AIChatSessionRegistry {
         }
         session.onFirstMessageSubmitted = { [weak self] prompt in
             self?.workspaces.nameWorkspaceFromFirstPrompt(prompt, terminalId: id)
+            self?.titles?.nameTerminal(id, fromPrompt: prompt)
         }
         session.onTurnCompleted = { [weak self, weak session] eventID in
             guard let self, let session, self.sessions[id] === session, self.contains(id) else { return }
             self.onTurnCompleted?(id, eventID)
         }
+        session.onActivityChanged = { [weak self, weak session] activity in
+            guard let self, let session, self.sessions[id] === session, self.contains(id) else { return }
+            let agent: HookMessage.Agent = session.chat?.provider == .openai ? .codex : .claude
+            self.statuses?.record(activity, terminalId: id, agent: agent)
+        }
         sessions[id] = session
         session.restoreHistory(for: id, store: history, transport: makeTransport())
+        // Conversations from before automatic tab names get one from their first question.
+        if let prompt = session.chat?.messages.first(where: { $0.role == .user && !$0.isSteering })?.text {
+            titles?.nameTerminal(id, fromPrompt: prompt)
+        }
         return session
     }
 
@@ -93,7 +110,8 @@ final class TheAllRuntime {
     let directories = TerminalPwdStore()
     let statuses = TerminalStatusStore()
     let titles = TerminalSessionTitleStore()
-    lazy var chats = AIChatSessionRegistry(workspaces: workspaces, directories: directories)
+    lazy var chats = AIChatSessionRegistry(workspaces: workspaces, directories: directories,
+                                           titles: titles, statuses: statuses)
     lazy var mobile = MobileAccessController(registry: chats)
     private init() {}
 }

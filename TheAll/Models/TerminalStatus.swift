@@ -26,31 +26,44 @@ enum TerminalStatus: Equatable {
                 readAt: Date? = nil)
 
     /// Aggregation priority (higher wins):
-    /// needsInput > running > failed > success > idle > neverRan
+    /// needsInput > running > failed > success > idle > neverRan, where any
+    /// unread finished turn outranks every read one. A tab whose other pane
+    /// already showed a failure must still surface a pane that just finished.
     fileprivate var priority: Int {
         switch self {
-        case .needsInput: return 5
-        case .running:    return 4
-        case .failed:     return 3
-        case .success:    return 2
+        case .needsInput: return 7
+        case .running:    return 6
+        case .failed:     return isRead ? 3 : 5
+        case .success:    return isRead ? 2 : 4
         case .idle:       return 1
         case .neverRan:   return 0
         }
     }
 
     /// Reduce a bag of per-terminal statuses into one aggregate status using the
-    /// priority needsInput > running > failed > success > idle > neverRan.
-    /// Ties keep the first member (e.g. two successes → the first). Empty input → `.neverRan`.
+    /// priority above. Ties keep the first member (e.g. two successes → the
+    /// first). Empty input → `.neverRan`.
     static func aggregate(_ statuses: [TerminalStatus]) -> TerminalStatus {
         statuses.reduce(TerminalStatus.neverRan) { current, next in
-            if next.priority > current.priority { return next }
-            if next.priority == current.priority {
-                // Same kind — prefer unread (readAt == nil) so a single
-                // unread entry pulls the aggregate to "needs attention".
-                if current.isRead && !next.isRead { return next }
-            }
-            return current
+            next.priority > current.priority ? next : current
         }
+    }
+
+    /// Worth an icon even when the hook-based indicators are switched off:
+    /// a running turn, a pending question, or a finished turn nobody has seen.
+    var wantsAttention: Bool {
+        switch self {
+        case .running, .needsInput: return true
+        case .success, .failed:     return !isRead
+        case .neverRan, .idle:      return false
+        }
+    }
+
+    /// Whether a tab or sidebar row shows this status. `hookIndicators` is the
+    /// Settings → Agents gate for terminal hooks; AI chats always report
+    /// attention states.
+    func showsIndicator(hookIndicators: Bool) -> Bool {
+        hookIndicators || wantsAttention
     }
 
     /// True when this status has been acknowledged by the user.

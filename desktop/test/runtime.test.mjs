@@ -8,7 +8,7 @@ import { randomUUID, randomBytes, createCipheriv, createDecipheriv } from 'node:
 import { fileURLToPath } from 'node:url';
 import { WebSocket } from 'ws';
 import { createRuntime, isPrivateIPv4, isAbsoluteDirectory, lanAddresses } from '../src/runtime.mjs';
-import { Store } from '../src/store.mjs';
+import { Store, leaf } from '../src/store.mjs';
 import { validateConnection, fetchModels, selectedReasoningEffort } from '../src/models.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
@@ -18,7 +18,7 @@ const decrypt = async buffer => { const cipher=createDecipheriv('aes-256-gcm',ke
 const pixels = Buffer.from('89504e470d0a1a0a','hex');
 class FakeSession extends EventEmitter {
   static sends=0; static starts=0; static delay=null; static uncertain=false;
-  constructor({chat,connection}) {super();this.chat=chat;this.connection=connection;this.isReady=false;this.isBusy=false;this.canInterrupt=false;this.questions=[];this.models=[{id:'test-model',title:'Test model'}];}
+  constructor({chat,connection}) {super();FakeSession.last=this;this.chat=chat;this.connection=connection;this.isReady=false;this.isBusy=false;this.canInterrupt=false;this.questions=[];this.models=[{id:'test-model',title:'Test model'}];}
   async start(){FakeSession.starts++;this.chat.conversationID||=randomUUID();if(FakeSession.delay)await FakeSession.delay;this.isReady=true;this.emit('change');}
   async send({text,images,files=[],model}){FakeSession.sends++;this.chat.model=model;this.chat.messages.push({id:randomUUID(),role:'user',text,images:images.map(({path,data,...i})=>i),files});this.chat.messages.push({id:randomUUID(),role:'assistant',text:'A preserved answer',images:[]});this.emit('change');if(FakeSession.uncertain){const e=new Error('Write outcome is unknown');e.code='submission_uncertain';throw e;}}
   async answer(value){this.answerValue=value;this.questions=[];this.emit('change');}
@@ -348,4 +348,59 @@ test('steer completion race during image import rejects and removes unowned atta
   const response = await f.api(`/api/chats/${id}/steer`, { body }); assert.equal(response.status, 409);
   assert.equal(active.chat.messages.filter(m => m.role === 'user').length, 1);
   assert.equal(fs.readdirSync(path.join(f.dataDir, 'FileAttachments')).length, 0);
+});
+
+test('tabs take a short name from their first question and keep a name the user chose', async t => {
+  const f=await fixture(t),id=await f.create();
+  const workspaces=async()=>(await f.api('/api/workspaces')).body.workspaces;
+  const tabFor=async chatId=>(await workspaces()).flatMap(w=>w.tabs).find(tab=>JSON.stringify(tab.layout).includes(chatId));
+  assert.equal((await tabFor(id)).title,'Chat');
+  const send=(chatId,text)=>f.api(`/api/chats/${chatId}/send`,{body:mutation(f.runtime,{text,model:'test-model'})});
+  assert.equal((await send(id,'Could you please refactor the tab bar layout?\nDetails follow')).status,200);
+  assert.equal((await tabFor(id)).title,'refactor the tab bar layout');
+  const conversation=(await workspaces())[0].conversations.find(c=>c.id===id);
+  assert.equal(conversation.title,'refactor the tab bar layout');
+  const workspaceId=(await workspaces())[0].id;
+  const pinned=await f.runtime.desktop('tab.create',{workspaceId,provider:'claude',directory:f.dataDir});
+  await f.runtime.desktop('tab.rename',{workspaceId,id:pinned.id,title:'Chat'});
+  assert.equal((await send(pinned.terminalId,'请帮我检查构建脚本。顺便更新文档')).status,200);
+  assert.equal((await tabFor(pinned.terminalId)).title,'Chat','A manual rename is kept, even when it matches the default');
+  const next=await f.runtime.desktop('tab.create',{workspaceId,provider:'claude',directory:f.dataDir});
+  assert.equal((await send(next.terminalId,'请帮我检查构建脚本。顺便更新文档')).status,200);
+  assert.equal((await tabFor(next.terminalId)).title,'检查构建脚本');
+});
+test('older tabs still called "Chat" are named from their first question at startup', async t => {
+  const dataDir=fs.mkdtempSync(path.join(os.tmpdir(),'theall-legacy-tabs-'));
+  const store=new Store(dataDir),{workspace,chat}=store.newWorkspace({directory:dataDir});
+  delete workspace.tabs[0].needsAutomaticName;
+  chat.messages.push({id:randomUUID(),role:'user',text:'Please summarize the release notes. Then translate them',images:[]});
+  const other=store.newChat(dataDir);other.messages.push({id:randomUUID(),role:'user',text:'Rename me',images:[]});
+  workspace.tabs.push({id:randomUUID(),title:'Release checklist',layout:leaf(other.id)});
+  const empty=store.newChat(dataDir);workspace.tabs.push({id:randomUUID(),title:'Chat',layout:leaf(empty.id)});
+  store.save();
+  const runtime=await createRuntime({dataDir,webRoot:path.join(root,'TheAll/Mobile/MobileWeb.bundle'),desktopRoot:path.join(root,'desktop/renderer'),encrypt,decrypt,Session:FakeSession});
+  t.after(async()=>{await runtime.close();fs.rmSync(dataDir,{recursive:true,force:true});});
+  const response=await fetch(runtime.url+'/api/workspaces',{headers:{cookie:`TheAllDesktopSession=${runtime.desktopToken}`}});
+  const titles=(await response.json()).workspaces[0].tabs.map(tab=>tab.title);
+  assert.deepEqual(titles,['summarize the release notes. Then translate them','Release checklist','Chat']);
+  assert.deepEqual(new Store(dataDir).state.workspaces[0].tabs.map(tab=>tab.title),titles,'The derived name is saved');
+});
+test('a finished turn stays unread until the desktop reports the conversation on screen', async t => {
+  const f=await fixture(t),id=await f.create();
+  const conversation=async()=>(await f.api('/api/workspaces')).body.workspaces.flatMap(w=>w.conversations).find(c=>c.id===id);
+  const send=text=>f.api(`/api/chats/${id}/send`,{body:mutation(f.runtime,{text,model:'test-model'})});
+  assert.equal((await send('Run the tests')).status,200);
+  assert.equal((await conversation()).unread,null);
+  const finish=status=>FakeSession.last.emit('finished',{chatId:id,status});
+  finish('completed');assert.equal((await conversation()).unread,'completed');
+  assert.deepEqual(await f.runtime.desktop('chat.seen',{ids:[id]}),{ok:true});
+  assert.equal((await conversation()).unread,null);
+  finish('failed');assert.equal((await conversation()).unread,'failed');
+  finish('interrupted');assert.equal((await conversation()).unread,null,'The user stopped it, so they saw it end');
+  finish('completed');FakeSession.last.emit('finished',{chatId:randomUUID(),status:'completed'});
+  assert.equal((await conversation()).unread,'completed');
+  assert.equal((await send('Next question')).status,200);
+  assert.equal((await conversation()).unread,null,'Asking the next question means the answer was read');
+  await assert.rejects(f.runtime.desktop('chat.seen',{ids:['not-a-conversation']}),/Invalid/);
+  await assert.rejects(f.runtime.desktop('chat.seen',{ids:id}),/Invalid/);
 });

@@ -81,6 +81,23 @@ final class TerminalStatusStore {
         }
     }
 
+    /// Native AI chats report through the same store as terminal hooks, so the
+    /// tab strip and sidebar show a spinner while a turn runs and a dot once it
+    /// finishes. A user interruption returns to idle: the user saw it end.
+    func record(_ activity: AIChatActivity, terminalId: UUID,
+                agent: HookMessage.Agent, at now: Date = Date()) {
+        switch activity {
+        case .running:
+            setRunning(terminalId: terminalId, at: now)
+        case .needsInput:
+            setNeedsInput(terminalId: terminalId, at: now)
+        case .finished(let success):
+            setFinished(terminalId: terminalId, exitCode: success ? 0 : 1, at: now, agent: agent)
+        case .interrupted:
+            setIdle(terminalId: terminalId, at: now)
+        }
+    }
+
     /// Drop the entry (e.g. when the terminal is closed). Subsequent reads return `.neverRan`.
     func forget(terminalId: UUID) {
         storage.removeValue(forKey: terminalId)

@@ -27,7 +27,7 @@ const allowedMethods = new Set([
   'settings.get', 'connection.save', 'connection.remove', 'models.list', 'folder.select',
   'chat.update', 'workspace.rename', 'workspace.delete', 'mobile.enable', 'mobile.disable',
   'mobile.pair', 'mobile.devices', 'mobile.revoke', 'draft.get', 'draft.save',
-  'workspace.create', 'workspace.select', 'workspace.reorder', 'tab.create', 'tab.select', 'tab.rename', 'tab.close', 'tab.reorder',
+  'workspace.create', 'workspace.select', 'workspace.reorder', 'chat.seen', 'tab.create', 'tab.select', 'tab.rename', 'tab.close', 'tab.reorder',
   'pane.split', 'pane.close', 'pane.resize', 'settings.save', 'mobile.relay.status', 'mobile.relay.configure', 'mobile.info', 'mobile.certificate', 'workspace.metadata'
 ]);
 let runtime;

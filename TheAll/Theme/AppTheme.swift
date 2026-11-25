@@ -27,6 +27,7 @@ struct AppTheme: Equatable {
     // Status (terminal status icon)
     let success: NSColor         // 命令成功退出 (exit 0) 的点色
     let danger: NSColor          // 命令失败 (exit != 0) 的点色
+    let unread: NSColor          // 回合已完成但尚未查看的蓝点
 }
 
 extension AppTheme {
@@ -74,6 +75,10 @@ extension AppTheme {
         let danger = isDark
             ? NSColor(srgbRed: 0.973, green: 0.318, blue: 0.286, alpha: 1)  // #F85149
             : NSColor(srgbRed: 0.827, green: 0.184, blue: 0.184, alpha: 1)
+        // Blue stays distinct from the amber accent used by running / needs-input.
+        let unread = isDark
+            ? NSColor(srgbRed: 0.345, green: 0.651, blue: 1.000, alpha: 1)  // #58A6FF
+            : NSColor(srgbRed: 0.035, green: 0.412, blue: 0.855, alpha: 1)  // #0969DA
 
         return AppTheme(
             isDark: isDark,
@@ -88,7 +93,8 @@ extension AppTheme {
             accent: accentColor,
             accentMuted: accentMuted,
             success: success,
-            danger: danger
+            danger: danger,
+            unread: unread
         )
     }
 

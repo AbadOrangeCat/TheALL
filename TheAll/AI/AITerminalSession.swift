@@ -35,6 +35,7 @@ final class AITerminalSession {
     @ObservationIgnored var onLaunch: ((AILaunchConfiguration) -> Void)?
     @ObservationIgnored var onStop: (() -> Void)?
     @ObservationIgnored var onTurnCompleted: ((UUID) -> Void)?
+    @ObservationIgnored var onActivityChanged: ((AIChatActivity) -> Void)?
     @ObservationIgnored var onFirstMessageSubmitted: ((String) -> Void)?
     @ObservationIgnored private var activeConnection: AIConnection?
     @ObservationIgnored private var modelTask: Task<Void, Never>?
@@ -110,6 +111,7 @@ final class AITerminalSession {
         chat.onFirstMessageSubmitted = { [weak self] in self?.onFirstMessageSubmitted?($0) }
         chat.onStateChanged = { [weak self] in self?.saveHistory() }
         chat.onTurnCompleted = { [weak self] in self?.onTurnCompleted?($0) }
+        chat.onActivityChanged = { [weak self] in self?.onActivityChanged?($0) }
         chat.catalogModels = catalogModels
         chat.start(configuration)
         saveHistory()
@@ -139,6 +141,7 @@ final class AITerminalSession {
                              imageStore: historyStore?.imageStore ?? .shared, fileStore: historyStore?.fileStore)
         chat?.onStateChanged = { [weak self] in self?.saveHistory() }
         chat?.onTurnCompleted = { [weak self] in self?.onTurnCompleted?($0) }
+        chat?.onActivityChanged = { [weak self] in self?.onActivityChanged?($0) }
         choose(snapshot.provider)
         if !isRunning {
             chat?.errorMessage = errorMessage ?? L10n.string("ai.history.connectionNeeded")

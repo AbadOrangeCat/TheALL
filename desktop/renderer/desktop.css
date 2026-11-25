@@ -56,6 +56,9 @@ svg { display:block; flex-shrink:0; }
 .status-icon.running::before { border:1.5px solid var(--accent); border-top-color:transparent; animation:spin 1s linear infinite; }
 .status-icon.needsInput::before { background:var(--accent); }
 .status-icon.idle::before { border:1px solid var(--tertiary); opacity:.6; }
+/* A finished turn not yet viewed: blue, or red when it failed. */
+.status-icon.unread::before { background:var(--unread); }
+.status-icon.failed::before { background:var(--danger); }
 @keyframes spin { to { transform:rotate(360deg); } }
 
 .update-shortcut,.phone-shortcut { display:flex; gap:8px; margin:8px 12px 0; padding:12px; text-align:left; color:var(--accent); background:var(--accent-muted); border:1px solid var(--border); border-radius:12px; }
@@ -135,6 +138,7 @@ h3 { font-size:13px; margin:20px 0 10px; }
 .row-actions button:not(.primary) { border:1px solid var(--border-strong); border-radius:8px; padding:7px 12px; }
 .save-state { color:var(--success); font-size:11px; }
 .error-text { color:var(--danger); font-size:12px; line-height:1.5; margin:8px 0; }
+.error-text:empty { display:none; }
 .cli-links { display:flex; gap:14px; margin-top:16px; }
 .setting-range { display:flex; align-items:center; gap:10px; min-width:0; flex-shrink:1; }
 .setting-range input { width:190px; min-width:80px; accent-color:var(--accent); }

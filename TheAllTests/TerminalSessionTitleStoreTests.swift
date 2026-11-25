@@ -95,6 +95,18 @@ final class TerminalSessionTitleStoreTests: XCTestCase {
         XCTAssertEqual(store.title(for: id), "second")
     }
 
+    func testNameTerminalUsesTheFirstQuestionOnce() {
+        let store = TerminalSessionTitleStore(persistenceKey: "test-\(UUID())")
+        let id = UUID()
+        store.nameTerminal(id, fromPrompt: "Could you please refactor the tab bar layout?\nMore details")
+        XCTAssertEqual(store.title(for: id), "refactor the tab bar layout")
+        store.nameTerminal(id, fromPrompt: "A later question")
+        XCTAssertEqual(store.title(for: id), "refactor the tab bar layout")
+        let other = UUID()
+        store.nameTerminal(other, fromPrompt: "   \n  ")
+        XCTAssertNil(store.title(for: other))
+    }
+
     func testTimestampIsPerTerminal() {
         // A high timestamp on terminal A must not block a low timestamp on B.
         let store = TerminalSessionTitleStore(persistenceKey: "test-\(UUID())")

@@ -242,15 +242,10 @@ final class TabBarView: NSView {
         applyTheme(theme, backgroundOpacity: backgroundOpacity)   // re-apply theme to non-tab elements (layer bg, addButton tint)
     }
 
-    /// Display title with same 3-step priority as `TerminalTab.displayTitle(store:)`,
-    /// but reads from the snapshot dictionary we receive in `update`. Kept inline
-    /// so the AppKit view doesn't need to hold a store reference.
+    /// Same priority as `TerminalTab.displayTitle(sessionTitleStore:)`, but reads
+    /// the snapshot received in `update` so the AppKit view holds no store reference.
     private func displayTitle(for tab: TerminalTab) -> String {
-        if tab.userRenamed { return tab.title }
-        if let auto = sessionTitles[tab.focusedTerminalId], !auto.isEmpty {
-            return auto
-        }
-        return tab.title
+        tab.displayTitle { sessionTitles[$0] }
     }
 
     /// 复用现有 TabItemView——仅在 tabs 的 id 序列变化时才完整重建。
@@ -665,14 +660,14 @@ private final class TabItemView: NSView, NSTextFieldDelegate, NSDraggingSource {
         self.displayedQuickActionId = tab.quickActionId
         self.quickActionsStore = quickActionsStore
         super.init(frame: .zero)
-        self.showStatusIndicators = showStatusIndicators
+        self.showStatusIndicators = status.showsIndicator(hookIndicators: showStatusIndicators)
         self.userRenamed = tab.userRenamed
         titleLabel.stringValue = displayTitle
         setup()
         applyToolTip(displayTitle)
         applyQuickActionImage(tab.quickActionId)
         updateStyle()
-        statusIcon.isHidden = !showStatusIndicators
+        statusIcon.isHidden = !self.showStatusIndicators
         statusIcon.update(status: status, theme: theme)
     }
     required init?(coder: NSCoder) { fatalError() }
@@ -876,8 +871,10 @@ private final class TabItemView: NSView, NSTextFieldDelegate, NSDraggingSource {
             displayedQuickActionId = tab.quickActionId
             applyQuickActionImage(tab.quickActionId)
         }
-        self.showStatusIndicators = showStatusIndicators
-        statusIcon.isHidden = !showStatusIndicators
+        // AI chats report running, questions and unviewed turns regardless of
+        // the hook gate; the slot collapses when there is nothing to show.
+        self.showStatusIndicators = status.showsIndicator(hookIndicators: showStatusIndicators)
+        statusIcon.isHidden = !self.showStatusIndicators
         statusIcon.update(status: status, theme: theme)
         updateStyle()
         needsLayout = true

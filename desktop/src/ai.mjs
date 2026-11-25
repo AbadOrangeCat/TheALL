@@ -541,6 +541,7 @@ export class AISession extends EventEmitter {
   }
 
   finishTurn(status) {
+    const wasBusy = this.isBusy;
     this.canResumeTurn = !!this.turnTiming && status === 'completed' && !this.turnInterrupted;
     if (this.turnID) this.rememberProviderStart(this.turnID);
     this.activityTracker.clear();
@@ -561,6 +562,8 @@ export class AISession extends EventEmitter {
     this.turnTiming = null; this.completionToken = null; this.isBusy = false; this.canInterrupt = false; this.steerUncertain = false;
     this.claudeSteers.clear(); this.heldClaudeResult = null;
     this.turnID = null; this.questions = []; this.questionReplies.clear();
+    // Drives the tab's unviewed-result dot; interruptions were seen by the user.
+    if (wasBusy) this.emit('finished', { chatId: this.chat.id, status: this.turnInterrupted ? 'interrupted' : status || 'failed' });
   }
 
   fail(error, disconnect = false) {

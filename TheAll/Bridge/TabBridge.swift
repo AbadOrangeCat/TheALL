@@ -44,6 +44,10 @@ struct TabBridge: NSViewRepresentable {
 
     func updateNSView(_ nsView: TabContentView, context: Context) {
         _ = languageTick
+        // Register both stores with SwiftUI observation: a new chat title or a
+        // finished turn must redraw the tab strip even when nothing else changed.
+        _ = sessionTitleStore.titlesSnapshot()
+        _ = statusStore.statusesSnapshot()
         nsView.store = store
         nsView.statusStore = statusStore
         nsView.pwdStore = pwdStore

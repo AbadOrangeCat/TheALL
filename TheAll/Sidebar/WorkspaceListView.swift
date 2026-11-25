@@ -376,12 +376,12 @@ private final class WorkspaceRowItemView: NSView, NSTextFieldDelegate, NSDraggin
         self.status = status
         self.theme = theme
         self.backgroundOpacity = backgroundOpacity
-        self.showStatusIndicators = showStatusIndicators
+        self.showStatusIndicators = status.showsIndicator(hookIndicators: showStatusIndicators)
         super.init(frame: .zero)
         setup()
         updateContent()
         updateStyle()
-        statusIcon.isHidden = !showStatusIndicators
+        statusIcon.isHidden = !self.showStatusIndicators
         statusIcon.update(status: status, theme: theme)
     }
     required init?(coder: NSCoder) { fatalError() }
@@ -536,13 +536,13 @@ private final class WorkspaceRowItemView: NSView, NSTextFieldDelegate, NSDraggin
         self.status = status
         self.theme = theme
         self.backgroundOpacity = backgroundOpacity
-        self.showStatusIndicators = showStatusIndicators
+        self.showStatusIndicators = status.showsIndicator(hookIndicators: showStatusIndicators)
         if !isRenaming, titleLabel.stringValue != workspace.name {
             titleLabel.stringValue = workspace.name
         }
         updateContent()
         updateStyle()
-        statusIcon.isHidden = !showStatusIndicators
+        statusIcon.isHidden = !self.showStatusIndicators
         statusIcon.update(status: status, theme: theme)
         needsLayout = true
     }

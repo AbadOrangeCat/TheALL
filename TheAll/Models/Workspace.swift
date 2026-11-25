@@ -182,16 +182,22 @@ struct TerminalTab: Codable, Identifiable, Equatable {
     /// Resolve the title shown in the tab bar. Priority:
     /// 1. User manually renamed → `title` (hard lock, ignores store)
     /// 2. `sessionTitleStore[focusedTerminalId]` is non-nil → that
-    /// 3. Fallback → `title` (creation-time default like "Terminal 1" /
+    /// 3. The first other pane, in layout order, that has a session title
+    /// 4. Fallback → `title` (creation-time default like "terminal 1" /
     ///    quick action displayName)
     ///
     /// Tracks the focused pane, so split tabs switch label as the user
-    /// moves focus between panes. Shell pane (no agent session) falls
-    /// through to step 3 rather than retaining the previous agent pane's title.
+    /// moves focus between panes. Focusing a new, still-empty split keeps the
+    /// tab named after its conversation instead of reverting to "terminal N".
     func displayTitle(sessionTitleStore: TerminalSessionTitleStore) -> String {
+        displayTitle { sessionTitleStore.title(for: $0) }
+    }
+
+    /// Shared with `TabBarView`, which reads a snapshot instead of the store.
+    func displayTitle(sessionTitle: (UUID) -> String?) -> String {
         if userRenamed { return title }
-        if let auto = sessionTitleStore.title(for: focusedTerminalId), !auto.isEmpty {
-            return auto
+        for id in [focusedTerminalId] + layout.allTerminalIds() {
+            if let auto = sessionTitle(id), !auto.isEmpty { return auto }
         }
         return title
     }
